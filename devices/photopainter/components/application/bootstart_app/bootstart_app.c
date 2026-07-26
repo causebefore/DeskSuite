@@ -25,6 +25,7 @@
 #include "environment_service.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "firmware_ota_build.h"
 #include "firmware_ota.h"
 #include "network_manager.h"
 #include "photo_playback_app.h"
@@ -48,8 +49,6 @@ static const char *TAG = "bootstart_app";
 #define BOOTSTART_APP_INTERACTIVE_AWAKE_MS             180000U
 /** @brief 服务端默认设备 ID，与服务端缺省配置一致 */
 #define BOOTSTART_APP_DEFAULT_DEVICE_ID                "default"
-/** @brief PhotoPainter 在共享远端日志服务中的产品标识 */
-#define BOOTSTART_APP_PRODUCT_ID                       1U
 
 /** @brief 星期日志名称，索引与 RTC 的 0=星期日 约定一致 */
 static const char *s_bootstart_app_weekday_names[] = {
@@ -463,7 +462,7 @@ static void bootstart_app_start_remote_log(void)
     }
 
     error = remote_log_configure_copy(network_config.service_url,
-                                      BOOTSTART_APP_PRODUCT_ID,
+                                      DESKSUITE_PRODUCT_ID,
                                       BOOTSTART_APP_DEFAULT_DEVICE_ID);
     if (error == ESP_OK)
     {
@@ -576,6 +575,8 @@ esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready)
     }
     const esp_err_t ota_config_error = firmware_ota_configure_copy(network_config.service_url,
                                                                    network_config.device_token,
+                                                                   DESKSUITE_PRODUCT_ID,
+                                                                   DESKSUITE_FIRMWARE_TARGET,
                                                                    BOOTSTART_APP_DEFAULT_DEVICE_ID);
     if (ota_config_error != ESP_OK)
     {

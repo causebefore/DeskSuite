@@ -4,6 +4,6 @@ idf_component_register(
         "src/display_collection_service_storage.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
-    REQUIRES esp_common protocols
+    REQUIRES esp_common photopainter_protocol
     PRIV_REQUIRES device_sd espressif__cjson freertos heap utils
 )

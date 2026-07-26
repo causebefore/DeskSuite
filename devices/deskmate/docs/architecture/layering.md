@@ -95,7 +95,8 @@ Queue、Timer 等执行机制，但不得通过公共 API 泄漏 RTOS 句柄。
 
 这些组件提供稳定的技术、产品数据或设备能力，不负责顶层产品时机和致命/降级决策：
 
-- Communication：可复用的 Wi‑Fi/Portal 链路状态机、传输、协议、OTA 和日志上传基础能力。
+- Communication：位于 DeskSuite `shared/` 的可复用 Wi‑Fi/Portal 链路状态机、传输、通用协议、
+  OTA 和日志上传基础能力；Dashboard 等产品协议保留在本设备 `components/product_protocols/`。
   `network_manager` 只拥有技术连接状态、候选配置验证和一轮组件内重试。
 - Data：产品数据结构、缓存、解析结果和对应的持久化语义。
 - System：系统时间、复位、身份、看门狗和通用存储机制；实际目录为 `components/sys`。

@@ -88,6 +88,6 @@ Application → get_status_copy() → 快照锁内整结构复制，不触发硬
 ## 9. 验证
 
 - 静态检查：公共头不泄漏 Device/FreeRTOS 类型，快照锁内无 I/O、日志或延时。
-- 构建：仅用户明确要求时执行 `& .\build_tools\dm.ps1 build`。
+- 构建：仅用户明确要求时，在 DeskSuite 根目录执行 `& .\ds.ps1 build photopainter`。
 - 实机：检查上传前只采样一次、采样耗时日志、单项故障保留旧值和恢复日志。
 - 已知缺口：当前没有自动化测试，实际采样阻塞时长仍需实机测量。

@@ -14,9 +14,10 @@ rendered_frames/
 # 长期记忆等本地运行时数据
 data/
 
-# OTA 运行时制品（由设备仓库发布工具原子写入，不入库）
-firmwares/*.bin
-firmwares/manifest.json
+# OTA 运行时制品（由根 build_tools 原子写入，不入库）
+firmwares/artifacts/*.bin
+firmwares/manifests/*.json
+!firmwares/manifests/*.example.json
 
 # 本机工具状态
 .idea/

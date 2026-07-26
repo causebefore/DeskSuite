@@ -55,6 +55,7 @@ idf_component_register(SRCS
                            network_manager
                            sys
                            protocols
+                           deskmate_protocol
                            firmware_ota
                            remote_log
                            utils
@@ -85,6 +86,7 @@ idf_component_register(SRCS
                            "presentation"
                            "ui/include"
                        PRIV_INCLUDE_DIRS
+                           "${CMAKE_BINARY_DIR}/generated"
                            "ui/core"
                            "ui/foundation"
                            "ui/resources"

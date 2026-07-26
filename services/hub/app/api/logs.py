@@ -54,6 +54,7 @@ def boot_logs(payload: LogBootRequest, request: Request) -> LogBootResponse:
     4. 清理超过 keep_sessions（默认 30）的旧会话
 
     请求 body：
+    - product_id: 大于零的产品 ID
     - device_id: 设备 ID
     - firmware_version: 固件版本
     - reset_reason: 复位原因（如 power_on、watchdog、panic）
@@ -81,6 +82,7 @@ def append_batch(payload: LogBatchRequest, request: Request) -> LogBatchResponse
     - message: 日志消息正文
 
     请求 body：
+    - product_id: 大于零的产品 ID
     - session_id: 日志会话 ID（由 /boot 返回，可选，缺失则自动创建新会话）
     - device_id: 设备 ID
     - lines: 日志行数组
@@ -110,6 +112,7 @@ def append_errors(payload: LogErrorsRequest, request: Request) -> LogErrorsRespo
     - boot_id: 错误发生时的启动 ID
 
     请求 body：
+    - product_id: 大于零的产品 ID
     - session_id: 当前日志会话 ID
     - device_id: 设备 ID
     - errors: 持久化错误数组

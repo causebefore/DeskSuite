@@ -13,12 +13,13 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/application/provisioning_app"
     "${CMAKE_CURRENT_LIST_DIR}/components/boards"
     "${CMAKE_CURRENT_LIST_DIR}/components/bsp"
-    "${CMAKE_CURRENT_LIST_DIR}/components/communication/connect"
-    "${CMAKE_CURRENT_LIST_DIR}/components/communication/network_manager"
-    "${CMAKE_CURRENT_LIST_DIR}/components/communication/protocols"
-    "${CMAKE_CURRENT_LIST_DIR}/components/communication/transport"
-    "${CMAKE_CURRENT_LIST_DIR}/components/communication/tools/firmware_ota"
-    "${CMAKE_CURRENT_LIST_DIR}/components/communication/tools/remote_log"
+    "${CMAKE_CURRENT_LIST_DIR}/components/product_protocols/photopainter_protocol"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/connect"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/network_manager"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/protocols"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/transport"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/tools/firmware_ota"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/tools/remote_log"
     "${CMAKE_CURRENT_LIST_DIR}/components/device/device_battery"
     "${CMAKE_CURRENT_LIST_DIR}/components/device/device_button"
     "${CMAKE_CURRENT_LIST_DIR}/components/device/device_buzzer"
@@ -43,4 +44,8 @@ set(EXTRA_COMPONENT_DIRS
 
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)
-project(PhotoPainter_Device)
+
+file(READ "${CMAKE_CURRENT_LIST_DIR}/version.txt" PHOTOPAINTER_APP_VERSION)
+string(STRIP "${PHOTOPAINTER_APP_VERSION}" PHOTOPAINTER_APP_VERSION)
+set(PROJECT_VER "${PHOTOPAINTER_APP_VERSION}")
+project(PhotoPainter_Device VERSION ${PHOTOPAINTER_APP_VERSION})

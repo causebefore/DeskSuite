@@ -26,7 +26,8 @@
 - `web/vendor/trmnl/` 放页面直接复用的本地 TRMNL Framework。
 - `web/shared/epaper.css` 只补充当前四灰阶设备的中文可读性和墨水屏硬约束，不重复 TRMNL 通用组件。
 - `rendered_frames/` 是运行期生成的四级灰阶 PNG 与 PPF 帧目录，不提交。
-- `firmwares/` 放 OTA 固件、字库和 `manifest.json`。
+- `firmwares/manifests/` 放按 `firmware_target` 隔离的 OTA 清单，
+  `firmwares/artifacts/` 放全局哈希固件制品。
 - `docs/ESP32_API.md` 是 ESP32 固件侧接口文档。
 
 ## UI 约束
@@ -52,7 +53,7 @@
 - 对行为变化补测试，尤其是配置加载、PPF 格式、四级灰阶量化、OTA、日志和数据源降级逻辑。
 - 不提交或展示真实 API Key。
 - 生成文件缓存可以清理：`__pycache__`、`.pytest_cache`。
-- 不要删除 `firmwares/` 里的 `.bin` 文件，除非用户明确要求。
+- 不要删除 `firmwares/artifacts/` 里的 `.bin` 文件，除非用户明确要求。
 
 ## 验证
 

@@ -9,16 +9,14 @@
 
 ## 固定命令
 
-Agent 默认不主动编译固件；只有用户明确要求编译时，才可在对应设备目录执行统一脚本：
+Agent 默认不主动编译固件；只有用户明确要求编译时，才可在 DeskSuite 根目录执行统一脚本：
 
 ```powershell
-Set-Location .\devices\photopainter
-& .\build_tools\dm.ps1 build
+& .\ds.ps1 build photopainter
 ```
 
 ```powershell
-Set-Location .\devices\deskmate
-& .\dm.ps1 build
+& .\ds.ps1 build deskmate
 ```
 
 不得绕过脚本直接调用 `idf.py`、`cmake` 或 `ninja`。Hub 的测试在 `services/hub/` 中使用：
@@ -30,7 +28,8 @@ uv run pytest -q
 ## 跨项目约定
 
 - 日志、OTA、设备身份和基础传输属于通用能力，不应绑定到单一产品名称。
-- PhotoPainter 显示帧、DeskMate Dashboard 等产品契约保持独立。
+- 共享设备通信源码只保留在 `shared/components/communication/`；PhotoPainter 显示帧、
+  DeskMate Dashboard 等产品契约保留在各自 `components/product_protocols/`。
 - 修改跨设备 API、数据流或持久化语义前，先阅读相关设备的根 README 和架构规范。
 - 所有项目自有运行日志和错误信息使用中文，公共 C/C++ API 使用中文 Doxygen。
 - 不提交 `.env`、运行日志、显示帧、固件二进制、构建目录、虚拟环境或本地缓存。

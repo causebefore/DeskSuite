@@ -262,14 +262,12 @@ class LogStore:
         }
 
     def _product_id(self, product_id: Any) -> int:
-        """校验产品标识；旧设备未携带时归入产品 1。"""
-        try:
-            normalized = int(product_id or 1)
-        except (TypeError, ValueError):
-            normalized = 1
-        if normalized < 1:
+        """校验调用方显式提供的正整数产品标识。"""
+        if isinstance(product_id, bool) or not isinstance(product_id, int):
+            raise ValueError("product_id 必须是正整数")
+        if product_id < 1:
             raise ValueError("product_id 必须大于等于 1")
-        return normalized
+        return product_id
 
     def _product_dir(self, product_id: int) -> Path:
         """返回指定产品的日志目录。"""

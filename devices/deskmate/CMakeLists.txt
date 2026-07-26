@@ -18,12 +18,13 @@ set(EXTRA_COMPONENT_DIRS
     components/device/device_storage
     components/utils
     components/sys
-    components/communication/connect
-    components/communication/transport
-    components/communication/protocols
-    components/communication/network_manager
-    components/communication/tools/firmware_ota
-    components/communication/tools/remote_log
+    components/product_protocols/deskmate_protocol
+    ../../shared/components/communication/connect
+    ../../shared/components/communication/transport
+    ../../shared/components/communication/protocols
+    ../../shared/components/communication/network_manager
+    ../../shared/components/communication/tools/firmware_ota
+    ../../shared/components/communication/tools/remote_log
     components/services/audio_service
     components/services/audio_processor_service
     components/services/button_service
@@ -44,7 +45,7 @@ set(GROUP_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/boards"
     "${CMAKE_CURRENT_LIST_DIR}/components/drivers"
     "${CMAKE_CURRENT_LIST_DIR}/components/bsp"
-    "${CMAKE_CURRENT_LIST_DIR}/components/communication"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication"
     "${CMAKE_CURRENT_LIST_DIR}/components/sys"
     "${CMAKE_CURRENT_LIST_DIR}/components/device"
     "${CMAKE_CURRENT_LIST_DIR}/components/graphics"
@@ -61,8 +62,6 @@ idf_build_set_property(EXTRA_PARTITION_SUBTYPES "data,model,0x41")
 
 file(READ "${CMAKE_CURRENT_LIST_DIR}/version.txt" DESKMATE_APP_VERSION)
 string(STRIP "${DESKMATE_APP_VERSION}" DESKMATE_APP_VERSION)
-# OTA 版本号（裸版本+时间戳）由 firmware_ota 组件在 build 期生成 deskmate_version.h，
-# 每次 build 自动刷新，脱离 configure 期 PROJECT_VER 限制。
 set(PROJECT_VER "${DESKMATE_APP_VERSION}")
 project(esp32 VERSION ${DESKMATE_APP_VERSION})
 

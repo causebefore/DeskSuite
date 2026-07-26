@@ -17,10 +17,6 @@
 /demo/
 /tmp/
 
-# Local build-tool state
-/build_tools/version.txt
-/build_tools/.ota-version-state
-
 # Log files
 *.log
 

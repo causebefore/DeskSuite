@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS "bootstart_app.c"
     INCLUDE_DIRS "include"
+    PRIV_INCLUDE_DIRS "${CMAKE_BINARY_DIR}/generated"
     REQUIRES esp_common
     PRIV_REQUIRES
         button_service

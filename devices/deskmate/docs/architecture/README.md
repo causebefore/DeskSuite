@@ -36,10 +36,11 @@
 - `main/ui/` 承载 LVGL 页面和唯一 UI Runtime Task，只依赖 Presentation 契约与图形平台。
 - 原 `main/tasks/` 已撤销；Task 已按状态与资源所有权归入 Application 或 UI。
 - 原 `components/network/` 已撤销：通用 Wi‑Fi/Portal 状态机归入
-  `components/communication/network_manager/`，DeskMate 的 Dashboard、OTA、会话退避、
+  `shared/components/communication/network_manager/`，DeskMate 的 Dashboard、OTA、会话退避、
   实时语音租约和轻睡眠停网策略归入 `main/application/app_network_task.c`。
 - 当前页面由 `app_page` 本地拥有，切换页面不经过 Communication 或服务端。
-- Dashboard 协议仍位于 Communication，缓存和解析结果位于 Data；音频采集、处理与语音事务仍由
+- Dashboard 协议位于产品目录 `components/product_protocols/deskmate_protocol/`，复用共享
+  Communication 的身份、URL 和传输；缓存和解析结果位于 Data。音频采集、处理与语音事务仍由
   Service 链拥有，`app_voice` 只编排产品意图和网络租约。
 - `components/sys/system_storage.*` 中仍存在部分业务持久化接口；这是待迁移实现，不代表
   System 可以继续吸收业务结构。

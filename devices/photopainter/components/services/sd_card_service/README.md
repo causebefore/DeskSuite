@@ -81,6 +81,6 @@ Service Task 阻塞唤醒并去抖 50 ms
 
 ## 9. 验证
 
-- 构建：在仓库根目录执行统一脚本 `.\build_tools\dm.ps1 build`。
+- 构建：在 DeskSuite 根目录执行统一脚本 `& .\ds.ps1 build photopainter`。
 - 实机：启动时插卡应挂载；运行期插拔应分别记录挂载和卸载；Main 读写测试内容应一致。
 - 已知缺口：当前没有自动化实机插拔测试，也未定义运行期 I/O 故障重试策略。

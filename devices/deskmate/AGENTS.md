@@ -3,16 +3,17 @@
 
 ## 固定编译环境与命令
 
-在仓库根目录仅使用统一脚本编译，Agent 不得直接调用 `idf.py`、`cmake` 或 `ninja`：
+在 DeskSuite 根目录仅使用统一脚本编译，Agent 不得直接调用 `idf.py`、`cmake` 或 `ninja`：
 
 ```powershell
-& .\dm.ps1 build
+& .\ds.ps1 build deskmate
 ```
 
 Agent 默认不主动执行编译；无论修改文档、C/C++、CMake、Kconfig、公共 API 还是构建配置，
-只有用户明确要求编译时才使用上述统一脚本。脚本以根 `CMakeLists.txt` 为构建入口，并负责
-选择项目约定的 ESP-IDF 环境和 `esp32s3` 目标。若脚本、工具路径、版本或环境报错，立即停止，
-不得绕过脚本尝试其他构建命令；应向用户报告缺失项并等待指示。
+只有用户明确要求编译时才使用上述统一脚本。脚本以
+`devices\deskmate\CMakeLists.txt` 为构建入口，并负责选择项目约定的 ESP-IDF 环境和
+`esp32s3` 目标。若脚本、工具路径、版本或环境报错，立即停止，不得绕过脚本尝试其他构建
+命令；应向用户报告缺失项并等待指示。
 
 
 ## 编码与日志规范

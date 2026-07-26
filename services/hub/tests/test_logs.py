@@ -167,13 +167,13 @@ def test_logs_api_supports_product_device_and_session_queries(tmp_path):
     assert client.post("/api/v1/logs/boot", json={"product_id": 0}).status_code == 422
 
 
-def test_legacy_request_without_product_id_defaults_to_product_one(tmp_path):
-    """尚未升级的旧 PhotoPainter 固件继续归入产品 1。"""
+def test_log_request_requires_product_id(tmp_path):
+    """共享日志入口不根据旧设备或路由隐式推断产品。"""
     app = create_app()
     app.state.log_store = LogStore(tmp_path)
     client = TestClient(app)
 
     response = client.post("/api/v1/logs/boot", json={"device_id": "legacy-photo"})
 
-    assert response.status_code == 200
-    assert (tmp_path / "products" / "1" / "devices" / "legacy-photo").is_dir()
+    assert response.status_code == 422
+    assert not (tmp_path / "products").exists()

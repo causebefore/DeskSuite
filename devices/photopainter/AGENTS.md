@@ -2,13 +2,17 @@
 
 ## 固定编译环境与命令
 
-在仓库根目录仅使用统一脚本编译，Agent 不得直接调用 `idf.py`、`cmake` 或 `ninja`：
+在 DeskSuite 根目录仅使用统一脚本编译，Agent 不得直接调用 `idf.py`、`cmake` 或 `ninja`：
 
 ```powershell
-& .\build_tools\dm.ps1 build
+& .\ds.ps1 build photopainter
 ```
 Agent 默认不主动执行编译；无论修改文档、C/C++、CMake、Kconfig、公共 API 还是构建配置，只有用户明确要求编译时才使用上述统一脚本。
-项目采用仓库根目录扁平工程，脚本以根 `CMakeLists.txt` 为构建入口，并校验固定 IDF、Python、Ninja、CMake 缓存和 `esp32s3` 目标；正式与开发模式的完整输出分别保存到 `build\logs\dm-build-*.log` 和 `build-dev\logs\dm-build-*.log`，终端只显示中文摘要。使用 `.\build_tools\dm.ps1 build-log -TailLines 40` 按需查看最近日志尾部，只有明确需要全文时才加 `-FullLog`。若工具路径失效、版本不符或环境报错，立即停止，不继续推断或尝试其他工具；向用户报告缺失项并等待指示。
+脚本以 `devices\photopainter\CMakeLists.txt` 为构建入口，并校验固定 IDF、Python、Ninja、
+CMake 缓存和 `esp32s3` 目标；完整输出保存在设备 `build\logs\ds-build-*.log`，终端只显示
+中文摘要。使用 `& .\ds.ps1 build-log photopainter -TailLines 40` 按需查看最近日志尾部，
+只有明确需要全文时才加 `-FullLog`。若工具路径失效、版本不符或环境报错，立即停止，不继续
+推断或尝试其他工具；向用户报告缺失项并等待指示。
 
 ## 编码与日志规范
 

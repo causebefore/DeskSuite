@@ -250,6 +250,10 @@ esp_err_t provisioning_app_run_until_online(const provisioning_app_config_t *con
                     {
                         return provisioning_app_finish(error, true);
                     }
+                    if (!portal_info.active)
+                    {
+                        break;
+                    }
                     error = provisioning_app_show_portal(&portal_info);
                     if (error != ESP_OK)
                     {

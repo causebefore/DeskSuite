@@ -151,7 +151,9 @@ Content-Type: application/json
 
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
+  "product_id": 1,
+  "firmware_target": "photopainter_esp32s3_v1",
   "device_id": "photopainter-001",
   "artifacts": {
     "app": {
@@ -164,13 +166,14 @@ Content-Type: application/json
 }
 ```
 
-只有服务端清单的 `ota_version` 严格大于设备当前值，且 `artifact_id` 既不是当前镜像也不是上次
-回滚镜像时，响应的 `updates.app` 才包含下载目标。无更新或拒绝降级时 `updates` 为空对象。
-旧设备未携带 `ota_version` 时按 `0` 处理，以允许首次迁移到带版本字段的固件。
+Hub 先按 `firmware_target` 选择清单，再要求清单中的 `product_id` 和 `firmware_target`
+与请求完全一致。只有清单的 `ota_version` 严格大于设备当前值，且 `artifact_id` 既不是
+当前镜像也不是上次回滚镜像时，响应的 `updates.app` 才包含下载目标。无更新或拒绝降级时
+`updates` 为空对象。
 
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "updates": {
     "app": {
       "version": "1.0.1",
@@ -183,6 +186,16 @@ Content-Type: application/json
   }
 }
 ```
+
+当前固件目标：
+
+| `product_id` | 产品 | `firmware_target` |
+| ---: | --- | --- |
+| `1` | PhotoPainter | `photopainter_esp32s3_v1` |
+| `2` | DeskMate | `deskmate_esp32s3_v1` |
+
+清单保存在 `firmwares/manifests/<firmware_target>.json`，所有目标共享
+`firmwares/artifacts/<artifact_id>.bin` 哈希制品库。下载接口只暴露有效当前清单引用的制品。
 
 ## 6. 日志
 
@@ -200,7 +213,7 @@ Content-Type: application/json
 - `POST /api/v1/logs/batch`：批量上报运行日志。请求包含 `product_id`、`session_id`、`device_id`、`lines`。
 - `POST /api/v1/logs/errors`：上报 NVS 中持久化错误。请求包含 `product_id`、`session_id`、`device_id`、`errors`。
 
-为平滑升级，未携带 `product_id` 的旧 PhotoPainter 固件暂时默认归入产品 `1`；新固件必须显式携带该字段。
+所有新请求都必须显式携带 `product_id`，Hub 不从设备名称或路由推断产品。
 
 查询接口：
 

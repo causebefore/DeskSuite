@@ -10,16 +10,23 @@ DeskSuite 是面向桌面智能设备的统一项目，包含两条设备产品�
 
 ```text
 DeskSuite/
+├─ build_tools/             # 多产品 ESP-IDF 构建与 OTA 发布工具
 ├─ devices/
 │  ├─ photopainter/       # PhotoPainter ESP32-S3 固件
 │  └─ deskmate/           # DeskMate ESP32-S3 固件
+├─ shared/
+│  └─ components/
+│     └─ communication/   # 两套固件共用的唯一 Communication 源码
 ├─ services/
 │  └─ hub/                # DeskSuite Hub（FastAPI）
+├─ products.toml           # 产品 ID、固件目标、工程和默认串口
+├─ ds.ps1                  # 唯一设备构建入口
 └─ README.md
 ```
 
-各子项目仍保留独立的构建、配置和架构文档。跨产品通用能力应优先放在 Hub 的公共边界中，
-产品专属显示和交互逻辑仍由对应设备或产品模块拥有。
+两套固件共享 Wi-Fi/Portal、网络状态机、HTTP/WebSocket、设备身份、远端日志和 OTA 实现。
+PhotoPainter 显示/状态协议与 DeskMate Dashboard 协议分别位于设备目录下的
+`components/product_protocols/`，不进入共享目录。
 
 ## 常用命令
 
@@ -32,23 +39,39 @@ uv run pytest -q
 .\start_server.ps1
 ```
 
-### PhotoPainter Device
+### 设备固件
 
 ```powershell
-Set-Location .\devices\photopainter
-& .\build_tools\dm.ps1 build
-& .\build_tools\dm.ps1 ota
+& .\ds.ps1 build photopainter
+& .\ds.ps1 build deskmate
+& .\ds.ps1 flash photopainter
+& .\ds.ps1 monitor deskmate
 ```
 
-`ota` 默认把固件发布到本项目的 `services\hub\firmwares\`。
-
-### DeskMate Device
+所有设备命令都在 DeskSuite 根目录执行；产品名是必填参数。可用命令还包括
+`flash-monitor`、`clean`、`menuconfig`、`set-target-s3`、`build-log`、`flash-log` 和
+`monitor-log`。产品元数据集中定义于 [`products.toml`](products.toml)，构建工具会把同一份
+`product_id` 与 `firmware_target` 写入设备构建头，避免设备请求身份与发布清单漂移。
 
 ```powershell
-Set-Location .\devices\deskmate
-& .\dm.ps1 build
-& .\dm.ps1 ota
+& .\ds.ps1 ota photopainter
+& .\ds.ps1 ota deskmate
 ```
+
+`ota` 会先生成该 `firmware_target` 独立的单调版本头，再构建并发布：
+
+```text
+services/hub/firmwares/
+├─ manifests/
+│  ├─ photopainter_esp32s3_v1.json
+│  └─ deskmate_esp32s3_v1.json
+└─ artifacts/
+   └─ <artifact_id>.bin
+```
+
+清单按固件兼容目标隔离，二进制在全局制品库中按哈希去重。设备统一请求
+`POST /api/v1/ota/check`，通过 `product_id` 与 `firmware_target` 选择并双重校验清单。
+各目标的本地单调版本状态保存在 `.build-state/ota/<firmware_target>.version`，不进入 Git。
 
 ## 命名约定
 
@@ -58,5 +81,3 @@ Set-Location .\devices\deskmate
 | 统一后端 | DeskSuite Hub | `services/hub`、`desksuite-hub` |
 | 墨水屏设备 | PhotoPainter Device | `devices/photopainter` |
 | 交互设备 | DeskMate Device | `devices/deskmate` |
-
-历史协议字段、设备产品 ID 和固件内部前缀暂不因目录迁移而改变，避免破坏现有设备兼容性。

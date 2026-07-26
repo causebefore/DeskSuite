@@ -1,0 +1,10 @@
+menu "Communication - Transport"
+
+    config COMMUNICATION_HTTP_TIMING_LOGS
+        bool "输出缓冲式 HTTP 请求分阶段耗时"
+        default n
+        help
+            输出总耗时、建连、发送、首包等待和响应接收耗时。
+            该开关只影响诊断日志，不改变 HTTP 传输行为。
+
+endmenu

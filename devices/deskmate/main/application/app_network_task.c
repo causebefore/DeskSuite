@@ -11,6 +11,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "firmware_ota_build.h"
 #include "firmware_ota.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -38,7 +39,6 @@
 #define NETWORK_MANAGER_POLL_INTERVAL_MS   100U
 #define NETWORK_TIME_SYNC_TIMEOUT_MS       10000U
 #define REMOTE_LOG_STOP_TIMEOUT_MS         5000U
-#define DESKMATE_REMOTE_LOG_PRODUCT_ID     2U
 #define DESKMATE_REMOTE_LOG_QUEUE_CAPACITY 8U
 #define DESKMATE_REMOTE_LOG_BATCH_CAPACITY 4U
 
@@ -188,7 +188,7 @@ static void start_remote_log_upload(void)
     error = initialize_remote_log_capture();
     if (error == ESP_OK)
     {
-        error = remote_log_configure_copy(settings.service_url, DESKMATE_REMOTE_LOG_PRODUCT_ID, device_id);
+        error = remote_log_configure_copy(settings.service_url, DESKSUITE_PRODUCT_ID, device_id);
     }
     if (error == ESP_OK)
     {
@@ -201,7 +201,7 @@ static void start_remote_log_upload(void)
     }
     ESP_LOGI(TAG,
              "远端日志上传 Task 已启动: product_id=%u, device_id=%s",
-             (unsigned) DESKMATE_REMOTE_LOG_PRODUCT_ID,
+             (unsigned) DESKSUITE_PRODUCT_ID,
              device_id);
 }
 
@@ -1205,7 +1205,11 @@ static esp_err_t configure_firmware_ota(void)
 
     char device_id[DESKMATE_API_DEVICE_ID_MAX] = { 0 };
     ESP_RETURN_ON_ERROR(system_info_get_device_id(device_id, sizeof(device_id)), TAG, "生成 OTA 设备 ID 失败");
-    return firmware_ota_configure_copy(settings.service_url, settings.device_token, device_id);
+    return firmware_ota_configure_copy(settings.service_url,
+                                       settings.device_token,
+                                       DESKSUITE_PRODUCT_ID,
+                                       DESKSUITE_FIRMWARE_TARGET,
+                                       device_id);
 }
 
 /** @brief 将 OTA 请求提交失败转换为统一完成事实 */

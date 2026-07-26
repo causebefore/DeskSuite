@@ -304,17 +304,11 @@ class ServerSettings:
             self.project_root, str(storage["device_status_dir"])
         )
         self.log_keep_sessions = int(storage["log_keep_sessions"])
-        self.firmware_dir = _path_from_root(
-            self.project_root, str(storage["firmware_dir"])
+        self.ota_manifest_dir = _path_from_root(
+            self.project_root, str(storage["ota_manifest_dir"])
         )
-        self.ota_manifest_path = _path_from_root(
-            self.project_root, str(storage["ota_manifest"])
-        )
-        self.firmware_mount_path = str(storage["firmware_mount_path"])
-
-        ota = data.get("ota") or {}
-        self.ota_firmware_base_version = str(
-            ota.get("firmware_base_version", "1.0.0")
+        self.ota_artifact_dir = _path_from_root(
+            self.project_root, str(storage["ota_artifact_dir"])
         )
 
         memory = data.get("memory") or {}

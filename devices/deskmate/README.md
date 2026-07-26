@@ -41,7 +41,8 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 | Presentation | [`main/presentation/`](main/presentation/) | 事实到 View Model 的转换、页面契约和呈现事件 |
 | UI | [`main/ui/`](main/ui/) | LVGL 页面、控件、UI Runtime Task 和视觉呈现 |
 | Service | [`components/services/`](components/services/) | 可选的持续执行、自动恢复、完整事务与资源协调 |
-| Communication | [`components/communication/`](components/communication/) | Wi‑Fi/Portal 状态机、协议、传输和 OTA/日志上传基础能力 |
+| Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的 Wi‑Fi/Portal、传输、身份、OTA 和日志能力 |
+| Product Protocols | [`components/product_protocols/`](components/product_protocols/) | DeskMate Dashboard 产品协议 |
 | Data | [`components/data/`](components/data/) | 产品数据结构、缓存和持久化语义 |
 | System | [`components/sys/`](components/sys/) | 系统时间、存储基础、复位、身份和看门狗等系统级能力 |
 | Device | [`components/device/`](components/device/) | 与型号无关的设备能力和设备级资源所有权 |
@@ -92,8 +93,8 @@ View Model；离开子页或关闭设置菜单时，只有 Application 明确报
   上限设为 2048 字节；Service 运行期配置八个精确 URI handler。
 - 根 `sdkconfig` 是 `.gitignore` 排除的本地生成文件，本次未复制、修改或提交。用户自行编译前
   应通过仓库统一配置/构建流程重新生成，或确认本地值已与上述受控源同步：UTF-8 已启用、
-  ANSI/OEM 与 WebSocket 已关闭、URI 上限为 2048。需要编译时只使用 `.\dm.ps1 build`，
-  不得绕过统一脚本直接调用下层构建工具。
+  ANSI/OEM 与 WebSocket 已关闭、URI 上限为 2048。需要编译时只在 DeskSuite 根目录使用
+  `& .\ds.ps1 build deskmate`，不得绕过统一脚本直接调用下层构建工具。
 - 当前功能按用户要求只做代码和静态核查，不运行自动化测试、固件编译或实机验收。500 MiB
   上传、上传取消/重试、中文及特殊文件名、创建/移动/删除、会话互斥、覆盖恢复、断网/掉电和
   安全停止等硬件检查仍由用户在目标设备上执行。

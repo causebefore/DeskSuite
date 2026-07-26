@@ -1,0 +1,13 @@
+[products.photopainter]
+product_id = 1
+firmware_target = "photopainter_esp32s3_v1"
+project_dir = "devices/photopainter"
+firmware_file = "PhotoPainter_Device.bin"
+default_port = "COM5"
+
+[products.deskmate]
+product_id = 2
+firmware_target = "deskmate_esp32s3_v1"
+project_dir = "devices/deskmate"
+firmware_file = "esp32.bin"
+default_port = "COM4"

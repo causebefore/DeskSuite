@@ -105,9 +105,24 @@ daily_times = ["11:15", "11:50"]
 
 ## 设备拉取式 OTA
 
-OTA 只负责应用固件，服务端不主动推送。设备联网后向 `POST /api/v1/ota/check` 上报当前应用镜像的 ESP Validation SHA-256，以及上次回滚镜像的同类标识；服务端仅在当前运行时清单指向不同且未被设备判定失败的制品时返回下载目标。版本字符串只用于诊断，不参与更新判断。
+OTA 只负责应用固件，服务端不主动推送。设备联网后向 `POST /api/v1/ota/check` 上报
+`protocol_version=2`、`product_id`、`firmware_target`、当前应用镜像的 ESP Validation
+SHA-256 和上次回滚镜像标识。Hub 按 `firmware_target` 读取目标清单，并验证清单中的产品和
+目标身份；仅当清单 `ota_version` 严格更高、制品不同且未被设备判定失败时返回下载目标。
+版本字符串只用于诊断。
 
-`firmwares/manifest.json` 与固件二进制都是运行时文件，由设备仓库的 `dm.ps1 ota` 原子发布，不纳入 Git。结构示例见 [`firmwares/manifest.example.json`](firmwares/manifest.example.json)。固件不再通过静态目录公开，只能使用当前清单中的完整 `artifact_id` 经受控接口下载；检查和下载共同复用 `DEVICE_API_TOKEN`。
+运行时 OTA 文件由 DeskSuite 根目录的 `ds.ps1 ota <product>` 原子发布，不纳入 Git：
+
+```text
+firmwares/
+├─ manifests/<firmware_target>.json
+└─ artifacts/<artifact_id>.bin
+```
+
+清单按固件目标隔离，制品全局按哈希存放和去重。结构示例见
+[`firmwares/manifests/photopainter_esp32s3_v1.example.json`](firmwares/manifests/photopainter_esp32s3_v1.example.json)。
+固件不通过静态目录公开；下载接口只允许访问至少被一个有效当前清单引用且摘要匹配的
+`artifact_id`。检查和下载共同复用 `DEVICE_API_TOKEN`。
 
 ## 测试
 

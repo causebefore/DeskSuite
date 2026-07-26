@@ -90,9 +90,8 @@ device_id = "screen-1"
 runtime_log_dir = "logs"
 device_status_dir = "data/device_status"
 log_keep_sessions = 7
-firmware_dir = "bins"
-ota_manifest = "bins/manifest.json"
-firmware_mount_path = "/firmwares"
+ota_manifest_dir = "bins/manifests"
+ota_artifact_dir = "bins/artifacts"
 [memory]
 enabled = false
 """
@@ -141,7 +140,8 @@ def test_settings_load_display_and_internal_provider_config(tmp_path: Path):
     assert settings.weather_moon_cache_seconds == 7
     assert settings.runtime_log_dir == tmp_path / "logs"
     assert settings.device_status_dir == tmp_path / "data" / "device_status"
-    assert settings.ota_manifest_path == tmp_path / "bins" / "manifest.json"
+    assert settings.ota_manifest_dir == tmp_path / "bins" / "manifests"
+    assert settings.ota_artifact_dir == tmp_path / "bins" / "artifacts"
 
 
 def test_project_text_pages_disable_dither(tmp_path: Path):

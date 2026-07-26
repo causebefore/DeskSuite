@@ -8,9 +8,6 @@ host = "0.0.0.0"
 port = 8765
 log_level = "info"
 
-[ota]
-firmware_base_version = "1.0.2"
-
 # 这些 provider 由显示渲染、语音和 DeskMate Dashboard 投影共同复用。
 [providers]
 weather = "qweather"
@@ -108,9 +105,8 @@ device_id = "default"
 runtime_log_dir = "runtime_logs"
 device_status_dir = "data/device_status"
 log_keep_sessions = 30
-firmware_dir = "firmwares"
-ota_manifest = "firmwares/manifest.json"
-firmware_mount_path = "/firmwares"
+ota_manifest_dir = "firmwares/manifests"
+ota_artifact_dir = "firmwares/artifacts"
 
 [memory]
 enabled = false

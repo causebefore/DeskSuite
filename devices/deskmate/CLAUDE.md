@@ -5,7 +5,7 @@
 在仓库根目录仅使用统一脚本编译，Agent 不得直接调用 `idf.py`、`cmake` 或 `ninja`：
 
 ```powershell
-& .\dm.ps1 build
+& .\ds.ps1 build deskmate
 ```
 
 Agent 默认不主动执行编译；无论修改文档、C/C++、CMake、Kconfig、公共 API 还是构建配置，

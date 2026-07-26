@@ -23,11 +23,11 @@ from app.services.weather_service import WeatherService
 
 
 def create_app(server_settings: ServerSettings | None = None) -> FastAPI:
-    """创建并配置 PhotoPainter 服务。"""
+    """创建并配置 DeskSuite Hub 服务。"""
     server_settings = server_settings or get_server_settings()
     setup_logging(server_settings)
     logger.info(
-        "PhotoPainter 服务初始化 host={} port={} log_level={}",
+        "DeskSuite Hub 初始化 host={} port={} log_level={}",
         server_settings.server_host,
         server_settings.server_port,
         server_settings.server_log_level,
@@ -88,8 +88,8 @@ def create_app(server_settings: ServerSettings | None = None) -> FastAPI:
     )
     app.state.log_store.initialize()
     app.state.ota_service = OtaService(
-        server_settings.ota_manifest_path,
-        server_settings.firmware_dir,
+        server_settings.ota_manifest_dir,
+        server_settings.ota_artifact_dir,
     )
 
     app.include_router(display.router, prefix="/api/v2/display", tags=["display"])

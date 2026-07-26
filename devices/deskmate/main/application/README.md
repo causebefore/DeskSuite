@@ -233,7 +233,7 @@ Button Service 保持 RUNNING，不增加睡前 `stop()` 或醒后 `start()`；�
 - 按键按需扫描和 Light Sleep 桥接执行
   `.\tools\tests\check_button_event_driven.ps1`。
 - 本轮合并未运行测试、网页生成器、固件编译或实机流程；后续编译必须通过仓库统一命令
-  `.\dm.ps1 build` 执行。
+  `& .\ds.ps1 build deskmate` 执行。
 
 相关规范：
 

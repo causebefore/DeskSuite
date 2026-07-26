@@ -120,4 +120,5 @@ UNINITIALIZED → INITIALIZED → RUNNING → STOPPING → INITIALIZED → UNINI
 
 - 静态契约：[`../../../tools/tests/check_button_event_driven.ps1`](../../../tools/tests/check_button_event_driven.ps1)。
 - 实机检查：左右短按/长按、双键并发、60 秒空闲 Timer 计数和 Light Sleep 唤醒去重。
-- 固件构建只能在用户明确要求后通过仓库根目录 `.\dm.ps1 build` 执行。
+- 固件构建只能在用户明确要求后通过 DeskSuite 根目录
+  `& .\ds.ps1 build deskmate` 执行。

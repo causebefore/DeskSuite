@@ -27,7 +27,6 @@ class LogBootRequest(BaseModel):
     reset_reason 对排查重启问题非常关键（power_on / watchdog / panic / deep_sleep 等）。
     """
     product_id: int = Field(
-        default=1,
         ge=1,
         description="产品标识；1=PhotoPainter，2=DeskMate",
     )
@@ -92,7 +91,6 @@ class LogBatchRequest(BaseModel):
     若 session_id 缺失或过期，服务器自动创建新会话。
     """
     product_id: int = Field(
-        default=1,
         ge=1,
         description="产品标识；1=PhotoPainter，2=DeskMate",
     )
@@ -140,7 +138,6 @@ class LogErrorsRequest(BaseModel):
     设备收到后可安全清理 NVS 中的对应错误记录。
     """
     product_id: int = Field(
-        default=1,
         ge=1,
         description="产品标识；1=PhotoPainter，2=DeskMate",
     )
