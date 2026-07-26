@@ -1,0 +1,25 @@
+# 菜单标题保持 ASCII，兼容 esp-sr 在 Windows 上按系统代码页读取 sdkconfig。
+menu "Communication - Network Manager"
+
+    config NETWORK_MANAGER_DEFAULT_SSID
+        string "默认 Wi-Fi SSID"
+        default ""
+        help
+            首次启动或 NVS 中无网络配置时使用的默认 Wi-Fi 名称。
+            留空则不使用默认值，设备将进入配网模式。
+
+    config NETWORK_MANAGER_DEFAULT_PASSWORD
+        string "默认 Wi-Fi 密码"
+        default ""
+        help
+            对应默认 SSID 的 Wi-Fi 密码。
+
+    config NETWORK_MANAGER_DEFAULT_SERVICE_URL
+        string "默认服务地址"
+        default ""
+        help
+            可以填写完整 http(s) URL，也可以填写 host:port，例如
+            http://192.168.1.100:8765 或 192.168.1.100:8765。
+            留空则由配网 Portal 或运行时配置决定。
+
+endmenu

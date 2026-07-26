@@ -1,0 +1,16 @@
+menu "PhotoPainter 内容刷新"
+
+    config PHOTOPAINTER_SNTP_SERVER
+        string "SNTP 时间服务器"
+        default "pool.ntp.org"
+        help
+            每轮网络上线后、执行状态上传和照片同步前使用的单个 SNTP 服务器。
+
+    config PHOTOPAINTER_SNTP_TIMEOUT_MS
+        int "单个 SNTP 样本超时（毫秒）"
+        range 1000 60000
+        default 10000
+        help
+            每个 SNTP 样本的最大等待时间。可信时间跳变超过 6 小时时最多请求两个样本。
+
+endmenu

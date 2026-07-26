@@ -1,0 +1,138 @@
+.weather-dashboard {
+  display: grid !important;
+  grid-template-rows: 42px 438px;
+  gap: 0;
+  padding: 0 !important;
+}
+
+.panel,
+.detail-card {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--color-background);
+  border: 0;
+}
+
+.masthead {
+  height: 42px;
+  overflow: hidden;
+  border-bottom: 3px solid var(--color-text);
+}
+.location-block { min-width: 0; padding: 4px 10px; }
+.masthead-kicker {
+  margin-right: 12px;
+  padding: 1px 0 1px 7px;
+  color: var(--color-text);
+  background: var(--color-background);
+  border-left: 4px solid var(--color-text);
+  letter-spacing: .5px;
+  white-space: nowrap;
+}
+.location-block strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.district { max-width: 150px; overflow: hidden; margin-left: 8px; color: var(--color-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.date-block { padding: 4px 12px; color: var(--color-text); background: var(--color-background); border-left: 2px solid var(--color-text); white-space: nowrap; }
+
+.weather-body { display: grid; grid-template-columns: 238px 562px; gap: 0; height: 438px; }
+.current-panel {
+  display: grid;
+  grid-template-rows: 22px 104px 30px 24px 1fr 44px;
+  gap: 4px;
+  height: 438px;
+  padding: 10px;
+  border-right: 3px solid var(--color-text);
+}
+.section-tag {
+  height: 22px;
+  padding: 1px 0 1px 7px;
+  color: var(--color-text);
+  background: var(--color-background);
+  border-left: 4px solid var(--color-text);
+  letter-spacing: .4px;
+  white-space: nowrap;
+}
+.update-time { overflow: hidden; padding-top: 2px; color: var(--color-secondary); text-overflow: ellipsis; white-space: nowrap; }
+
+.current-hero { grid-template-columns: 80px minmax(0, 1fr); align-items: center; }
+.current-icon {
+  width: 76px;
+  height: 76px;
+  overflow: hidden;
+  background: var(--color-background);
+  text-align: center;
+}
+.current-icon svg { width: 62px; height: 62px; color: var(--color-text); }
+.temperature { display: flex; align-items: flex-start; min-width: 0; letter-spacing: -5px; }
+.temperature sup { margin: 6px 0 0 3px; font-size: 24px; line-height: 29px; letter-spacing: 0; }
+.weather-text { overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.today-range { padding-top: 2px; color: var(--color-secondary); border-top: 2px solid var(--color-text); text-align: center; }
+
+.current-metrics {
+  overflow: hidden;
+  background: var(--color-background);
+  border: 1px solid var(--color-surface);
+}
+.metric { min-width: 0; padding: 3px; border-right: 1px solid var(--color-surface); border-bottom: 1px solid var(--color-surface); text-align: center; }
+.metric:nth-child(even) { border-right: 0; }
+.metric:nth-child(n+3) { border-bottom: 0; }
+.metric span { color: var(--color-secondary); }
+.metric strong { max-width: 100%; overflow: hidden; color: var(--color-text); text-overflow: ellipsis; white-space: nowrap; }
+
+.headline-strip { display: grid; align-content: center; min-width: 0; padding: 4px 7px; background: var(--color-background); border: 1px solid var(--color-surface); border-left: 4px solid var(--color-text); }
+.headline-strip.is-alert { color: var(--color-text); background: var(--color-background); border: 2px solid var(--color-text); border-left-width: 6px; }
+.headline-strip strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.forecast-column { display: grid; grid-template-rows: 292px 146px; gap: 0; height: 438px; }
+.forecast-panel { display: grid; grid-template-rows: 24px 182px 64px; gap: 3px; height: 292px; padding: 8px 9px; border-bottom: 3px solid var(--color-text); }
+.forecast-heading strong { color: var(--color-secondary); white-space: nowrap; }
+.chart-legend { padding-top: 3px; }
+.chart-legend span { white-space: nowrap; }
+.chart-legend i { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--color-text); }
+.chart-legend .legend-low { border-color: var(--color-secondary); border-top-width: 2px; border-top-style: dashed; }
+.temperature-chart { display: block; width: 544px; height: 182px; overflow: visible; }
+.chart-grid { stroke: var(--color-surface); stroke-width: 1; stroke-dasharray: 5 5; }
+.chart-today { stroke: var(--color-secondary); stroke-width: 1; stroke-dasharray: 4 4; }
+.chart-high-line { fill: none; stroke: var(--color-text); stroke-width: 3; stroke-linecap: square; stroke-linejoin: round; }
+.chart-low-line { fill: none; stroke: var(--color-secondary); stroke-width: 2; stroke-dasharray: 7 5; stroke-linecap: square; stroke-linejoin: round; }
+.chart-high-dot { fill: var(--color-text); stroke: var(--color-text); stroke-width: 2; }
+.chart-low-dot { fill: var(--color-background); stroke: var(--color-secondary); stroke-width: 2; }
+.chart-label { fill: var(--color-text); font: 900 10px Arial, sans-serif; text-anchor: middle; }
+.chart-empty { fill: var(--color-secondary); font-size: 14px; font-weight: 900; font-family: var(--font-cn-family); text-anchor: middle; }
+
+.forecast-days { align-items: stretch; min-width: 0; border-top: 2px solid var(--color-text); }
+.forecast-day { position: relative; display: grid; grid-template-rows: 15px 25px 16px; justify-items: center; min-width: 0; padding: 1px 2px 7px; border-right: 1px solid var(--color-secondary); text-align: center; }
+.forecast-day:nth-child(even) { background: var(--color-background); }
+.forecast-day:last-child { border-right: 0; }
+.forecast-day.is-today { color: var(--color-text); background: var(--color-background); }
+.forecast-day.is-today::after { content: ""; position: absolute; right: 4px; bottom: 0; left: 4px; height: 3px; background: var(--color-text); }
+.forecast-day-icon { display: grid; place-items: center; width: 25px; height: 25px; }
+.forecast-day-icon svg { width: 24px; height: 24px; color: currentColor; }
+.forecast-day-text { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.detail-grid { grid-template-columns: 1.2fr 1fr 1fr; gap: 0 !important; height: 146px; }
+.detail-card { height: 146px; padding: 7px 8px; }
+.detail-card + .detail-card { border-left: 2px solid var(--color-text); }
+.air-card { background: var(--color-background); }
+.detail-title { overflow: hidden; padding-bottom: 4px; color: var(--color-secondary); border-bottom: 2px solid var(--color-text); letter-spacing: .2px; text-overflow: ellipsis; white-space: nowrap; }
+.rain-summary { display: -webkit-box; height: 32px; overflow: hidden; margin-top: 3px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.rain-card.is-raining { color: var(--color-text); background: var(--color-background); border: 3px solid var(--color-text); }
+.rain-card.is-raining .detail-title { color: var(--color-text); border-color: var(--color-text); }
+.rain-card.is-dry .rain-summary,
+.rain-card.is-unavailable .rain-summary { display: grid; place-items: center; height: 76px; margin-top: 3px; padding: 0 8px; text-align: center; }
+.rain-card.is-dry .rain-bars,
+.rain-card.is-dry .rain-axis,
+.rain-card.is-unavailable .rain-bars,
+.rain-card.is-unavailable .rain-axis { display: none; }
+.rain-bars { display: grid; grid-template-columns: repeat(12, 1fr); align-items: end; gap: 2px; height: 40px; margin-top: 3px; border-bottom: 1px solid currentColor; }
+.rain-bar { min-height: 2px; background: currentColor; }
+.rain-axis { margin-top: 2px; color: var(--color-secondary); }
+.rain-card.is-raining .rain-axis { color: var(--color-secondary); }
+.air-main { align-items: baseline; height: 43px; padding-top: 4px; }
+.air-main span { max-width: 65px; overflow: hidden; color: var(--color-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.detail-row { min-width: 0; min-height: 24px; border-top: 1px solid var(--color-secondary); }
+.detail-row span { color: var(--color-secondary); white-space: nowrap; }
+.detail-row b { overflow: hidden; color: var(--color-text); text-overflow: ellipsis; white-space: nowrap; }
+.sun-times { height: 43px; padding: 4px 0; }
+.sun-times > div { border-left: 1px solid var(--color-surface); }
+.sun-times > div:first-child { border-left: 0; }
+.sun-times span { color: var(--color-secondary); }

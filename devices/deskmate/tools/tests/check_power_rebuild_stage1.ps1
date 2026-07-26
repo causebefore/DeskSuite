@@ -1,0 +1,130 @@
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$failures = [System.Collections.Generic.List[string]]::new()
+
+function Resolve-RepoPath {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+
+    return Join-Path $repoRoot $RelativePath
+}
+
+function Assert-Contains {
+    param(
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [Parameter(Mandatory = $true)][string]$Pattern
+    )
+
+    $path = Resolve-RepoPath $RelativePath
+    if (-not (Test-Path -LiteralPath $path)) {
+        $failures.Add("缺少待检查文件: $RelativePath")
+        return
+    }
+    if ((Get-Content -Raw -LiteralPath $path) -notmatch $Pattern) {
+        $failures.Add("缺少当前低功耗阶段必需能力: $RelativePath / $Pattern")
+    }
+}
+
+function Assert-NotContains {
+    param(
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [Parameter(Mandatory = $true)][string]$Pattern
+    )
+
+    $path = Resolve-RepoPath $RelativePath
+    if (-not (Test-Path -LiteralPath $path)) {
+        $failures.Add("缺少待检查文件: $RelativePath")
+        return
+    }
+    if ((Get-Content -Raw -LiteralPath $path) -match $Pattern) {
+        $failures.Add("仍存在当前低功耗阶段禁止内容: $RelativePath / $Pattern")
+    }
+}
+
+function Assert-FileMissing {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+
+    if (Test-Path -LiteralPath (Resolve-RepoPath $RelativePath)) {
+        $failures.Add("仍存在应删除文件: $RelativePath")
+    }
+}
+
+$bspHeader = 'components\bsp\include\bsp.h'
+$bspSource = 'components\bsp\src\bsp_power.c'
+$deviceHeader = 'components\device\device_power\include\device_power.h'
+$deviceSource = 'components\device\device_power\src\device_power.c'
+$powerTask = 'main\application\app_power_task.c'
+$uiHeader = 'main\ui\include\ui_runtime.h'
+$uiTask = 'main\ui\core\ui_task.c'
+$lvglHeader = 'components\graphics\ui_platform\include\ui_platform_lvgl.h'
+$lvglSource = 'components\graphics\ui_platform\lvgl\lvgl_runtime.c'
+$displayHeader = 'components\device\device_display\include\device_display.h'
+
+Assert-Contains $bspHeader 'bsp_power_enter_light_sleep'
+Assert-Contains $bspHeader 'bsp_display_stop'
+Assert-Contains $bspHeader 'bsp_display_start'
+Assert-Contains $bspSource 'esp_sleep_enable_ext1_wakeup_io'
+Assert-Contains $bspSource 'esp_sleep_enable_timer_wakeup'
+Assert-Contains $bspSource 'esp_sleep_disable_ext1_wakeup_io'
+Assert-Contains $bspSource 'esp_sleep_disable_wakeup_source\(ESP_SLEEP_WAKEUP_TIMER\)'
+Assert-Contains $bspHeader 'bool\s+timer'
+Assert-Contains $deviceHeader 'device_power_enter_light_sleep'
+Assert-Contains $deviceHeader 'bool\s+timer'
+Assert-Contains $deviceSource 'bsp_power_enter_light_sleep'
+Assert-Contains $displayHeader 'device_display_stop'
+Assert-Contains $displayHeader 'device_display_start'
+Assert-Contains $lvglHeader 'ui_platform_lvgl_stop'
+Assert-Contains $lvglHeader 'ui_platform_lvgl_start'
+Assert-Contains $lvglSource 'lv_refr_now'
+Assert-Contains $lvglSource 'device_display_wait_flush_done'
+Assert-Contains $uiHeader 'ui_runtime_stop'
+Assert-Contains $uiHeader 'ui_runtime_start'
+Assert-Contains $uiTask 'UI_TASK_CONTROL_DEINIT'
+Assert-Contains $powerTask 'device_power_enter_light_sleep'
+Assert-Contains $powerTask 'APP_POWER_STEP_UI_STOP'
+Assert-Contains $powerTask 'APP_POWER_STEP_UI_START'
+Assert-Contains $powerTask 'APP_POWER_WAKEUP_TIMER'
+Assert-Contains $powerTask 'timer_refresh_count'
+Assert-Contains $powerTask 'ui_runtime_stop'
+Assert-Contains $powerTask 'ui_runtime_start'
+Assert-Contains $powerTask 'app_network_suspend_for_light_sleep'
+Assert-Contains $powerTask 'app_network_resume_from_light_sleep'
+Assert-Contains $powerTask 'app_network_sync_for_light_sleep'
+Assert-Contains $powerTask 'app_network_get_next_refresh_at_utc'
+Assert-Contains $powerTask 'Timer 计划唤醒='
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC=60'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC=60'
+Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC'
+
+Assert-FileMissing 'main\application\app_power_trace.c'
+Assert-FileMissing 'main\application\app_power_trace.h'
+Assert-FileMissing 'tools\validate_power_trace.ps1'
+Assert-FileMissing 'tools\tests\fixtures\power_trace_valid.jsonl'
+
+foreach ($relativePath in @($bspHeader, $bspSource, $deviceHeader, $deviceSource, $powerTask)) {
+    Assert-NotContains $relativePath `
+        'power_(prepare|cancel|start)_light_sleep'
+}
+
+foreach ($relativePath in @($bspSource, $deviceHeader, $deviceSource, $powerTask)) {
+    Assert-NotContains $relativePath `
+        'BOARD_RTC_PIN_INT|rtc_interrupt'
+}
+
+Assert-NotContains $bspHeader 'bool\s+rtc_interrupt'
+Assert-NotContains $powerTask `
+    'app_environment_deinit|button_service_stop|app_settings_reset|app_power_trace|power_cycles\.jsonl'
+Assert-NotContains 'main\Kconfig.projbuild' 'DESKMATE_POWER_VALIDATION_MODE'
+Assert-NotContains 'sdkconfig.defaults' 'CONFIG_DESKMATE_POWER_VALIDATION_MODE'
+Assert-NotContains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_PREPARE_TIMEOUT_MS'
+Assert-NotContains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_PREPARE_TIMEOUT_MS'
+
+if ($failures.Count -gt 0) {
+    Write-Host '按键、Timer 与网络维护低功耗契约检查失败：' -ForegroundColor Red
+    foreach ($failure in $failures) {
+        Write-Host " - $failure" -ForegroundColor Red
+    }
+    exit 1
+}
+
+Write-Host '按键、Timer 与网络维护低功耗契约检查通过。' -ForegroundColor Green

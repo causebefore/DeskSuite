@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, initial-scale=1">
+  <title>PhotoPainter Month Calendar</title>
+  <!-- PHOTO_PAINTER_FRAMEWORK_STYLE -->
+  <!-- PHOTO_PAINTER_STYLE -->
+</head>
+<body class="trmnl">
+  <main class="screen screen--og screen--2bit screen--no-bleed">
+    <div class="view view--full">
+      <div class="layout month-calendar-page">
+        <section class="month-panel" aria-label="整月日历">
+          <header class="month-header flex flex--row flex--between flex--center-y gap--small">
+            <div class="month-heading">
+              <div class="label label--small pp-cn-min">MONTH · 月历</div>
+              <h1 id="month-title" class="title title--large font--bold pp-cn">----年 --月</h1>
+            </div>
+            <div class="month-meta flex flex--col flex--end">
+              <strong id="month-count" class="content content--small font--bold pp-cn">--</strong>
+              <span class="description description--base pp-cn-min">静态整月概览</span>
+            </div>
+          </header>
+
+          <div class="weekday-row" aria-label="星期">
+            <span class="label label--small pp-cn-min">一</span>
+            <span class="label label--small pp-cn-min">二</span>
+            <span class="label label--small pp-cn-min">三</span>
+            <span class="label label--small pp-cn-min">四</span>
+            <span class="label label--small pp-cn-min">五</span>
+            <span class="label label--small pp-cn-min">六</span>
+            <span class="label label--small pp-cn-min">日</span>
+          </div>
+          <div id="month-grid" class="month-grid" aria-label="月份日期"></div>
+        </section>
+
+        <aside class="agenda-panel" aria-label="今天和近期日程">
+          <section class="today-hero">
+            <div class="label label--small pp-cn-min">TODAY · 今天</div>
+            <div class="today-main flex flex--row flex--between flex--bottom">
+              <strong id="today-day" class="today-day value value--xlarge value--tnums font--bold">--</strong>
+              <div class="today-copy flex flex--col flex--end">
+                <span id="today-weekday" class="title title--base font--bold pp-cn">--</span>
+                <span id="today-month" class="content content--small font--bold pp-cn">--月</span>
+              </div>
+            </div>
+          </section>
+
+          <header class="agenda-heading flex flex--row flex--between flex--center-y">
+            <strong class="title title--small font--bold pp-cn">接下来</strong>
+            <span id="agenda-status" class="label label--small pp-cn-min">--</span>
+          </header>
+          <div id="agenda-list" class="agenda-list list gap--none"></div>
+          <footer class="agenda-footer flex flex--row flex--between flex--center-y gap--xsmall">
+            <span class="flex flex--row flex--center-y gap--xsmall content content--small pp-cn-min"><i class="legend-marker"></i>有日程</span>
+            <span id="calendar-source" class="description description--base pp-cn-min">--</span>
+          </footer>
+        </aside>
+      </div>
+    </div>
+  </main>
+  <!-- PHOTO_PAINTER_FRAMEWORK_SCRIPT -->
+  <!-- PHOTO_PAINTER_SCRIPT -->
+</body>
+</html>

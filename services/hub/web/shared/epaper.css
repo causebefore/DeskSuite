@@ -1,0 +1,66 @@
+/* PhotoPainter 对 TRMNL Framework 的墨水屏约束补丁。
+ * 布局、间距、文字角色和组件优先直接使用 TRMNL；这里只补充当前设备特有的规则。
+ */
+
+:root {
+  /* 四级灰阶的唯一语义色。 */
+  --color-text: #000000;
+  --color-secondary: #555555;
+  --color-surface: #AAAAAA;
+  --color-background: #FFFFFF;
+
+  /* 中文与细线的物理可读性下限。 */
+  --pp-font-size-min: 12px;
+  --pp-line-height-min: 15px;
+  --pp-font-weight-min: 700;
+  --pp-stroke-reference: 1px;
+  --pp-stroke-default: 2px;
+  --pp-stroke-strong: 3px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html,
+body {
+  width: 800px;
+  height: 480px;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-background);
+}
+
+body.trmnl {
+  color: var(--color-text);
+  background: var(--color-background);
+  font-family: var(--font-cn-family);
+  font-size: var(--pp-font-size-min);
+  line-height: var(--pp-line-height-min);
+  font-style: normal;
+  font-weight: var(--pp-font-weight-min);
+  font-synthesis: weight;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* TRMNL 字体角色保留字号和行距；中文显式切回设备字体并提高字重。 */
+.trmnl .pp-cn,
+.trmnl .pp-cn-min {
+  font-family: var(--font-cn-family);
+  font-weight: var(--pp-font-weight-min);
+  font-synthesis: weight;
+}
+
+/* TRMNL 没有判断中文内容的能力；含中文的小字额外应用物理下限。 */
+.trmnl .pp-cn-min {
+  font-size: var(--pp-font-size-min);
+  line-height: var(--pp-line-height-min);
+}

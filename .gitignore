@@ -1,0 +1,50 @@
+# 本地工具与编辑器
+.codegraph/
+**/.codegraph/
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/
+
+# 密钥与本地环境
+.env
+**/.env
+.venv/
+**/.venv/
+
+# Python 缓存
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+*.py[cod]
+
+# ESP-IDF 与构建输出
+build/
+**/build/
+build-dev/
+**/build-dev/
+managed_components/
+**/managed_components/
+sdkconfig
+**/sdkconfig
+sdkconfig.old
+**/sdkconfig.old
+*.bin
+*.elf
+*.map
+
+# Hub 运行期数据
+services/hub/runtime_logs/
+services/hub/rendered_frames/
+services/hub/debug_audio/
+services/hub/data/
+services/hub/firmwares/manifest.json
+devices/deskmate/tools/fonts2bin/output/
+
+# 通用临时文件
+*.log
+*.tmp
+*.bak
+Thumbs.db
+Desktop.ini

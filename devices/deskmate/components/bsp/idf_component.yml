@@ -1,0 +1,6 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espressif/esp_codec_dev:
+    version: "~1.5.0"
+    rules:
+      - if: target in [esp32s3]

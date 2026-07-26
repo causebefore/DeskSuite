@@ -1,0 +1,165 @@
+.moon-page {
+  display: grid !important;
+  grid-template-rows: 50px 430px;
+  gap: 0;
+  padding: 0;
+}
+
+.moon-header {
+  min-width: 0;
+  padding: 0 12px;
+  border-bottom: 3px solid var(--color-text);
+}
+
+.moon-header > div { min-width: 0; }
+.moon-header .label { flex: 0 0 auto; }
+.moon-header .title,
+.moon-header .description,
+.moon-header .content { white-space: nowrap; }
+.moon-header .title { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.moon-header .description { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+
+.moon-kicker {
+  padding: 2px 6px;
+  color: var(--color-background);
+  background: var(--color-text);
+  white-space: nowrap;
+}
+
+.moon-content {
+  display: grid;
+  grid-template-columns: 300px 500px;
+  gap: 0;
+  min-width: 0;
+}
+
+.phase-panel {
+  display: grid;
+  grid-template-rows: 26px 270px 64px 46px;
+  place-items: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px;
+  background: var(--color-background);
+  border-right: 3px solid var(--color-text);
+}
+
+.phase-panel > .label { justify-self: start; }
+
+.moon-hero-icon {
+  display: grid;
+  place-items: center;
+  width: 260px;
+  height: 260px;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.moon-hero-icon svg { width: 252px; height: 252px; }
+
+#moon-phase-name {
+  max-width: 248px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phase-meta {
+  width: 100%;
+  padding-top: 8px;
+  border-top: 2px solid var(--color-text);
+}
+
+.moon-details {
+  display: grid;
+  grid-template-rows: 142px 106px 182px;
+  gap: 0;
+  min-width: 0;
+}
+
+.illumination-panel {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  min-width: 0;
+  padding: 8px 12px;
+  border-bottom: 3px solid var(--color-text);
+}
+
+.illumination-value {
+  min-width: 0;
+  border-right: 2px solid var(--color-text);
+}
+
+#moon-illumination { letter-spacing: -5px; }
+.illumination-unit { align-self: flex-start; margin: 15px 0 0 4px; }
+.illumination-copy { min-width: 0; padding-left: 14px; }
+
+.moon-progress { width: 100%; }
+.moon-progress-track {
+  height: 22px;
+  overflow: hidden;
+  background: var(--color-background);
+  border: 2px solid var(--color-text);
+  border-radius: 0;
+}
+.moon-progress-fill { height: 100%; background: var(--color-text); }
+
+.rise-set-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  min-width: 0;
+  border-bottom: 3px solid var(--color-text);
+}
+
+.rise-set-card {
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+}
+.rise-set-card + .rise-set-card { border-left: 2px solid var(--color-text); }
+
+.rise-set-card:first-child { background: var(--color-background); }
+.rise-set-card > div { flex: 0 0 76px; min-width: 0; }
+.rise-set-card > strong {
+  min-width: 0;
+  font-size: 44px;
+  line-height: 52px;
+  letter-spacing: -3px;
+  text-align: right;
+  white-space: nowrap;
+}
+.rise-set-card .description { margin-top: 5px; color: var(--color-secondary); }
+
+.timeline-panel {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+}
+
+.timeline-panel header { height: 22px; border-bottom: 2px solid var(--color-text); }
+
+.moon-timeline {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  height: 142px;
+  min-width: 0;
+}
+
+.moon-point {
+  display: grid;
+  grid-template-rows: 20px 42px 18px;
+  place-items: center;
+  min-width: 0;
+  padding-top: 3px;
+  border-left: 1px solid var(--color-surface);
+}
+
+.moon-point:first-child { border-left: 0; }
+.moon-point-icon { width: 38px; height: 38px; color: var(--color-text); }
+.moon-point-icon svg { width: 36px; height: 36px; }
+.moon-point-time,
+.moon-point-light { white-space: nowrap; }

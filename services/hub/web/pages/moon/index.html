@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, initial-scale=1">
+  <title>PhotoPainter Moon</title>
+  <!-- PHOTO_PAINTER_FRAMEWORK_STYLE -->
+  <!-- PHOTO_PAINTER_STYLE -->
+</head>
+<body class="trmnl">
+  <main class="screen screen--og screen--2bit screen--no-bleed">
+    <div class="view view--full">
+      <div class="layout moon-page">
+        <header class="moon-header flex flex--row flex--between flex--center-y">
+          <div class="flex flex--row flex--center-y gap--small">
+            <span class="moon-kicker label label--small label--inverted font--bold pp-cn-min">MOON · 月相</span>
+            <strong id="moon-location" class="title title--small font--bold pp-cn">--</strong>
+            <span id="moon-region" class="description description--base pp-cn-min">--</span>
+          </div>
+        </header>
+
+        <section class="moon-content">
+          <article class="phase-panel" aria-label="当前月相">
+            <span class="moon-kicker label label--small label--inverted font--bold pp-cn-min">当前月相</span>
+            <div id="moon-hero-icon" class="moon-hero-icon icon" aria-label="月相图标">--</div>
+            <h1 id="moon-phase-name" class="title title--large font--bold pp-cn">--</h1>
+            <div class="phase-meta flex flex--row flex--between flex--center-y">
+              <span id="moon-phase-time" class="value value--small value--tnums font--bold">--</span>
+              <span class="description description--base font--bold">PHASE</span>
+              <span id="moon-phase-value" class="value value--small value--tnums font--bold">--</span>
+            </div>
+          </article>
+
+          <div class="moon-details">
+            <article class="illumination-panel">
+              <div class="illumination-value flex flex--row flex--center-y">
+                <span id="moon-illumination" class="value value--xxlarge value--tnums font--bold">--</span>
+                <span class="illumination-unit value value--large font--bold">%</span>
+              </div>
+              <div class="illumination-copy flex flex--col flex--center-y gap--small">
+                <div class="flex flex--row flex--between flex--center-y">
+                  <span class="label label--small pp-cn-min">月面照明度</span>
+                  <span id="illumination-caption" class="content content--small font--bold pp-cn">--</span>
+                </div>
+                <div class="progress-bar progress-bar--large moon-progress" aria-label="月面照明度">
+                  <div class="track moon-progress-track">
+                    <div id="moon-progress-fill" class="fill moon-progress-fill"></div>
+                  </div>
+                </div>
+                <div class="flex flex--row flex--between content content--small font--bold pp-cn-min">
+                  <span>暗面</span>
+                  <span>亮面</span>
+                </div>
+              </div>
+            </article>
+
+            <section class="rise-set-grid" aria-label="月升月落">
+              <article class="rise-set-card flex flex--row flex--between flex--center-y">
+                <div>
+                  <div class="moon-kicker label label--small label--inverted pp-cn-min">月升</div>
+                  <div class="description description--base pp-cn-min">MOONRISE</div>
+                </div>
+                <strong id="moonrise" class="value value--xlarge value--tnums font--bold">--</strong>
+              </article>
+              <article class="rise-set-card flex flex--row flex--between flex--center-y">
+                <div>
+                  <div class="label label--small label--outline pp-cn-min">月落</div>
+                  <div class="description description--base pp-cn-min">MOONSET</div>
+                </div>
+                <strong id="moonset" class="value value--xlarge value--tnums font--bold">--</strong>
+              </article>
+            </section>
+
+            <article class="timeline-panel">
+              <header class="flex flex--row flex--between flex--center-y">
+                <span class="label label--small font--bold pp-cn-min">全天月相</span>
+                <span class="description description--base pp-cn-min">六个时刻采样</span>
+              </header>
+              <div id="moon-timeline" class="moon-timeline" aria-label="全天月相时间线"></div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <!-- PHOTO_PAINTER_FRAMEWORK_SCRIPT -->
+  <!-- PHOTO_PAINTER_SCRIPT -->
+</body>
+</html>

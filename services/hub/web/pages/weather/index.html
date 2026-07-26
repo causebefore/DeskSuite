@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, initial-scale=1">
+  <title>PhotoPainter Weather</title>
+  <!-- PHOTO_PAINTER_FRAMEWORK_STYLE -->
+  <!-- PHOTO_PAINTER_STYLE -->
+</head>
+<body class="trmnl">
+  <main class="screen screen--og screen--2bit screen--no-bleed">
+    <div class="view view--full">
+      <div class="layout weather-dashboard">
+        <header class="masthead flex flex--row flex--between">
+          <div class="location-block flex flex--row flex--center-y">
+            <span class="masthead-kicker label label--small pp-cn-min">WEATHER · 天气</span>
+            <strong id="city" class="title title--base font--bold pp-cn">--</strong>
+            <span id="district" class="district description description--base pp-cn-min"></span>
+          </div>
+          <div class="date-block flex flex--row flex--center-y gap--base">
+            <strong id="date" class="content content--small font--bold">----</strong>
+            <span id="weekday" class="label label--small pp-cn-min">--</span>
+          </div>
+        </header>
+
+        <section class="weather-body grid">
+          <article class="panel current-panel">
+            <div class="panel-heading flex flex--row flex--between gap--small">
+              <span class="section-tag label label--small pp-cn-min">NOW · 实况</span>
+              <span id="observed-at" class="update-time description description--base pp-cn-min">--</span>
+            </div>
+
+            <div class="current-hero grid gap--small">
+              <div id="current-icon" class="current-icon icon" aria-label="天气图标">--</div>
+              <div class="temperature value value--xlarge value--tnums font--bold"><span id="current-temp">--</span><sup>°</sup></div>
+            </div>
+
+            <div id="weather-text" class="weather-text title title--base font--bold pp-cn">--</div>
+            <div id="today-range" class="today-range content content--small font--bold pp-cn">今日 --° / --°</div>
+
+            <div class="current-metrics grid grid--cols-2">
+              <div class="metric flex flex--col flex--center"><span class="label label--small pp-cn-min">体感</span><strong id="feels-like" class="content content--small font--bold pp-cn">--</strong></div>
+              <div class="metric flex flex--col flex--center"><span class="label label--small pp-cn-min">湿度</span><strong id="humidity" class="content content--small font--bold pp-cn">--</strong></div>
+              <div class="metric flex flex--col flex--center"><span class="label label--small pp-cn-min">风向风力</span><strong id="wind" class="content content--small font--bold pp-cn">--</strong></div>
+              <div class="metric flex flex--col flex--center"><span class="label label--small pp-cn-min">过去1h降水</span><strong id="precip" class="content content--small font--bold pp-cn">--</strong></div>
+            </div>
+
+            <div id="headline-strip" class="headline-strip">
+              <span id="headline-label" class="label label--small pp-cn-min">天气提示</span>
+              <strong id="headline-text" class="content content--small font--bold pp-cn">--</strong>
+            </div>
+          </article>
+
+          <div class="forecast-column">
+            <article class="panel forecast-panel">
+              <div class="forecast-heading flex flex--row flex--between gap--small">
+                <div class="flex flex--row flex--center-y gap--base">
+                  <span class="section-tag label label--small pp-cn-min">FORECAST · 趋势</span>
+                  <strong id="forecast-title" class="content content--small font--bold pp-cn">未来天气</strong>
+                </div>
+                <div class="chart-legend flex flex--row flex--center-y gap--base" aria-label="图例">
+                  <span class="flex flex--row flex--center-y gap--xsmall content content--small font--bold pp-cn"><i class="legend-high"></i>最高温</span>
+                  <span class="flex flex--row flex--center-y gap--xsmall content content--small font--bold pp-cn"><i class="legend-low"></i>最低温</span>
+                </div>
+              </div>
+              <svg id="temperature-chart" class="temperature-chart" width="520" height="122" viewBox="0 0 520 122" role="img" aria-label="多日最高最低温度趋势"></svg>
+              <div id="forecast-days" class="forecast-days grid"></div>
+            </article>
+
+            <section class="detail-grid grid gap--small">
+              <article id="rain-card" class="detail-card rain-card">
+                <div class="detail-title label label--small pp-cn-min">RAIN · 未来2小时</div>
+                <strong id="rain-summary" class="rain-summary content content--small font--bold pp-cn">--</strong>
+                <div id="rain-bars" class="rain-bars grid" aria-label="分钟降水趋势"></div>
+                <div class="rain-axis flex flex--row flex--between description description--base pp-cn-min"><span>现在</span><span>+2h</span></div>
+              </article>
+
+              <article class="detail-card air-card">
+                <div class="detail-title label label--small pp-cn-min">AIR · 空气与紫外线</div>
+                <div class="air-main flex flex--row gap--small"><strong id="aqi" class="value value--base value--tnums font--bold">--</strong><span id="air-category" class="label label--small pp-cn-min">--</span></div>
+                <div class="detail-row flex flex--row flex--between gap--xsmall content content--small pp-cn-min"><span>首要污染物</span><b id="air-primary">--</b></div>
+                <div class="detail-row flex flex--row flex--between gap--xsmall content content--small pp-cn-min"><span>紫外线</span><b id="uv-index">--</b></div>
+              </article>
+
+              <article class="detail-card sun-card">
+                <div class="detail-title label label--small pp-cn-min">SUN · 日照与环境</div>
+                <div class="sun-times grid grid--cols-2">
+                  <div class="flex flex--col flex--center"><span class="label label--small pp-cn-min">日出</span><strong id="sunrise" class="value value--xxsmall value--tnums font--bold">--:--</strong></div>
+                  <div class="flex flex--col flex--center"><span class="label label--small pp-cn-min">日落</span><strong id="sunset" class="value value--xxsmall value--tnums font--bold">--:--</strong></div>
+                </div>
+                <div class="detail-row flex flex--row flex--between gap--xsmall content content--small pp-cn-min"><span>能见度</span><b id="visibility">--</b></div>
+                <div class="detail-row flex flex--row flex--between gap--xsmall content content--small pp-cn-min"><span>气压</span><b id="pressure">--</b></div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+  <!-- PHOTO_PAINTER_FRAMEWORK_SCRIPT -->
+  <!-- PHOTO_PAINTER_SCRIPT -->
+</body>
+</html>

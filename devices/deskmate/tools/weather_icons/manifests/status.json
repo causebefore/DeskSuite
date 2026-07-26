@@ -1,0 +1,20 @@
+{
+  "catalog": "status",
+  "source_root": "esp32/main/ui/icons/status",
+  "outputs": {
+    "c": "esp32/components/ui_platform/images/generated/status_i1_assets.c",
+    "h": "esp32/components/ui_platform/images/generated/status_i1_assets.h"
+  },
+  "variants": { "default": 20 },
+  "assets": [
+    { "key": 0, "name": "wifi_online", "source": "wifi_online.svg" },
+    { "key": 1, "name": "wifi_offline", "source": "wifi_offline.svg" },
+    { "key": 2, "name": "server_online", "source": "server_online.svg" },
+    { "key": 3, "name": "server_offline", "source": "server_offline.svg" },
+    { "key": 4, "name": "battery_0", "source": "battery_0.svg" },
+    { "key": 5, "name": "battery_25", "source": "battery_25.svg" },
+    { "key": 6, "name": "battery_50", "source": "battery_50.svg" },
+    { "key": 7, "name": "battery_75", "source": "battery_75.svg" },
+    { "key": 8, "name": "battery_100", "source": "battery_100.svg" }
+  ]
+}

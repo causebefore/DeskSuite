@@ -1,0 +1,41 @@
+# DeskSuite Repository Guidelines
+
+## 项目边界
+
+- `devices/photopainter/` 是 PhotoPainter ESP32-S3 固件。
+- `devices/deskmate/` 是 DeskMate ESP32-S3 固件。
+- `services/hub/` 是两类设备共用的 DeskSuite Hub。
+- 修改子项目时，同时遵守该目录内更具体的 `AGENTS.md`。
+
+## 固定命令
+
+Agent 默认不主动编译固件；只有用户明确要求编译时，才可在对应设备目录执行统一脚本：
+
+```powershell
+Set-Location .\devices\photopainter
+& .\build_tools\dm.ps1 build
+```
+
+```powershell
+Set-Location .\devices\deskmate
+& .\dm.ps1 build
+```
+
+不得绕过脚本直接调用 `idf.py`、`cmake` 或 `ninja`。Hub 的测试在 `services/hub/` 中使用：
+
+```powershell
+uv run pytest -q
+```
+
+## 跨项目约定
+
+- 日志、OTA、设备身份和基础传输属于通用能力，不应绑定到单一产品名称。
+- PhotoPainter 显示帧、DeskMate Dashboard 等产品契约保持独立。
+- 修改跨设备 API、数据流或持久化语义前，先阅读相关设备的根 README 和架构规范。
+- 所有项目自有运行日志和错误信息使用中文，公共 C/C++ API 使用中文 Doxygen。
+- 不提交 `.env`、运行日志、显示帧、固件二进制、构建目录、虚拟环境或本地缓存。
+
+## Git
+
+默认开发分支为 `dev`。提交格式统一为 `type(scope): 中文描述`。每次提交只包含当前任务的
+文件和代码块，不得混入来源不明的工作区修改。

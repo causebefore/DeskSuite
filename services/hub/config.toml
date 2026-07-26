@@ -1,0 +1,123 @@
+[app]
+title = "DeskSuite Hub"
+version = "0.2.0"
+description = "Shared device services and product backends for DeskSuite devices."
+
+[server]
+host = "0.0.0.0"
+port = 8765
+log_level = "info"
+
+[ota]
+firmware_base_version = "1.0.2"
+
+# 这些 provider 由显示渲染、语音和 DeskMate Dashboard 投影共同复用。
+[providers]
+weather = "qweather"
+calendar = "icloud"
+mail = "qq"
+
+[dashboard]
+source_timeout_seconds = 12
+
+[zhipu]
+asr_model = "glm-asr-2512"
+llm_model = "glm-4.7"
+tts_model = "glm-tts"
+tts_voice = "female"
+quota_cache_seconds = 300
+
+[qweather]
+host = "m5759hrw2e.re.qweatherapi.com"
+timeout_seconds = 6
+city_lookup_path = "/geo/v2/city/lookup"
+now_path = "/v7/weather/now"
+daily_path = "/v7/weather/{days}"
+daily_days = "7d"
+minutely_path = "/v7/minutely/5m"
+alert_path = "/weatheralert/v1/current/{latitude}/{longitude}"
+air_path = "/airquality/v1/current/{latitude}/{longitude}"
+moon_path = "/v7/astronomy/moon"
+
+[weather.cache]
+location_seconds = 604800
+now_seconds = 900
+daily_seconds = 10800
+minutely_seconds = 900
+alert_seconds = 900
+air_seconds = 900
+moon_seconds = 21600
+
+[caldav]
+url = "https://caldav.icloud.com/"
+timeout_seconds = 8
+range_days = 7
+max_events = 10
+month_max_events = 100
+
+[caldav.cache]
+events_seconds = 600
+
+[imap]
+host = "imap.qq.com"
+port = 993
+use_ssl = true
+timeout_seconds = 8
+max_messages = 5
+
+[imap.cache]
+inbox_seconds = 180
+
+[rss]
+enabled = true
+feeds = ["https://www.ithome.com/rss/"]
+timeout_seconds = 8
+cache_seconds = 900
+max_items_per_feed = 12
+max_items = 24
+
+[display]
+template_dir = "web/pages"
+output_dir = "rendered_frames"
+framework_css = "web/vendor/trmnl/3.1.2/plugins.min.css.gz"
+framework_js = "web/vendor/trmnl/3.1.2/plugins.min.js.gz"
+shared_css = "web/shared/epaper.css"
+font_file = "web/vendor/fonts/AlibabaPuHuiTi-3-55-Regular.ttf"
+pages = ["demo", "calendar", "month-calendar", "weather", "moon", "rss"]
+default_page = "demo"
+dither = false
+render_timeout_ms = 10000
+keep_versions = 4
+refresh_interval_seconds = 3600
+device_status_min_refresh_seconds = 3600
+
+[display.refresh_schedule]
+timezone = "Asia/Shanghai"
+daily_times = [
+    "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00",
+    "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00",
+    "00:00",
+]
+
+[display.defaults]
+city = "江苏省昆山市"
+timezone = "Asia/Shanghai"
+device_id = "default"
+
+[storage]
+runtime_log_dir = "runtime_logs"
+device_status_dir = "data/device_status"
+log_keep_sessions = 30
+firmware_dir = "firmwares"
+ota_manifest = "firmwares/manifest.json"
+firmware_mount_path = "/firmwares"
+
+[memory]
+enabled = false
+vector_store_path = "data/mem0_chroma"
+collection_name = "photopainter"
+llm_model = "glm-4-plus"
+embedder_model = "embedding-3"
+embedder_dims = 1024
+search_top_k = 5
+search_threshold = 0.3

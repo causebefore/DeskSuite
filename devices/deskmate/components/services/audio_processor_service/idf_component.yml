@@ -1,0 +1,14 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espressif/esp-sr:
+    version: "~2.3.0"
+    rules:
+      - if: target in [esp32s3]
+  espressif/esp_audio_effects:
+    version: "~1.2.1"
+    rules:
+      - if: target in [esp32s3]
+  espressif/cjson:
+    version: "~1.7.19"
+    rules:
+      - if: target in [esp32s3]

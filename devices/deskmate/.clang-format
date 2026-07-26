@@ -1,0 +1,116 @@
+---
+# clang-format 21
+# Allman 括号，4 空格缩进，100 列宽，指针靠右，# 顶格
+# 修改日期 2026-06-10
+# https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+
+# 语言: Cpp 覆盖 C/C++/ObjC (clang-format 无纯 C 选项，Cpp 是唯一选择)
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++03                    # 纯 C 项目，无需 C++ 语法特性解析
+
+# --- 列宽与缩进 ---------------------------------------------------------
+ColumnLimit: 120               # 嵌入式 HAL/寄存器操作常超 80，100 列减少断行
+IndentWidth: 4                 # 4 空格缩进，MISRA-C 推荐
+TabWidth: 4                    # Tab 显示宽度 4
+UseTab: Never                  # 禁止 Tab，全空格，避免不同编辑器对齐差异
+ContinuationIndentWidth: 4     # 续行缩进与主缩进一致，不额外增加层级
+
+# --- 对齐 ----------------------------------------------------------------
+AlignAfterOpenBracket: Align            # 括号内参数对齐到左括号位置
+                                        # [UPGRADE clang-format 22+] 改为 true (类型变为 Boolean，Align→true)
+AlignConsecutiveAssignments: AcrossEmptyLinesAndComments  # 连续赋值对齐，跨空行和注释，变量初始化表更整齐
+AlignConsecutiveBitFields: Consecutive  # 对齐连续位域，寄存器映射表更易读
+AlignConsecutiveDeclarations: Consecutive  # 连续声明对齐（不跨空行和注释），类型/变量名列整齐
+AlignConsecutiveMacros: AcrossEmptyLinesAndComments  # 连续宏定义对齐，跨空行和注释，寄存器表整块对齐
+AlignEscapedNewlines: Left              # 续行反斜杠靠左对齐，不散落在行尾
+AlignOperands: Align                    # 二元运算符前后对齐
+AlignTrailingComments: true             # 行尾注释对齐，代码评审更清晰
+AlignArrayOfStructures: Left            # 结构体数组初始化按左对齐排列
+
+# --- Allman 括号 ---------------------------------------------------------
+BreakBeforeBraces: Custom               # 自定义括号换行规则 (Allman 风格)
+BraceWrapping:
+  AfterControlStatement: Always           # if/for/while/switch 的 '{' 换行
+  AfterEnum: true                       # enum 的 '{' 换行
+  AfterFunction: true                   # 函数体的 '{' 换行
+  AfterStruct: true                     # struct 的 '{' 换行
+  AfterUnion: true                      # union 的 '{' 换行
+  AfterExternBlock: true                # extern "C" 的 '{' 换行
+  BeforeElse: true                      # else 前换行，Allman 风格标志性特征
+  BeforeWhile: true                     # do-while 的 while 前换行
+  SplitEmptyFunction: true              # 空函数体 { } 各占一行
+  SplitEmptyRecord: true                # 空 struct/union { } 各占一行
+
+# --- 断行 ----------------------------------------------------------------
+AllowAllArgumentsOnNextLine: false      # 不允许所有参数挤到下一行，保持与声明对齐
+AllowAllParametersOfDeclarationOnNextLine: false  # 函数声明参数不在同一行时每行一个
+AllowShortBlocksOnASingleLine: Empty    # 仅空块允许单行 { }，非空块必须换行
+AllowShortEnumsOnASingleLine: false     # enum 不允许单行，展开便于阅读枚举值
+AllowShortFunctionsOnASingleLine: None  # 函数体不允许单行，全部展开
+AllowShortIfStatementsOnASingleLine: Never  # if 语句不允许单行
+AllowShortLoopsOnASingleLine: false     # 循环不允许单行，嵌入式要求明确块边界
+BreakStringLiterals: false              # 不自动断字符串，嵌入式 log/断言字符串保持完整
+AlwaysBreakBeforeMultilineStrings: true # 多行字符串前换行，避免字符串粘在行尾
+BreakBeforeBinaryOperators: NonAssignment  # 赋值=留行尾，其他运算符放行首，扫行首即可识别续行
+BreakBeforeTernaryOperators: true      # 三元运算符 ? 和 : 前换行
+BinPackArguments: false                # 函数调用参数不打包，每行一个，便于调试观察
+                                        # [UPGRADE clang-format 23+] 改为 PackArguments: {BinPack: false}
+
+# --- 缩进规则 ------------------------------------------------------------
+IndentCaseLabels: true                  # case 相对 switch 缩进一层，层级更清晰
+IndentCaseBlocks: false                 # case 块内不额外缩进，配合 case 对齐
+IndentGotoLabels: false                  # goto 标签顶格，不缩进 (false=NoIndent)
+IndentPPDirectives: BeforeHash         # 嵌套预处理指令 # 前缩进，直观对应 #endif 层级
+IndentExternBlock: Indent              # extern 块内容缩进
+IndentWrappedFunctionNames: true       # 函数声明分行时，函数名额外缩进 ContinuationIndentWidth
+
+# --- 空格 ----------------------------------------------------------------
+SpaceAfterCStyleCast: true              # C 风格转换后加空格: (int) x，类型与值之间更清晰
+SpaceBeforeParens: ControlStatements    # 仅控制语句括号前加空格: if (x), func(x)
+SpacesBeforeTrailingComments: 2        # 行尾注释前留 2 个空格
+BitFieldColonSpacing: Both              # 位域冒号两侧加空格: field : 3
+
+# --- 空行 ----------------------------------------------------------------
+MaxEmptyLinesToKeep: 2                  # 最多保留 2 个连续空行，分隔逻辑段落
+KeepEmptyLines:                         # 空行保留策略 (替代已弃用的 KeepEmptyLinesAtTheStartOfBlocks)
+  AtStartOfBlock: false                 # 块开头不留空行，符合嵌入式紧凑风格
+SeparateDefinitionBlocks: Always        # 定义块之间始终插入空行
+
+# --- 指针与引用 -----------------------------------------------------------
+DerivePointerAlignment: false           # 不从代码推断，强制使用 PointerAlignment 策略
+PointerAlignment: Right                 # 指针星号靠右: int *p，避免 int* a, b 歧义
+ReferenceAlignment: Pointer             # 引用 & 同指针对齐策略
+
+# --- 其他 ----------------------------------------------------------------
+SortIncludes: false                     # HAL 头文件有隐式依赖顺序，禁止自动排序
+ReflowComments: Never                   # 保护寄存器表格和 Doxygen 对齐块不被重排
+Cpp11BracedListStyle: false             # C 风格大括号初始化，嵌入式更自然: { 1, 2, 3 }
+InsertNewlineAtEOF: true                # 文件末尾保证换行，符合 POSIX 规范
+InsertBraces: true                      # MISRA-C 15.6: 单行 if/else/for/while 自动加括号
+LineEnding: LF                          # 统一 LF 换行，避免 CRLF/LF 混乱
+
+# --- 宏识别 --------------------------------------------------------------
+# 告诉 clang-format 这些标识符是宏而非函数调用，避免错误格式化
+AttributeMacros:
+  - __attribute__
+  - __packed
+  - __aligned
+ForEachMacros:
+  - foreach
+  - FOREACH
+  - list_for_each
+  - list_for_each_entry
+  - list_for_each_safe
+IfMacros:
+  - IF
+  - LIKELY
+  - UNLIKELY
+StatementMacros:
+  - Q_UNUSED
+  - UNUSED
+  - configASSERT                       # FreeRTOS 断言宏
+  - STATIC_ASSERT                      # 嵌入式静态断言
+TypenameMacros:
+  - STACK_OF
+  - LIST_ENTRY

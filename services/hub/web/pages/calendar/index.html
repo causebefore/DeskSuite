@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, initial-scale=1">
+  <title>PhotoPainter Calendar</title>
+  <!-- PHOTO_PAINTER_FRAMEWORK_STYLE -->
+  <!-- PHOTO_PAINTER_STYLE -->
+</head>
+<body class="trmnl">
+  <main class="screen screen--og screen--2bit screen--no-bleed">
+    <div class="view view--full">
+      <div class="layout calendar-page">
+        <aside class="date-rail" aria-label="今日日期">
+          <div class="brand label label--small label--inverted font--bold">PHOTO PAINTER</div>
+          <div id="weekday" class="weekday title title--base font--bold pp-cn">--</div>
+          <div id="day" class="day value value--xxlarge value--tnums font--bold">--</div>
+          <div id="month" class="month content content--base font--bold pp-cn">----</div>
+          <div class="rail-rule divider divider--h"></div>
+          <div class="rail-caption label label--small font--bold">TODAY · AGENDA</div>
+        </aside>
+
+        <section class="schedule" aria-label="日程">
+          <header class="schedule-header flex flex--row flex--between">
+            <div>
+              <div class="eyebrow label label--small pp-cn-min">CALENDAR · 日程</div>
+              <h1 class="title title--large font--bold pp-cn">今日安排</h1>
+            </div>
+            <div class="header-meta">
+              <strong id="time" class="value value--small value--tnums font--bold">--:--</strong>
+              <span id="event-count" class="label label--small label--inverted pp-cn-min">--</span>
+            </div>
+          </header>
+
+          <div id="calendar" class="event-list list gap--none"></div>
+          <footer class="schedule-footer flex flex--row flex--between flex--bottom gap--medium content content--small pp-cn-min">
+            <span id="date" class="footer-date">----</span>
+            <span>同步自 iCloud Calendar</span>
+          </footer>
+        </section>
+      </div>
+    </div>
+  </main>
+  <!-- PHOTO_PAINTER_FRAMEWORK_SCRIPT -->
+  <!-- PHOTO_PAINTER_SCRIPT -->
+</body>
+</html>

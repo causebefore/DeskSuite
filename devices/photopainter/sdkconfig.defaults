@@ -1,0 +1,63 @@
+# ============================================================
+# PhotoPainter ESP-IDF 默认配置 (sdkconfig.defaults)
+# ============================================================
+
+# --- Flash 配置 ---
+# Flash 大小设置为 32MB
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
+
+# 主任务栈大小 8KB
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# --- 分区表配置 ---
+# 使用自定义分区表（而非默认分区表）
+CONFIG_PARTITION_TABLE_CUSTOM=y
+# 指定自定义分区表文件路径
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# --- SPIRAM（外部 PSRAM）配置 ---
+# 启用 SPIRAM
+CONFIG_SPIRAM=y
+# 使用 Octal（八线）模式，带宽更高
+CONFIG_SPIRAM_MODE_OCT=y
+# SPIRAM 类型自动检测
+CONFIG_SPIRAM_TYPE_AUTO=y
+# SPIRAM 时钟频率 80MHz
+CONFIG_SPIRAM_SPEED_80M=y
+# 跳过 SPIRAM 内存测试（加快启动速度）
+CONFIG_SPIRAM_MEMTEST=n
+# 小于 512 字节的分配优先使用内部 RAM（提高小分配性能）
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
+# 为内部 RAM 预留 64KB，防止内部内存被耗尽
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+
+# --- FAT 文件系统配置 ---
+# 启用长文件名支持，使用堆内存存储
+CONFIG_FATFS_LFN_HEAP=y
+# 最大长文件名长度 255 字符
+CONFIG_FATFS_MAX_LFN=255
+# 文件名编码使用 UTF-8
+CONFIG_FATFS_API_ENCODING_UTF_8=y
+# 最大同时打开文件数 8
+CONFIG_FATFS_FS_LOCK=8
+# 启用每文件缓存（提升读写性能）
+CONFIG_FATFS_PER_FILE_CACHE=y
+
+# --- 网络默认配置 ---
+# SSID 留空时首次启动进入 Portal 配网；仅联调固件需要自动联网时才填写以下默认值
+CONFIG_NETWORK_MANAGER_DEFAULT_SSID=""
+CONFIG_NETWORK_MANAGER_DEFAULT_PASSWORD=""
+CONFIG_NETWORK_MANAGER_DEFAULT_SERVICE_URL=""
+CONFIG_CONNECT_PORTAL_SSID="PhotoPainter-Setup"
+CONFIG_CONNECT_PORTAL_PASSWORD="photopainter"
+CONFIG_CONNECT_PORTAL_DEFAULT_SERVICE_URL="192.168.6.248:8765"
+
+# --- OTA 升级配置 ---
+# 启用 OTA 应用回滚功能（升级失败可自动回退到上一版本）
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+
+# log相关配置
+CONFIG_LOG_VERSION_2=y
+CONFIG_LOG_MODE_TEXT=y
+CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM_FULL=y

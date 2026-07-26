@@ -1,0 +1,134 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Directory metadata
+.directory
+
+# Temporary files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Log files
+*.log
+
+# Build artifacts and directories
+**/build/
+build/
+*.o
+*.a
+*.out
+*.exe # For any host-side utilities compiled on Windows
+
+# ESP-IDF specific build outputs
+*.bin
+*.elf
+*.map
+flasher_args.json # Generated in build directory
+sdkconfig.old
+sdkconfig
+
+# ESP-IDF dependencies
+# For older versions or manual component management
+/components/.idf/
+**/components/.idf/
+# For modern ESP-IDF component manager
+managed_components/
+# If ESP-IDF tools are installed/referenced locally to the project
+.espressif/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+
+# Python environment files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.egg-info/
+dist/
+
+# Virtual environment folders
+venv/
+.venv/
+env/
+
+# Language Servers
+.clangd/
+.ccls-cache/
+compile_commands.json
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# User-specific configuration files
+*.user
+*.workspace # General workspace files, can be from various tools
+*.suo       # Visual Studio Solution User Options
+*.sln.docstates # Visual Studio
+
+# Superpowers plugin generated files
+.superpowers/
+
+# VS Code workspace settings
+.vscode/
+
+# CodeGraph
+.codegraph/
+
+# Font generation artifacts
+tools/fonts/*.ttf
+tools/fonts/node_modules/
+
+# Demo projects (reference only)
+demo/
+
+# Git worktrees
+.worktrees/
+.understand-anything/.understandignore
+.understand-anything/config.json
+.understand-anything/diff-overlay.json
+.understand-anything/fingerprints.json
+.understand-anything/knowledge-graph.json
+.understand-anything/meta.json
+.understand-anything/.trash-20260709170950/assembled-graph.json
+.understand-anything/.trash-20260709170950/batch-1.json
+.understand-anything/.trash-20260709170950/batch-2.json
+.understand-anything/.trash-20260709170950/batch-3.json
+.understand-anything/.trash-20260709170950/batch-4.json
+.understand-anything/.trash-20260709170950/batch-5.json
+.understand-anything/.trash-20260709170950/batch-6.json
+.understand-anything/.trash-20260709170950/batch-7.json
+.understand-anything/.trash-20260709170950/batch-8.json
+.understand-anything/.trash-20260709170950/batch-9.json
+.understand-anything/.trash-20260709170950/batch-10.json
+.understand-anything/.trash-20260709170950/batches.json
+.understand-anything/.trash-20260709170950/fingerprint-input.json
+.understand-anything/.trash-20260709170950/import-map.json
+.understand-anything/.trash-20260709170950/layers.json
+.understand-anything/.trash-20260709170950/review.json
+.understand-anything/.trash-20260709170950/tour.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-1.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-2.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-3.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-4.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-5.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-6.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-7.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-8.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-9.json
+.understand-anything/.trash-20260709170950/tmp/batch-input-10.json
+.understand-anything/.trash-20260709170950/tmp/convert-batch-to-graph.mjs
+.understand-anything/.trash-20260709170950/tmp/import-map-input.json
+.understand-anything/.trash-20260709170950/tmp/ua-inline-validate.cjs
+.understand-anything/intermediate/scan-result.json

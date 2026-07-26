@@ -1,0 +1,28 @@
+# 密钥
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# 运行时输出
+runtime_logs/
+rendered_frames/
+
+# 长期记忆等本地运行时数据
+data/
+
+# OTA 运行时制品（由设备仓库发布工具原子写入，不入库）
+firmwares/*.bin
+firmwares/manifest.json
+
+# 本机工具状态
+.idea/
+.codegraph/
+
+# Superpowers SDD scratch（任务 brief / report / review diff，不入库）
+.superpowers/
+
+debug_audio/

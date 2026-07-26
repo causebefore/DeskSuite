@@ -1,0 +1,217 @@
+.month-calendar-page {
+  display: grid !important;
+  grid-template-columns: 268px 532px;
+  grid-template-rows: 480px;
+  gap: 0;
+  padding: 0 !important;
+}
+
+.month-panel,
+.agenda-panel {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-background);
+  border: 0;
+}
+
+.month-panel {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-rows: 66px 36px 378px;
+}
+
+.month-header {
+  min-width: 0;
+  padding: 7px 10px 5px;
+  border-bottom: 2px solid var(--color-text);
+}
+.month-heading { min-width: 0; }
+.month-heading > div { color: var(--color-secondary); letter-spacing: .6px; }
+.month-heading h1 {
+  overflow: hidden;
+  margin: 1px 0 0;
+  letter-spacing: .5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.month-meta {
+  flex: 0 0 118px;
+  min-width: 0;
+  text-align: right;
+}
+.month-meta strong,
+.month-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.month-meta span { color: var(--color-secondary); }
+
+.weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 76px);
+  height: 36px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-text);
+}
+.weekday-row span {
+  display: grid;
+  place-items: center;
+  height: 35px;
+  border-right: 1px solid var(--color-secondary);
+}
+.weekday-row span:last-child { border-right: 0; }
+
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 76px);
+  grid-template-rows: repeat(6, 63px);
+  width: 532px;
+  height: 378px;
+}
+.calendar-day {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 6px;
+  border-right: 1px solid var(--color-secondary);
+  border-bottom: 1px solid var(--color-secondary);
+}
+.calendar-day:nth-child(7n) { border-right: 0; }
+.calendar-day:nth-child(n+36) { border-bottom: 0; }
+.calendar-day.is-outside {
+  color: var(--color-secondary);
+  background: var(--color-surface);
+}
+.day-number {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  font-size: 18px;
+  line-height: 22px;
+}
+.calendar-day.is-today .day-number {
+  color: var(--color-background);
+  background: var(--color-text);
+}
+.event-markers {
+  position: absolute;
+  bottom: 6px;
+  left: 7px;
+  height: 10px;
+}
+.event-marker,
+.legend-marker {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  background: var(--color-text);
+}
+.calendar-day.is-outside .event-marker { background: var(--color-secondary); }
+.event-overflow {
+  color: var(--color-secondary);
+  font: 900 10px/10px Arial, sans-serif;
+}
+
+.agenda-panel {
+  display: grid;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-rows: 150px 40px 260px 30px;
+  border-right: 3px solid var(--color-text);
+}
+.today-hero {
+  overflow: hidden;
+  padding: 11px 12px 9px;
+  color: var(--color-background);
+  background: var(--color-text);
+}
+.today-hero > .label { color: var(--color-background); letter-spacing: .7px; }
+.today-main { height: 112px; }
+.today-day {
+  overflow: hidden;
+  color: var(--color-background);
+  letter-spacing: -5px;
+  white-space: nowrap;
+}
+.today-copy {
+  min-width: 0;
+  padding-bottom: 9px;
+  color: var(--color-background);
+  text-align: right;
+}
+.today-copy span {
+  overflow: hidden;
+  color: var(--color-background);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-heading {
+  padding: 0 9px;
+  border-bottom: 2px solid var(--color-text);
+}
+.agenda-heading span { color: var(--color-secondary); }
+.agenda-list {
+  height: 260px;
+  overflow: hidden;
+}
+.agenda-item {
+  width: 100%;
+  height: 65px;
+  min-width: 0;
+  padding: 5px 7px;
+  border-bottom: 1px solid var(--color-surface);
+}
+.agenda-item:last-child { border-bottom: 0; }
+.agenda-when {
+  flex: 0 0 53px;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 7px;
+  border-right: 2px solid var(--color-text);
+}
+.agenda-when span,
+.agenda-when strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agenda-when span { color: var(--color-secondary); }
+.agenda-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 8px;
+}
+.agenda-title,
+.agenda-location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agenda-location { color: var(--color-secondary); }
+.agenda-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 18px;
+  color: var(--color-secondary);
+  text-align: center;
+}
+.agenda-footer {
+  min-width: 0;
+  padding: 0 7px;
+  border-top: 1px solid var(--color-secondary);
+}
+.agenda-footer > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

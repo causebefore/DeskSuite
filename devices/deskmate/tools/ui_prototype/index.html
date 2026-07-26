@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeskMate · TRMNL Dashboard System</title>
+  <style>
+    @font-face { font-family: "DeskMate Regular"; src: url("../../../tools/fonts2bin/fronts/AlibabaPuHuiTi-3-55-Regular.ttf") format("truetype"); font-weight: 400; }
+    @font-face { font-family: "DeskMate SemiBold"; src: url("../../../tools/fonts2bin/fronts/AlibabaPuHuiTi-3-75-SemiBold.ttf") format("truetype"); font-weight: 600; }
+    @font-face { font-family: "DeskMate Mono"; src: url("../../../tools/fonts2bin/fronts/JetBrainsMono-Regular.ttf") format("truetype"); font-weight: 400; }
+    :root {
+      --desk: #171717;
+      --panel: #202020;
+      --panel-line: #3a3a3a;
+      --muted: #a5a5a5;
+      --light: #f5f5f5;
+      --accent: #d6ff3f;
+      --ink: #000;
+      --paper: #fff;
+      --space-1: 8px;
+      --space-2: 12px;
+      --space-3: 16px;
+      --line: 1px;
+      --line-strong: 2px;
+      --bar: 4px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      min-width: 1000px;
+      margin: 0;
+      background: var(--desk);
+      color: var(--light);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    }
+
+    .prototype-shell { display: grid; grid-template-columns: 248px minmax(670px, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; background: #111; border-right: 1px solid var(--panel-line); padding: 22px 14px; }
+    .eyebrow { margin: 0 0 7px; color: var(--accent); font: 700 10px/1 ui-monospace, Consolas, monospace; letter-spacing: .15em; }
+    .brand { margin: 0; font-size: 20px; letter-spacing: -.04em; }
+    .brand-sub { margin: 8px 0 24px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .nav-heading { margin: 20px 8px 8px; color: #777; font: 700 10px/1 ui-monospace, Consolas, monospace; letter-spacing: .12em; }
+    .nav-list { display: grid; gap: 3px; }
+    .nav-button, .control-button {
+      width: 100%; border: 1px solid transparent; border-radius: 0; background: transparent; color: #ddd;
+      font: 600 13px/1.2 "Microsoft YaHei", sans-serif; text-align: left; cursor: pointer;
+    }
+    .nav-button { display: flex; align-items: center; justify-content: space-between; padding: 10px 9px; }
+    .nav-button:hover, .nav-button.active { border-color: var(--panel-line); background: var(--panel); color: #fff; }
+    .nav-button.active::before { content: ""; position: absolute; width: 3px; height: 28px; margin-left: -10px; background: var(--accent); }
+    .nav-index { color: #777; font: 11px/1 ui-monospace, Consolas, monospace; }
+    .control-stack { display: grid; gap: 7px; margin-top: 11px; }
+    .control-button { padding: 9px; border-color: var(--panel-line); font-size: 12px; }
+    .control-button:hover, .control-button.active { border-color: var(--accent); color: #fff; }
+    .side-foot { margin: 26px 8px 0; color: #777; font-size: 10px; line-height: 1.7; }
+
+    .workspace { display: grid; place-items: start center; gap: 18px; padding: 30px; }
+    .workspace-head { width: min(100%, 780px); display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+    .workspace h2 { margin: 0; font-size: 18px; }
+    .workspace p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    .mode-badge { border: 1px solid var(--panel-line); padding: 5px 8px; color: var(--accent); font: 700 10px/1 ui-monospace, Consolas, monospace; letter-spacing: .08em; white-space: nowrap; }
+    .device-frame { position: relative; width: 468px; padding: 34px 34px 28px; background: #2a2a2a; border: 1px solid #474747; box-shadow: 0 24px 70px #0008; }
+    .device-frame::before { content: "DESKMATE / 400 × 300 / I1 DASHBOARD"; position: absolute; top: 12px; left: 0; width: 100%; color: #aaa; font: 10px/1 ui-monospace, Consolas, monospace; letter-spacing: .08em; text-align: center; }
+
+    .device-screen {
+      position: relative; width: 400px; height: 300px; overflow: hidden; background: var(--paper); color: var(--ink);
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    }
+    .device-screen.preview { --paper: #ece9df; --ink: #1c1a16; }
+    .device-screen.mono { --paper: #fff; --ink: #000; }
+    .statusbar { position: relative; display: grid; grid-template-columns: 104px 1fr 122px; align-items: center; height: 32px; padding: 0 12px; color: var(--ink); }
+    .statusbar::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 4px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .page-label { display: inline-flex; width: max-content; max-width: 96px; padding: 3px 7px; overflow: hidden; background: var(--ink); color: var(--paper); font-size: 14px; font-weight: 700; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+    .status-time { font-family: ui-monospace, Consolas, monospace; font-size: 14px; letter-spacing: .08em; text-align: center; }
+    .status-meta { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+    .screen-body { position: relative; height: 268px; overflow: hidden; }
+    .screen-overlay { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; background: #000; color: #fff; }
+    .screen-overlay[hidden] { display: none; }
+
+    .ui-icon { display: inline-block; flex: 0 0 auto; width: 20px; height: 20px; color: currentColor; fill: none; stroke: currentColor; stroke-linecap: square; stroke-linejoin: miter; stroke-width: 1.8; }
+    .ui-icon.small { width: 15px; height: 15px; stroke-width: 2; }
+    .page { height: 100%; padding: var(--space-3); }
+    .page-topline { display: flex; align-items: center; justify-content: space-between; min-height: 20px; margin-bottom: 10px; color: var(--ink); font: 700 11px/1 ui-monospace, Consolas, monospace; letter-spacing: .07em; }
+    .page-topline .rule { flex: 1; height: 1px; margin-left: 8px; background: var(--ink); }
+    .module { min-width: 0; }
+    .module-label { margin: 0 0 6px; font-size: 16px; line-height: 1; }
+    .title-24 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.18; letter-spacing: -.05em; }
+    .title-32 { margin: 0; font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -.08em; }
+    .number-24, .number-48, .number-64 { font-family: ui-monospace, Consolas, monospace; font-weight: 800; letter-spacing: -.08em; line-height: .92; }
+    .number-24 { font-size: 24px; }
+    .number-48 { font-size: 48px; }
+    .number-64 { font-size: 64px; }
+    .meta { margin: 0; font-size: 16px; line-height: 1.3; }
+    .submeta { margin: 0; font-size: 12px; line-height: 1.35; }
+    .divider { height: 1px; background: var(--ink); }
+    .divider.strong { height: 2px; }
+    .chip { display: inline-block; padding: 3px 6px; background: var(--ink); color: var(--paper); font-size: 12px; line-height: 1; }
+    .dot { display: inline-block; width: 8px; height: 8px; border: 1px solid var(--ink); border-radius: 50%; }
+    .dot.solid { background: var(--ink); }
+    .progress { height: 8px; border: 1px solid var(--ink); padding: 1px; }
+    .progress > span { display: block; height: 100%; background: var(--ink); }
+
+    .home-hero { padding-top: 3px; text-align: center; }
+    .home-date { margin-top: 7px; font-size: 16px; }
+    .home-grid { display: grid; grid-template-columns: 1fr 1fr; margin-top: 16px; border-top: 1px solid var(--ink); }
+    .home-card { min-height: 119px; padding: 14px 12px 0 0; }
+    .home-card + .home-card { border-left: 1px solid var(--ink); padding-right: 0; padding-left: 14px; }
+    .weather-hero-line { display: flex; align-items: center; gap: 11px; }
+    .weather-icon-large { width: 55px; height: 55px; }
+    .weather-summary { display: grid; gap: 6px; margin-top: 7px; }
+    .split-text { display: flex; justify-content: space-between; gap: 8px; }
+
+    .qweather-icon { display: inline-block; flex: 0 0 auto; width: 20px; height: 20px; color: currentColor; fill: currentColor; }
+    .qweather-icon.hero { width: 48px; height: 48px; }
+    .qweather-icon.home { width: 48px; height: 48px; }
+    .qweather-icon.nav { width: 15px; height: 15px; }
+    .weather-page { position: relative; padding: 0; }
+    .weather-band { display: grid; grid-template-columns: 58px 1fr 58px; align-items: center; height: 30px; padding: 0 6px; border-bottom: 2px solid var(--ink); }
+    .weather-band .city { margin: 0; font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: -.06em; }
+    .weather-alert { overflow: hidden; padding: 3px 5px; background: var(--ink); color: var(--paper); font-size: 12px; line-height: 1; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+    .weather-status { justify-self: end; padding: 3px 4px; background: var(--ink); color: var(--paper); font-size: 12px; line-height: 1; }
+    .weather-firmware-hero { position: absolute; top: 40px; left: 20px; display: grid; grid-template-columns: 52px 1fr; column-gap: 8px; width: 170px; }
+    .weather-firmware-temp { margin: -2px 0 0; font: 800 48px/.94 ui-monospace, Consolas, monospace; letter-spacing: -.1em; }
+    .weather-firmware-cond { grid-column: 2; margin: 0; font-size: 24px; font-weight: 700; line-height: 1.1; letter-spacing: -.05em; }
+    .weather-firmware-air { position: absolute; top: 82px; left: 64px; margin: 0; font-size: 16px; line-height: 1.1; white-space: nowrap; }
+    .weather-firmware-vline { position: absolute; top: 34px; left: 198px; width: 1px; height: 106px; background: var(--ink); }
+    .weather-firmware-metrics { position: absolute; top: 42px; left: 208px; display: grid; grid-template-columns: repeat(2, 82px); grid-auto-rows: 30px; gap: 0 22px; }
+    .weather-firmware-metric { display: grid; grid-template-columns: 34px 48px; align-items: center; font-size: 16px; line-height: 1; }
+    .weather-firmware-metric span:last-child { text-align: right; }
+    .weather-firmware-forecast { position: absolute; top: 148px; right: 0; left: 0; display: grid; grid-template-columns: repeat(3, 1fr); height: 98px; border-top: 1px solid var(--ink); }
+    .weather-forecast-item { display: grid; justify-items: center; align-content: start; gap: 3px; padding-top: 7px; text-align: center; }
+    .weather-forecast-item + .weather-forecast-item { border-left: 1px solid var(--ink); }
+    .weather-forecast-item p { margin: 0; line-height: 1.1; }
+    .weather-forecast-item .weather-day { font-size: 16px; }
+    .weather-forecast-item .weather-copy { font-size: 12px; }
+    .weather-forecast-item .weather-temp { font-size: 16px; }
+    .weather-firmware-footer { position: absolute; top: 250px; right: 10px; left: 10px; display: flex; justify-content: space-between; font-size: 12px; line-height: 1; }
+
+    .list-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 2px solid var(--ink); }
+    .list { margin: 0; padding: 0; list-style: none; }
+    .list-row { display: grid; grid-template-columns: 74px 1fr auto; gap: 8px; align-items: start; padding: 11px 0; border-bottom: 1px solid var(--ink); }
+    .row-time { font: 700 12px/1.25 ui-monospace, Consolas, monospace; }
+    .row-main { min-width: 0; }
+    .row-title { display: block; overflow: hidden; font-size: 20px; font-weight: 700; line-height: 1.14; text-overflow: ellipsis; white-space: nowrap; }
+    .row-detail { display: block; margin-top: 4px; overflow: hidden; font-size: 12px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+    .list-row.read .row-title { font-size: 16px; font-weight: 500; }
+
+    .quota-lvgl { position: relative; padding: 10px 10px 0; }
+    .quota-row { position: relative; height: 70px; }
+    .quota-row-head { display: flex; align-items: center; justify-content: space-between; width: 380px; }
+    .quota-row-name { margin: 0; font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: -.05em; }
+    .quota-reset { margin: 0; font-size: 12px; line-height: 1; }
+    .quota-row .progress { width: 300px; height: 10px; margin-top: 8px; }
+    .quota-percent { position: absolute; top: 30px; right: 0; min-width: 52px; font: 700 16px/1 ui-monospace, Consolas, monospace; text-align: right; }
+    .quota-percent.warn { padding: 3px 5px; background: var(--ink); color: var(--paper); }
+    .quota-updated { position: absolute; top: 230px; right: 10px; left: 10px; padding-top: 7px; border-top: 1px solid var(--ink); font-size: 12px; line-height: 1; text-align: right; }
+
+    .settings-list { margin-top: 5px; border-top: 2px solid var(--ink); }
+    .settings-action { display: grid; grid-template-columns: 30px 1fr auto; width: 100%; align-items: center; gap: 10px; padding: 13px 0; border: 0; border-bottom: 1px solid var(--ink); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+    .settings-action:hover { background: var(--ink); color: var(--paper); }
+    .settings-action .ui-icon { width: 22px; height: 22px; }
+    .chevron { font: 700 18px/1 ui-monospace, Consolas, monospace; }
+
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 2px solid var(--ink); border-left: 1px solid var(--ink); }
+    .metric-cell { min-height: 68px; padding: 10px 10px 5px; border-right: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .metric-cell .submeta { margin-bottom: 5px; }
+    .system-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+    .signal { display: flex; align-items: end; gap: 3px; height: 18px; }
+    .signal span { width: 5px; background: var(--ink); }
+
+    .voice-page { display: grid; place-items: center; padding: 0 28px; text-align: center; }
+    .voice-state { display: grid; justify-items: center; gap: 13px; margin-top: -9px; }
+    .voice-wave { display: flex; align-items: center; justify-content: center; gap: 7px; width: 200px; height: 52px; }
+    .voice-wave span { display: block; width: 10px; height: 12px; background: var(--ink); animation: wave 650ms ease-in-out infinite alternate; }
+    .voice-wave span:nth-child(2) { animation-delay: 80ms; }.voice-wave span:nth-child(3) { animation-delay: 150ms; }.voice-wave span:nth-child(4) { animation-delay: 220ms; }.voice-wave span:nth-child(5) { animation-delay: 150ms; }.voice-wave span:nth-child(6) { animation-delay: 80ms; }.voice-wave span:nth-child(7) { animation-delay: 0ms; }
+    .voice-note { margin-top: 16px; font-size: 16px; }
+    .focus-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ink); animation: pulse 1.4s steps(2) infinite; }
+
+    .font-lab { display: grid; align-content: start; }
+    .font-sample { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: center; min-height: 31px; border-bottom: 1px solid var(--ink); }
+    .font-sample--24 { min-height: 39px; }
+    .font-sample--32 { min-height: 49px; }
+    .font-sample--48 { min-height: 66px; border-bottom: 0; }
+    .font-tag { font: 700 10px/1 ui-monospace, Consolas, monospace; letter-spacing: .06em; }
+    .font-preview { color: var(--ink); white-space: nowrap; }
+    .font-preview--16 { font: 16px/1.1 "DeskMate Regular", "Microsoft YaHei", sans-serif; }
+    .font-preview--16-semi { font: 16px/1.1 "DeskMate SemiBold", "Microsoft YaHei", sans-serif; }
+    .font-preview--24 { font: 24px/1 "DeskMate Regular", "Microsoft YaHei", sans-serif; }
+    .font-preview--24-semi { font: 24px/1 "DeskMate SemiBold", "Microsoft YaHei", sans-serif; }
+    .font-preview--32 { font: 32px/.95 "DeskMate Regular", "Microsoft YaHei", sans-serif; letter-spacing: -.06em; }
+    .font-preview--48 { font: 48px/.9 "DeskMate Mono", ui-monospace, monospace; letter-spacing: -.08em; }
+
+    .ota-panel { width: 292px; padding: 18px; border: 2px solid #fff; background: #000; color: #fff; }
+    .ota-panel h3 { margin: 0 0 14px; color: #fff; font-size: 24px; letter-spacing: -.05em; }
+    .ota-panel .progress { height: 10px; border-color: #fff; padding: 1px; }
+    .ota-panel .progress > span { width: 67%; background: #fff; }
+    .ota-meta { display: flex; justify-content: space-between; margin-top: 9px; font: 700 12px/1 ui-monospace, Consolas, monospace; }
+
+    .svg-spin { transform-origin: center; animation: spin 11s linear infinite; }
+    .svg-dash { stroke-dasharray: 3 3; animation: dash 1.8s linear infinite; }
+    .motion-paused *, .motion-paused *::before, .motion-paused *::after { animation-play-state: paused !important; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes dash { to { stroke-dashoffset: -12; } }
+    @keyframes wave { from { height: 9px; } to { height: 47px; } }
+    @keyframes pulse { 0%,100% { transform: scale(.6); } 50% { transform: scale(1); } }
+    @keyframes scan { to { left: 400px; } }
+
+    .screen-note { width: min(100%, 780px); display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 14px 16px; border: 1px solid var(--panel-line); background: #1b1b1b; }
+    .note-title { margin: 0 0 5px; font-size: 13px; }
+    .note-copy { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .note-tags { display: flex; flex-wrap: wrap; align-content: start; justify-content: end; gap: 5px; }
+    .note-tags span { border: 1px solid #555; padding: 4px 6px; color: #bbb; font: 10px/1 ui-monospace, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <div class="prototype-shell">
+    <aside class="sidebar">
+      <p class="eyebrow">DESKMATE / UI SYSTEM</p>
+      <h1 class="brand">TRMNL Dashboard</h1>
+      <p class="brand-sub">v4 · 统一视觉规范原型<br>400 × 300 · 1-bit target</p>
+
+      <p class="nav-heading">DAILY LOOP</p>
+      <nav class="nav-list" id="mainNav"></nav>
+
+      <p class="nav-heading">CONTEXTUAL</p>
+      <nav class="nav-list" id="contextNav"></nav>
+
+      <p class="nav-heading">DISPLAY</p>
+      <div class="control-stack">
+        <button class="control-button" id="monoButton" type="button">显示桌面材质</button>
+        <button class="control-button" id="motionButton" type="button">暂停局部动画</button>
+        <button class="control-button" id="serverButton" type="button">服务端：在线</button>
+      </div>
+
+      <p class="side-foot">屏幕中不呈现实体按键提示。<br>此侧栏仅用于原型浏览。</p>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-head">
+        <div><h2 id="workspaceTitle">首页 / Hero + Grid</h2><p id="workspaceSub">时间是唯一 hero；天气与下个日程回答最常看的两个问题。</p></div>
+        <span class="mode-badge" id="modeBadge">TRUE MONO</span>
+      </header>
+
+      <section class="device-frame" aria-label="DeskMate 屏幕原型">
+        <div class="device-screen mono" id="screen">
+          <header class="statusbar" id="statusbar"></header>
+          <main class="screen-body" id="screenBody"></main>
+          <section class="screen-overlay" id="screenOverlay" hidden></section>
+        </div>
+      </section>
+
+      <section class="screen-note" id="screenNote"></section>
+    </main>
+  </div>
+
+  <script>
+    const ICONS = {
+      home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5h5v5"/>',
+      calendar: '<rect x="3.5" y="5" width="17" height="15"/><path d="M7.5 3v4M16.5 3v4M3.5 9h17M7.5 13h3M7.5 16h7"/>',
+      mail: '<rect x="3" y="5" width="18" height="14"/><path d="m3.5 6 8.5 7 8.5-7"/>',
+      quota: '<path d="M4 19V9M9 19V5M14 19v-7M19 19V3"/><path d="M3 20h18"/>',
+      settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3"/>',
+      info: '<circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7.2v.1"/>',
+      code: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
+      voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5v3M8.5 20.5h7"/>',
+      wifi: '<path d="M3 9a13 13 0 0 1 18 0M6 12a9 9 0 0 1 12 0M9.2 15.2a4.5 4.5 0 0 1 5.6 0"/><circle cx="12" cy="19" r=".8" fill="currentColor"/>',
+      sync: '<path d="M4 8h12l-3-3M20 16H8l3 3"/><path d="m16 8-3 3M8 16l3-3"/>',
+      'sync-off': '<path d="M4 8h12l-3-3M20 16H8l3 3"/><path d="m16 8-3 3M8 16l3-3M4 4l16 16"/>',
+      battery: '<rect x="3" y="7" width="17" height="10"/><path d="M21 10v4"/><rect x="5" y="9" width="10" height="6" fill="currentColor" stroke="none"/>',
+      server: '<rect x="4" y="4" width="16" height="6"/><rect x="4" y="14" width="16" height="6"/><path d="M7 7h.1M7 17h.1M10 7h6M10 17h6"/>',
+      check: '<path d="m4 12 5 5L20 6"/>',
+      arrow: '<path d="m9 5 7 7-7 7"/>'
+    };
+
+    function icon(name, className = '') {
+      return `<svg class="ui-icon ${className}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+    }
+
+    // QWeather Icons: 100/101/104，与 weather_icons.c 的和风天气 code 映射保持一致。
+    // 源图标：https://github.com/qwd/Icons（本原型内联 SVG；固件继续使用转换后的 I1 位图）。
+    const QWEATHER_ICONS = {
+      100: '<path d="M8.005 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm.004-.997a.5.5 0 0 1-.5-.5v-1.5a.5.5 0 0 1 1 0v1.5a.5.5 0 0 1-.5.5ZM3.766 4.255a.498.498 0 0 1-.353-.147l-1.062-1.06a.5.5 0 0 1 .707-.707L4.122 3.4a.5.5 0 0 1-.355.854v.001ZM2.004 8.493h-1.5a.5.5 0 1 1 0-1h1.5a.5.5 0 1 1 0 1Zm.691 5.303a.5.5 0 0 1-.354-.854l1.062-1.06a.5.5 0 0 1 .708.707l-1.063 1.06a.497.497 0 0 1-.353.147Zm5.301 2.201a.5.5 0 0 1-.5-.5v-1.5a.5.5 0 0 1 1 0v1.5a.5.5 0 0 1-.5.5Zm5.304-2.191a.496.496 0 0 1-.353-.147l-1.06-1.06a.5.5 0 1 1 .706-.707l1.06 1.06a.5.5 0 0 1-.353.854Zm2.203-5.299h-1.5a.5.5 0 0 1 0-1h1.5a.5.5 0 0 1 0 1ZM12.25 4.265a.5.5 0 0 1-.354-.854l1.06-1.06a.5.5 0 1 1 .708.707l-1.06 1.06a.498.498 0 0 1-.354.147Z"/>',
+      101: '<path d="M4.745 1.777a.516.516 0 1 0 1.007-.224L5.496.403A.516.516 0 0 0 4.49.627l.255 1.15ZM1.023 3.535l.994.633a.516.516 0 0 0 .554-.87l-.994-.633a.516.516 0 0 0-.554.87ZM.628 8.043l1.15-.256a.516.516 0 0 0-.223-1.008l-1.15.256a.516.516 0 1 0 .223 1.008Zm10.238-2.28a.535.535 0 0 0 .112-.012l1.15-.256a.516.516 0 1 0-.224-1.008l-1.15.256a.516.516 0 0 0 .112 1.02ZM8.522 2.728a.516.516 0 0 0 .712-.158l.633-.994a.516.516 0 0 0-.87-.554l-.633.994a.516.516 0 0 0 .158.712ZM2.819 7.032c.071.303.182.596.331.87a3.13 3.13 0 0 0 .908-.486 2.453 2.453 0 0 1-.232-.608A2.504 2.504 0 0 1 8.714 5.72l.004.038a5.42 5.42 0 0 1 1.064.25 3.51 3.51 0 0 0-.061-.512 3.535 3.535 0 0 0-6.902 1.536Zm9.175 7.364A4.758 4.758 0 0 1 8.406 16a4.76 4.76 0 0 1-3.537-1.547 2.908 2.908 0 0 1-1.056.197C2.258 14.65 1 13.441 1 11.95s1.26-2.7 2.813-2.7c.173 0 .342.015.507.044C5.124 7.924 6.652 7 8.406 7c1.769 0 3.308.94 4.107 2.328a2.93 2.93 0 0 1 .675-.078c1.553 0 2.812 1.209 2.812 2.7s-1.26 2.7-2.813 2.7a2.9 2.9 0 0 1-1.193-.254Z"/>',
+      104: '<path d="M11.727 14.217A4.99 4.99 0 0 1 7.9 16a4.988 4.988 0 0 1-3.773-1.719 3 3 0 1 1-.586-5.732A4.998 4.998 0 0 1 7.9 6a4.999 4.999 0 0 1 4.38 2.587 3 3 0 1 1-.553 5.63Z"/><path d="M4.008 6.637a1.545 1.545 0 0 1 1.54-1.467.913.913 0 0 1 .108.012l.084.012a1 1 0 0 0 .961-.445 2.74 2.74 0 0 1 4.598 0 1 1 0 0 0 .961.445l.084-.012a.916.916 0 0 1 .108-.012 1.524 1.524 0 0 1 1.455 2.048c.312.135.602.316.86.538A2.484 2.484 0 0 0 12.136 4.2a3.74 3.74 0 0 0-6.27 0 2.506 2.506 0 0 0-.317-.032A2.548 2.548 0 0 0 3 6.717c.005.174.028.347.069.517.238-.3.569-.51.94-.597h-.001Z"/>'
+    };
+
+    function weatherIcon(code, className = '') {
+      return `<svg class="qweather-icon ${className}" viewBox="0 0 16 16" aria-label="和风天气图标 ${code}">${QWEATHER_ICONS[code] || QWEATHER_ICONS[104]}</svg>`;
+    }
+
+    const APP = {
+      mainOrder: ['home', 'weather', 'calendar', 'mail', 'quota', 'settings'],
+      pages: {
+        home: { title: '首页', nav: '首页', icon: 'home', template: 'hero-grid', summary: '时间是唯一 hero；天气与下个日程回答最常看的两个问题。', tags: ['HERO 64', '2 MODULES', 'STATIC'], render: renderHome },
+        weather: { title: '天气', nav: '天气', icon: 'weather-100', template: 'dashboard-grid', summary: '沿用真机左侧温度 hero、右侧 3×2 指标和底部三日预报；图标直接对应和风天气 code。', tags: ['QWEATHER ICONS', 'I1 LAYOUT', '3×2 METRICS'], render: renderWeather },
+        calendar: { title: '日程', nav: '日程', icon: 'calendar', template: 'list', summary: '时间、标题和地点严格分层；重点日程仅使用一次反白状态。', tags: ['LIST', '16 / 24', 'ONE CHIP'], render: renderCalendar },
+        mail: { title: '邮箱', nav: '邮箱', icon: 'mail', template: 'list', summary: '实心与空心圆点区分已读状态，字体大小强化未读优先级。', tags: ['LIST', 'SHAPE STATE', 'NO GRAY'], render: renderMail },
+        quota: { title: '限额', nav: '限额', icon: 'quota', template: 'hero-grid', summary: '一个主要剩余额度、一条强进度条和极简趋势，避免仪表盘噪音。', tags: ['METRIC 48', 'BAR 4PX', 'LOCAL UPDATE'], render: renderQuota },
+        settings: { title: '设置', nav: '设置', icon: 'settings', template: 'utility', summary: '日常循环的终点；系统信息和开发者诊断只从这里进入。', tags: ['UTILITY', 'SECONDARY ENTRY', 'NO HINTS'], render: renderSettings },
+        network: { title: '网络与配网', nav: '网络与配网', icon: 'wifi', template: 'utility', secondary: true, parent: 'settings', summary: '设置二级页，展示当前网络、配网热点和固定信息块。', tags: ['SECONDARY', 'UTILITY', 'QR / I1'], render: renderNetwork },
+        system: { title: '设备信息', nav: '设备信息', icon: 'info', template: 'dashboard-grid', secondary: true, parent: 'settings', summary: '二级设备信息页，复用天气页网格与系统状态图标。', tags: ['SECONDARY', 'METRIC GRID', 'SYSTEM'], render: renderSystem },
+        test: { title: '诊断', nav: '诊断', icon: 'code', template: 'utility', secondary: true, parent: 'settings', summary: '仅开发者入口可达。扫描条仅作为局部 I1 动画和帧率诊断展示。', tags: ['DEVELOPER', 'PANEL REFRESH', 'LOCAL MOTION'], render: renderTest },
+        voice: { title: '语音', nav: '语音', icon: 'voice', template: 'focus', contextual: true, summary: '由长按右键进入的聚焦状态页；波形动画限制在 200 × 48px 内。', tags: ['FOCUS', 'WAVE 200×48', 'PANEL'], render: renderVoice },
+        ota: { title: '系统更新', nav: 'OTA 更新', icon: 'check', template: 'overlay', contextual: true, summary: '全黑背景、白色信息卡；不借助半透明表达层级。', tags: ['OVERLAY', 'TRUE MONO', 'PARTIAL BAR'], render: renderOta }
+      }
+    };
+
+    const state = { page: 'home', overlay: null, mono: true, motionPaused: false, serverOnline: true };
+    const mainNav = document.getElementById('mainNav');
+    const contextNav = document.getElementById('contextNav');
+    const statusbar = document.getElementById('statusbar');
+    const screenBody = document.getElementById('screenBody');
+    const screenOverlay = document.getElementById('screenOverlay');
+    const screen = document.getElementById('screen');
+    const workspaceTitle = document.getElementById('workspaceTitle');
+    const workspaceSub = document.getElementById('workspaceSub');
+    const screenNote = document.getElementById('screenNote');
+    const monoButton = document.getElementById('monoButton');
+    const motionButton = document.getElementById('motionButton');
+    const serverButton = document.getElementById('serverButton');
+    const modeBadge = document.getElementById('modeBadge');
+
+    function metric(label, value, cls = 'number-24') {
+      return `<div class="metric-cell"><p class="submeta">${label}</p><div class="${cls}">${value}</div></div>`;
+    }
+    function listRow(time, title, detail, unread = false, chip = '') {
+      return `<li class="list-row ${unread ? '' : 'read'}"><span class="row-time">${time}</span><span class="row-main"><span class="row-title">${title}</span><span class="row-detail">${detail}</span></span>${chip ? `<span class="chip">${chip}</span>` : `<span class="dot ${unread ? 'solid' : ''}"></span>`}</li>`;
+    }
+
+    function renderHome() {
+      return `<section class="page"><div class="home-hero"><div class="number-64">14:32</div><p class="home-date">7月10日 · 周四</p></div><div class="home-grid"><section class="home-card"><p class="module-label">现在天气</p><div class="weather-hero-line">${weatherIcon(100, 'home')}<div><div class="number-48">28°</div><p class="meta">晴 / 深圳</p></div></div><div class="weather-summary"><p class="submeta">体感 30° · 湿度 45%</p></div></section><section class="home-card"><p class="module-label">下个日程</p><p class="title-24">项目站会</p><p class="meta">15:00 · 28 分钟后</p><p class="submeta">会议室 A</p><div class="divider" style="margin-top:12px"></div><p class="submeta" style="margin-top:7px">今日还有 2 项安排</p></section></div></section>`;
+    }
+    function renderWeather() {
+      return `<section class="page weather-page"><div class="weather-band"><p class="city">深圳</p><span class="weather-alert">高温黄色预警</span><span class="weather-status">在线</span></div><div class="weather-firmware-hero">${weatherIcon(100, 'hero')}<div class="weather-firmware-temp">28°</div><p class="weather-firmware-cond">晴</p><p class="weather-firmware-air">空气 42 优</p></div><div class="weather-firmware-vline"></div><div class="weather-firmware-metrics"><div class="weather-firmware-metric"><span>体感</span><span>30°</span></div><div class="weather-firmware-metric"><span>湿度</span><span>45%</span></div><div class="weather-firmware-metric"><span>风力</span><span>3级</span></div><div class="weather-firmware-metric"><span>气压</span><span>1008</span></div><div class="weather-firmware-metric"><span>降水</span><span>0%</span></div><div class="weather-firmware-metric"><span>能见</span><span>30km</span></div></div><div class="weather-firmware-forecast"><div class="weather-forecast-item"><p class="weather-day">今天</p>${weatherIcon(100)}<p class="weather-copy">晴</p><p class="weather-temp">33°</p></div><div class="weather-forecast-item"><p class="weather-day">明天</p>${weatherIcon(101)}<p class="weather-copy">多云</p><p class="weather-temp">32°</p></div><div class="weather-forecast-item"><p class="weather-day">后天</p>${weatherIcon(104)}<p class="weather-copy">阴</p><p class="weather-temp">30°</p></div></div><div class="weather-firmware-footer"><span>日出 05:12 · 日落 19:38</span><span>更新 14:20</span></div></section>`;
+    }
+    function renderCalendar() {
+      return `<section class="page"><div class="list-head"><p class="title-24">未来 7 天</p><span class="chip">今天</span></div><ul class="list">${listRow('15:00', '项目站会', '会议室 A · 28 分钟后', true)}${listRow('明天 19:00', '健身计划', '健身房', true)}${listRow('周五 全天', '季度评审', '总部会议室', true, '重要')}</ul></section>`;
+    }
+    function renderMail() {
+      return `<section class="page"><div class="list-head"><p class="title-24">收件箱</p><span class="chip">3 未读</span></div><ul class="list">${listRow('13:20', '下周排期请确认', '张三', true)}${listRow('10:05', '服务器 CPU 异常', '运维告警', true, '告警')}${listRow('昨天', 'Re: 设计稿 v2', '李四', false)}</ul></section>`;
+    }
+    function renderQuota() {
+      const quotaRow = (name, reset, usedPercent) => `<section class="quota-row"><div class="quota-row-head"><p class="quota-row-name">${name}</p><p class="quota-reset">重置 ${reset}</p></div><div class="progress"><span style="width:${usedPercent}%"></span></div><span class="quota-percent ${usedPercent > 80 ? 'warn' : ''}">${usedPercent}%</span></section>`;
+      return `<section class="page quota-lvgl">${quotaRow('MCP 月额度', '07-31 00:00', 36)}${quotaRow('每5小时额度', '今天 18:00', 72)}${quotaRow('每周额度', '07-14 00:00', 87)}<p class="quota-updated">更新 07-10 14:20</p></section>`;
+    }
+    function renderSettings() {
+      return `<section class="page"><p class="title-32">设置</p><div class="settings-list"><button class="settings-action" data-target="network" type="button">${icon('wifi')}<span><strong>网络与配网</strong><br><small>DeskMate-AP 已就绪</small></span><span class="chevron">›</span></button><button class="settings-action" data-target="system" type="button">${icon('info')}<span><strong>设备信息</strong><br><small>版本 · 内存 · 网络</small></span><span class="chevron">›</span></button><button class="settings-action" data-target="test" type="button">${icon('code')}<span><strong>开发者入口</strong><br><small>帧率 · 字体 · 显示诊断</small></span><span class="chevron">›</span></button></div></section>`;
+    }
+    function renderNetwork() {
+      return `<section class="page"><p class="title-24">已连接 Wi-Fi</p><p class="meta">DeskMate Office</p><div class="settings-list"><div class="settings-action">${icon('wifi')}<span><strong>信号</strong><br><small>-52 dBm · 已连接</small></span><span class="chip">在线</span></div><div class="settings-action">${icon('settings')}<span><strong>配网热点</strong><br><small>SSID: DeskMate-AP</small></span><span class="chevron">□</span></div><div class="settings-action">${icon('info')}<span><strong>本地入口</strong><br><small>192.168.4.1</small></span><span class="chevron">›</span></div></div></section>`;
+    }
+    function renderSystem() {
+      return `<section class="page"><div class="metric-grid">${metric('固件版本', '1.2.0')}${metric('运行时间', '2d 4h')}${metric('SRAM', '186K')}${metric('PSRAM', '2.1M')}${metric('Wi-Fi', '-52dB')}${metric('服务延迟', '14ms')}</div><div class="system-footer"><div><p class="submeta">设备地址</p><p class="meta">192.168.6.108</p></div><div>${icon('server', 'weather-icon-large')}</div></div></section>`;
+    }
+    function renderTest() {
+      return `<section class="page font-lab"><div class="font-sample"><span class="font-tag">16 REG</span><span class="font-preview font-preview--16">云端日程  ABC 123</span></div><div class="font-sample"><span class="font-tag">16 SEMI</span><span class="font-preview font-preview--16-semi">重点信息  ABC 123</span></div><div class="font-sample font-sample--24"><span class="font-tag">24 REG</span><span class="font-preview font-preview--24">今日天气</span></div><div class="font-sample font-sample--24"><span class="font-tag">24 SEMI</span><span class="font-preview font-preview--24-semi">重要提醒</span></div><div class="font-sample font-sample--32"><span class="font-tag">32 REG</span><span class="font-preview font-preview--32">精简清晰</span></div><div class="font-sample font-sample--48"><span class="font-tag">48 NUM</span><span class="font-preview font-preview--48">08:42</span></div></section>`;
+    }
+    function renderVoice() {
+      return `<section class="page voice-page"><div class="voice-state"><p class="module-label">DESKMATE VOICE</p><p class="title-32">正在聆听</p><div class="voice-wave" aria-label="局部波形动画"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><span class="focus-dot"></span><p class="voice-note">已连接语音服务</p></div></section>`;
+    }
+    function renderOta() {
+      return `<div class="ota-panel"><p class="submeta">SYSTEM UPDATE</p><h3>正在下载</h3><div class="progress"><span></span></div><div class="ota-meta"><span>1.2.0 → 1.3.0</span><span>67%</span></div></div>`;
+    }
+
+    function renderStatusbar(page) {
+      const serverIcon = state.serverOnline ? 'sync' : 'sync-off';
+      return `<span class="page-label">${page.title}</span><span class="status-time">14:32</span><span class="status-meta">${icon('wifi', 'small')} ${icon(serverIcon, 'small')}<span>87%</span>${icon('battery', 'small')}</span>`;
+    }
+    function renderNav() {
+      mainNav.innerHTML = APP.mainOrder.map((id, index) => {
+        const navIcon = id === 'weather' ? weatherIcon(100, 'nav') : icon(APP.pages[id].icon, 'small');
+        return `<button class="nav-button" data-page="${id}" type="button"><span>${navIcon} ${APP.pages[id].nav}</span><span class="nav-index">0${index + 1}</span></button>`;
+      }).join('');
+      contextNav.innerHTML = `<button class="nav-button" data-page="voice" type="button"><span>${icon('voice', 'small')} 语音焦点</span><span class="nav-index">HOLD</span></button><button class="nav-button" data-overlay="ota" type="button"><span>${icon('check', 'small')} OTA 覆盖层</span><span class="nav-index">SYS</span></button>`;
+    }
+    function updateNav() {
+      document.querySelectorAll('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === state.page));
+    }
+    function renderNote(page) {
+      screenNote.innerHTML = `<div><h3 class="note-title">${page.nav} / ${page.template}</h3><p class="note-copy">${page.summary}</p></div><div class="note-tags">${page.tags.map((tag) => `<span>${tag}</span>`).join('')}</div>`;
+    }
+    function showPage(id) {
+      const page = APP.pages[id];
+      if (!page) return;
+      if (page.contextual) state.returnPage = state.page;
+      state.page = id;
+      state.overlay = null;
+      screenOverlay.hidden = true;
+      screenOverlay.innerHTML = '';
+      statusbar.innerHTML = renderStatusbar(page);
+      screenBody.innerHTML = page.render();
+      workspaceTitle.textContent = `${page.nav} / ${page.template}`;
+      workspaceSub.textContent = page.summary;
+      renderNote(page);
+      updateNav();
+      bindScreenActions();
+    }
+    function showOverlay(id) {
+      const page = APP.pages[id];
+      state.overlay = id;
+      screenOverlay.className = 'screen-overlay ota';
+      screenOverlay.innerHTML = page.render();
+      screenOverlay.hidden = false;
+      workspaceTitle.textContent = `${page.nav} / ${page.template}`;
+      workspaceSub.textContent = page.summary;
+      renderNote(page);
+      updateNav();
+    }
+    function bindScreenActions() {
+      document.querySelectorAll('[data-target]').forEach((button) => button.addEventListener('click', () => {
+        if (button.dataset.target === 'network') { showOverlay('ota'); return; }
+        showPage(button.dataset.target);
+      }));
+    }
+    function cycle(direction) {
+      const index = APP.mainOrder.indexOf(state.page);
+      if (index < 0) { showPage(APP.pages[state.page].parent || state.returnPage || 'home'); return; }
+      showPage(APP.mainOrder[(index + direction + APP.mainOrder.length) % APP.mainOrder.length]);
+    }
+
+    mainNav.addEventListener('click', (event) => { const button = event.target.closest('[data-page]'); if (button) showPage(button.dataset.page); });
+    contextNav.addEventListener('click', (event) => { const button = event.target.closest('button'); if (!button) return; if (button.dataset.overlay) showOverlay(button.dataset.overlay); else if (button.dataset.page) showPage(button.dataset.page); });
+    screenOverlay.addEventListener('click', () => showPage(state.page));
+    document.addEventListener('keydown', (event) => { if (event.key === 'ArrowLeft') cycle(-1); if (event.key === 'ArrowRight') cycle(1); if (event.key === 'Escape' && state.overlay) showPage(state.page); });
+    monoButton.addEventListener('click', () => { state.mono = !state.mono; screen.classList.toggle('mono', state.mono); screen.classList.toggle('preview', !state.mono); monoButton.textContent = state.mono ? '显示桌面材质' : '恢复真机黑白'; modeBadge.textContent = state.mono ? 'TRUE MONO' : 'DESKTOP PREVIEW'; monoButton.classList.toggle('active', !state.mono); });
+    motionButton.addEventListener('click', () => { state.motionPaused = !state.motionPaused; screen.classList.toggle('motion-paused', state.motionPaused); motionButton.textContent = state.motionPaused ? '恢复局部动画' : '暂停局部动画'; motionButton.classList.toggle('active', state.motionPaused); });
+    serverButton.addEventListener('click', () => { state.serverOnline = !state.serverOnline; serverButton.textContent = `服务端：${state.serverOnline ? '在线' : '离线'}`; serverButton.classList.toggle('active', !state.serverOnline); statusbar.innerHTML = renderStatusbar(APP.pages[state.page]); });
+
+    renderNav();
+    showPage('home');
+  </script>
+</body>
+</html>

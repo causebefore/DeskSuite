@@ -1,0 +1,12 @@
+{
+  "protocol_version": 1,
+  "artifacts": {
+    "app": {
+      "version": "1.0.0",
+      "artifact_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "file_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "size": 1172480,
+      "filename": "firmware-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.bin"
+    }
+  }
+}

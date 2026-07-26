@@ -1,0 +1,183 @@
+.dashboard {
+  display: grid !important;
+  grid-template-rows: 70px 410px;
+  gap: 0;
+  padding: 0 !important;
+}
+
+.masthead {
+  display: grid;
+  grid-template-columns: 158px minmax(0, 1fr) 210px;
+  height: 70px;
+  overflow: hidden;
+  border-bottom: 3px solid var(--color-text);
+}
+
+.brand-block {
+  min-width: 0;
+  padding: 7px 10px;
+  background: var(--color-surface);
+  border-right: 2px solid var(--color-text);
+}
+.brand-kicker {
+  overflow: hidden;
+  color: var(--color-secondary);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.brand-title { margin-top: 2px; }
+
+.date-block {
+  min-width: 0;
+}
+.clock.value {
+  color: var(--color-text);
+  letter-spacing: -1px;
+  white-space: nowrap;
+}
+.date-line { color: var(--color-secondary); }
+.date-line span, .date-line b { display: block; white-space: nowrap; }
+.date-line b { color: var(--color-text); }
+
+.device-status {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  min-width: 0;
+  color: var(--color-background);
+  background: var(--color-text);
+  border-left: 2px solid var(--color-text);
+}
+.status-metric {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  border-left: 1px solid var(--color-surface);
+  text-align: center;
+}
+.status-metric:first-child { border-left: 0; }
+.status-metric .label,
+.status-metric .value { color: var(--color-background); }
+.status-metric strong { white-space: nowrap; }
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 500px 300px;
+  gap: 0;
+  height: 410px;
+}
+.primary-column, .secondary-column { display: grid; gap: 0; min-width: 0; }
+.primary-column {
+  grid-template-rows: 154px 256px;
+  border-right: 3px solid var(--color-text);
+}
+.secondary-column { grid-template-rows: 205px 205px; }
+
+.panel {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+  color: var(--color-text);
+  background: var(--color-background);
+  border: 0;
+}
+.weather-panel, .mail-panel { border-bottom: 3px solid var(--color-text); }
+.section-label {
+  height: 22px;
+  padding: 2px 7px 1px;
+  color: var(--color-background);
+  background: var(--color-text);
+  letter-spacing: .4px;
+  white-space: nowrap;
+}
+.section-count {
+  max-width: 100px;
+  overflow: hidden;
+  color: var(--color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather-panel {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-rows: 22px 1fr;
+  gap: 5px 12px;
+}
+.weather-panel > .section-label { grid-column: 1 / -1; justify-self: start; }
+.weather-now { display: grid; grid-template-columns: 62px 76px 1fr; align-items: center; gap: 4px; min-width: 0; }
+.weather-main-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 2px solid var(--color-text);
+  font-size: var(--font-cn-min);
+  line-height: 15px;
+  font-weight: 900;
+  text-align: center;
+}
+.weather-main-icon svg { width: 48px; height: 48px; color: var(--color-text); }
+.temperature { letter-spacing: -4px; }
+.temperature small { font-size: 22px; vertical-align: 22px; letter-spacing: 0; }
+.weather-detail { display: grid; gap: 1px; min-width: 0; font-size: var(--font-cn-min); line-height: 15px; }
+.weather-detail strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.weather-detail span { color: var(--color-secondary); white-space: nowrap; }
+.weather-detail b { color: var(--color-text); }
+
+.forecast {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  min-width: 0;
+  overflow: hidden;
+  border: 2px solid var(--color-text);
+  background: var(--color-surface);
+}
+.forecast-item {
+  min-width: 0;
+  padding: 1px 5px;
+  border-right: 1px solid var(--color-secondary);
+  text-align: center;
+}
+.forecast-item:last-child { border-right: 0; }
+.forecast-date { color: var(--color-secondary); }
+.forecast-icon { width: 26px; height: 26px; margin-top: 1px; }
+.forecast-icon svg { width: 25px; height: 25px; color: var(--color-text); }
+.forecast-text { width: 100%; overflow: hidden; margin: 1px 0; white-space: nowrap; text-overflow: ellipsis; }
+
+.agenda-list, .mail-list { margin-top: 6px; }
+.agenda-item {
+  width: 100%;
+  min-height: 56px;
+  border-top: 1px solid var(--color-surface);
+}
+.agenda-item:first-child { border-top: 2px solid var(--color-text); }
+.agenda-time { flex: 0 0 84px; color: var(--color-secondary); }
+.agenda-name { flex: 1 1 auto; min-width: 0; overflow: hidden; padding: 0 8px; white-space: nowrap; text-overflow: ellipsis; }
+.agenda-place { flex: 0 0 98px; min-width: 0; overflow: hidden; color: var(--color-secondary); text-align: right; white-space: nowrap; text-overflow: ellipsis; }
+
+.mail-item {
+  width: 100%;
+  min-height: 68px;
+  padding: 7px 0 5px;
+  border-top: 1px solid var(--color-surface);
+}
+.mail-item:first-child { border-top: 2px solid var(--color-text); }
+.mail-meta { flex: 0 0 72px; min-width: 0; overflow: hidden; color: var(--color-secondary); }
+.mail-from, .mail-date { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mail-subject { flex: 1 1 auto; display: -webkit-box; height: 34px; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+.quota-panel { background: var(--color-background); }
+.quota-list { margin-top: 10px; }
+.quota-item { width: 100%; min-width: 0; align-items: stretch; }
+.quota-label { width: 100%; }
+.quota-label > :first-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.quota-label > :last-child { flex: 0 0 auto; }
+.quota-panel .progress-bar { width: 100%; }
+.progress-bar .quota-track { height: 11px; overflow: hidden; border: 2px solid var(--color-text); background: var(--color-background); border-radius: 0; }
+.quota-fill { height: 100%; background: var(--color-text); }
+
+.empty-state { display: grid; place-items: center; min-height: 48px; color: var(--color-secondary); text-align: center; }

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, initial-scale=1">
+  <title>PhotoPainter Daily Brief</title>
+  <!-- PHOTO_PAINTER_FRAMEWORK_STYLE -->
+  <!-- PHOTO_PAINTER_STYLE -->
+</head>
+<body class="trmnl">
+  <main class="screen screen--og screen--2bit screen--no-bleed">
+    <div class="view view--full">
+      <div class="layout dashboard">
+        <header class="masthead grid">
+          <div class="brand-block flex flex--col flex--center-y">
+            <div class="brand-kicker label label--small font--bold">PHOTO PAINTER</div>
+            <div class="brand-title title title--base font--bold pp-cn">今日概览</div>
+          </div>
+
+          <div class="date-block flex flex--row flex--center gap--medium">
+            <div id="time" class="value value--base value--tnums font--bold clock">--:--</div>
+            <div class="date-line content content--small font--bold pp-cn"><span id="date">----</span><b id="weekday">--</b></div>
+          </div>
+
+          <div class="device-status grid" aria-label="设备状态">
+            <div class="status-metric">
+              <span class="label label--small pp-cn-min">室温</span>
+              <strong id="device-temperature" class="value value--xsmall value--tnums font--bold">--</strong>
+            </div>
+            <div class="status-metric">
+              <span class="label label--small pp-cn-min">湿度</span>
+              <strong id="device-humidity" class="value value--xsmall value--tnums font--bold">--</strong>
+            </div>
+            <div class="status-metric">
+              <span id="battery-label" class="label label--small pp-cn-min">电量</span>
+              <strong id="device-battery" class="value value--xsmall value--tnums font--bold">--</strong>
+            </div>
+          </div>
+        </header>
+
+        <section class="content-grid grid gap--base">
+          <div class="primary-column">
+            <article class="panel weather-panel">
+              <div class="section-label label label--small label--inverted pp-cn-min">天气 WEATHER · <span id="city">--</span></div>
+              <div class="weather-now grid gap--xsmall">
+                <div id="weather-main-icon" class="weather-main-icon icon" aria-label="天气">--</div>
+                <div class="temperature value value--large value--tnums font--bold"><span id="temp-large">--</span><small>°</small></div>
+                <div class="weather-detail">
+                  <strong id="weather-summary" class="title title--small font--bold pp-cn">--</strong>
+                  <span class="content content--small font--bold pp-cn">体感 <b id="feels">--</b>°</span>
+                  <span class="content content--small font--bold pp-cn">湿度 <b id="humidity">--</b>%</span>
+                  <span class="content content--small font--bold pp-cn">空气 <b id="air">--</b></span>
+                </div>
+              </div>
+              <div id="forecast" class="forecast grid grid--cols-3"></div>
+            </article>
+
+            <article class="panel agenda-panel">
+              <div class="section-heading flex flex--row flex--between gap--small">
+                <div class="section-label label label--small label--inverted pp-cn-min">日程 CALENDAR</div>
+                <span id="calendar-count" class="section-count description description--base pp-cn-min">0 项</span>
+              </div>
+              <div id="calendar" class="agenda-list list gap--none"></div>
+            </article>
+          </div>
+
+          <div class="secondary-column">
+            <article class="panel mail-panel">
+              <div class="section-heading flex flex--row flex--between gap--small">
+                <div class="section-label label label--small label--inverted pp-cn-min">邮件 MAIL</div>
+                <span id="mail-count" class="section-count description description--base pp-cn-min">0 未读</span>
+              </div>
+              <div id="mail" class="mail-list list gap--none"></div>
+            </article>
+
+            <article class="panel quota-panel">
+              <div class="section-heading flex flex--row flex--between gap--small">
+                <div class="section-label label label--small label--inverted pp-cn-min">额度 QUOTA</div>
+                <span id="quota-level" class="section-count description description--base pp-cn-min">--</span>
+              </div>
+              <div id="quota" class="quota-list list gap--small"></div>
+            </article>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+  <!-- PHOTO_PAINTER_FRAMEWORK_SCRIPT -->
+  <!-- PHOTO_PAINTER_SCRIPT -->
+</body>
+</html>

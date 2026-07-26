@@ -1,0 +1,443 @@
+menu "DeskMate Board"
+
+choice DESKMATE_BOARD
+    prompt "Target board"
+    default DESKMATE_BOARD_RLCD_4_2
+    help
+        选择目标板子。不同板子的硬件参数在 components/bsp/boards/<id>/ 下。
+
+config DESKMATE_BOARD_RLCD_4_2
+    bool "ESP32-S3-RLCD-4.2"
+endchoice
+
+endmenu
+
+menu "DeskMate Power"
+
+config DESKMATE_LIGHT_SLEEP_ENABLED
+    bool "Enable button and timer wakeup light sleep"
+    default y
+    depends on !DESKMATE_WAKE_WORD_ENABLE
+    help
+        启用后，设备在用户无活动窗口结束且产品事务空闲时进入不复位芯片的
+        Light-sleep。UI 会可逆停止；左右按键恢复交互，内部 Timer 周期唤醒刷新一次屏幕。
+        WakeNet 常驻监听启用时自动禁用本功能，因为 CPU 轻睡后无法继续处理麦克风数据。
+
+config DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC
+    int "Light sleep idle timeout (seconds)"
+    default 60
+    range 10 3600
+    help
+        最后一次产品活动后保持唤醒的时间，默认 60 秒。
+
+config DESKMATE_LIGHT_SLEEP_RETRY_DELAY_MS
+    int "Light sleep retry delay (ms)"
+    default 10000
+    range 1000 60000
+    help
+        语音、音频、OTA、实时网络租约或按键暂时阻止睡眠时，再次检查前的等待时间。
+
+config DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC
+    int "Light sleep screen refresh interval (seconds)"
+    default 60
+    range 10 3600
+    depends on DESKMATE_LIGHT_SLEEP_ENABLED
+    help
+        进入 Light-sleep 后，ESP32 内部 Timer 周期唤醒的间隔。每次 Timer 唤醒会恢复 UI、
+        同步刷新一次屏幕，再次停止 UI 并继续睡眠；默认 60 秒。
+
+endmenu
+
+menu "DeskMate Server"
+
+config DESKMATE_SERVER_URL
+    string "DeskMate server base URL"
+    default "http://192.168.6.248:8765"
+    help
+        本地 FastAPI server 地址，例如 http://192.168.1.10:8765。
+        设备也可以通过配网页保存 service_url 覆盖此默认值。
+
+config DESKMATE_OTA_DEFAULT_ENABLED
+    bool "Enable OTA auto check by default"
+    default y
+    help
+        是否默认启用 OTA 自动检查。
+
+config DESKMATE_OTA_CHECK_INTERVAL_SEC
+    int "OTA auto check interval in seconds"
+    default 1800
+    range 5 86400
+    help
+        OTA 自动检查的时间间隔，单位为秒。
+
+config DESKMATE_OTA_AUTO_INSTALL
+    bool "Automatically install firmware updates"
+    default y
+    help
+        OTA 实测阶段打开。关闭时只自动检查并记录发现的新版本。
+
+endmenu
+
+menu "DeskMate Voice"
+
+config DESKMATE_WAKE_WORD_ENABLE
+    bool "Enable WakeNet wake-word listener"
+    default n
+    select SR_WN_WN9_NIHAOXIAOZHI_TTS
+    help
+        启用后麦克风输入和 AFE 会在空闲时常驻，用于检测“你好小智”唤醒词。
+        默认关闭以降低空闲功耗；右键长按语音对话不受影响。
+
+endmenu
+
+menu "DeskMate Time"
+
+config DESKMATE_TIME_TIMEZONE
+    string "POSIX timezone for local time"
+    default "CST-8"
+    help
+        POSIX TZ 格式。中国大陆默认使用 CST-8，表示 UTC+8。
+
+config DESKMATE_TIME_SNTP_ENABLED
+    bool "Enable SNTP network time sync"
+    default y
+    help
+        启用后，设备在 STA 联网成功时启动 SNTP 校时，并按配置周期重同步。
+
+config DESKMATE_TIME_SNTP_PRIMARY_SERVER
+    string "Primary NTP server"
+    default "ntp.aliyun.com"
+
+config DESKMATE_TIME_SNTP_SECONDARY_SERVER
+    string "Secondary NTP server"
+    default "cn.pool.ntp.org"
+
+config DESKMATE_TIME_SNTP_TERTIARY_SERVER
+    string "Tertiary NTP server"
+    default "pool.ntp.org"
+
+config DESKMATE_TIME_SNTP_SYNC_INTERVAL_SEC
+    int "SNTP sync interval in seconds"
+    default 86400
+    range 3600 604800
+    help
+        默认 86400 秒，即每天重同步一次系统时间。联网恢复时也会主动触发一次校时。
+
+config DESKMATE_RTC_ALARM_MAX_DELAY_SEC
+    int "RTC alarm maximum schedule window (seconds)"
+    default 86400
+    range 60 604800
+    help
+        PCF85063 闹钟允许预约的最大窗口（距当前时间的秒数上限），默认 86400（24h）。
+        超出此窗口的闹钟设置会被拒绝。
+
+endmenu
+
+menu "DeskMate Network Application"
+
+config DESKMATE_WIFI_RECONNECT_BACKOFF_MIN_MS
+    int "Wi-Fi reconnect backoff start (ms)"
+    default 30000
+    range 1000 300000
+    help
+        快速重试全失败后，指数退避的起始间隔，单位毫秒。
+
+config DESKMATE_WIFI_RECONNECT_BACKOFF_MAX_MS
+    int "Wi-Fi reconnect backoff cap (ms)"
+    default 300000
+    range 10000 1800000
+    help
+        指数退避封顶间隔，单位毫秒。
+
+config DESKMATE_API_HTTP_TIMEOUT_MS
+    int "Device API HTTP timeout (ms)"
+    default 20000
+    range 1000 120000
+    help
+        所有设备 API 请求（dashboard/register/events/settings 等）的 HTTP 超时。
+
+config DESKMATE_API_SYNC_RETRY_MAX
+    int "Dashboard first-sync retry count"
+    default 3
+    range 0 10
+    help
+        dashboard 首次同步失败时的线性退避重试次数。
+
+config DESKMATE_API_SYNC_RETRY_DELAY_MS
+    int "Dashboard sync retry backoff base (ms)"
+    default 5000
+    range 500 60000
+    help
+        同步重试退避基数（× attempt），单位毫秒。
+
+config DESKMATE_API_DEFAULT_REFRESH_SEC
+    int "Default dashboard refresh seconds fallback"
+    default 300
+    range 30 3600
+    help
+        NVS 未存 refresh_seconds 时的兜底周期，单位秒。
+
+config DESKMATE_API_DASHBOARD_JSON_MAX
+    int "Dashboard response JSON buffer cap (bytes)"
+    default 12288
+    range 4096 12288
+    help
+        Dashboard schema 3 原始 JSON 的堆缓冲上限；协议硬上限为 12288 字节。
+
+config DESKMATE_OTA_HTTP_TIMEOUT_MS
+    int "OTA HTTP timeout (ms)"
+    default 8000
+    range 2000 60000
+    help
+        OTA check 与固件下载的 HTTP 超时，单位毫秒。
+
+config DESKMATE_DASHBOARD_REFRESH_DEFAULT_SEC
+    int "Dashboard refresh default period (seconds)"
+    default 1800
+    range 60 7200
+    help
+        dashboard 本地默认刷新周期（服务端未下发 refresh_seconds 时使用）。
+
+config DESKMATE_SETTINGS_NAMESPACE
+    string "NVS namespace"
+    default "deskmate"
+    help
+        设备持久化使用的 NVS 命名空间。
+
+endmenu
+
+menu "DeskMate Key"
+
+config DESKMATE_KEY_DEBOUNCE_MS
+    int "Button debounce time (ms)"
+    default 30
+    range 5 200
+    help
+        按键防抖时间，单位毫秒。
+
+config DESKMATE_KEY_LONG_PRESS_MS
+    int "Button long-press threshold (ms)"
+    default 700
+    range 200 5000
+    help
+        按键长按判定阈值，单位毫秒。
+
+config DESKMATE_KEY_POLL_PERIOD_MS
+    int "Button poll period (ms)"
+    default 10
+    range 5 100
+    help
+        按键状态轮询周期，单位毫秒（esp_timer 以 µs 启动，代码内 ×1000）。
+
+endmenu
+
+menu "DeskMate Audio/Voice"
+
+config DESKMATE_AUDIO_SAMPLE_RATE_HZ
+    int "I2S hardware sample rate (Hz)"
+    default 24000
+    range 16000 48000
+    help
+        ES8311 输出与 ES7210 输入共享 I2S 时钟，因此使用同一硬件采样率。
+
+config DESKMATE_AUDIO_DEFAULT_VOLUME
+    int "Default output volume (0-100)"
+    default 50
+    range 0 100
+    help
+        Audio Service 初始化时传给 Device 的默认扬声器音量。
+
+config DESKMATE_AUDIO_DEFAULT_GAIN_DB
+    int "Default ES7210 microphone gain (dB)"
+    default 30
+    range 0 48
+    help
+        Audio Service 初始化时传给 Device 的 ES7210 麦克风增益。
+
+config DESKMATE_VOICE_HTTP_TIMEOUT_MS
+    int "Voice HTTP total timeout (ms)"
+    default 30000
+    range 5000 120000
+    help
+        语音对话 HTTP 总超时（覆盖 ASR + TTS 流式），单位毫秒。
+
+config DESKMATE_VOICE_VAD_LEAD_TIMEOUT_MS
+    int "Voice VAD lead timeout (ms)"
+    default 3000
+    range 500 30000
+    help
+        语音开始后多久无人声即放弃，单位毫秒。
+
+config DESKMATE_VOICE_VAD_SILENCE_END_MS
+    int "Voice VAD trailing silence (ms)"
+    default 1200
+    range 200 5000
+    help
+        判定一句话结束的尾端静音时长，单位毫秒。
+
+config DESKMATE_VOICE_VAD_WAKE_GUARD_MS
+    int "Voice wake-word tail guard window (ms)"
+    default 500
+    range 0 3000
+    help
+        唤醒词尾音保护窗，避免尾音被截断，单位毫秒。
+
+config DESKMATE_VOICE_PLAYBACK_STOP_TIMEOUT_MS
+    int "Voice playback stop base timeout (ms)"
+    default 3000
+    range 500 30000
+    help
+        播放停止的基础超时，单位毫秒。
+
+config DESKMATE_VOICE_WS_CONNECT_TIMEOUT_MS
+    int "Voice WebSocket connect timeout (ms)"
+    default 5000
+    range 1000 30000
+    help
+        语音 WebSocket 连接超时，单位毫秒。
+
+config DESKMATE_VOICE_WS_IDLE_TIMEOUT_MS
+    int "Voice WebSocket idle timeout (ms)"
+    default 30000
+    range 5000 120000
+    help
+        语音 WebSocket 空闲超时，单位毫秒。
+
+config DESKMATE_VOICE_WS_RX_QUEUE_LEN
+    int "Voice WebSocket rx queue depth"
+    default 64
+    range 8 256
+    help
+        WebSocket 接收队列深度。
+
+config DESKMATE_VOICE_WS_BUFFER_SIZE
+    int "Voice WebSocket receive buffer (bytes)"
+    default 24576
+    range 4096 65536
+    help
+        WebSocket 接收缓冲大小。
+
+config DESKMATE_VOICE_WS_UPLOAD_CHUNK_BYTES
+    int "Voice WebSocket upload chunk (bytes)"
+    default 4096
+    range 512 16384
+    help
+        WebSocket 上传分片字节数。
+
+config DESKMATE_VOICE_PLAY_STREAM_BYTES
+    int "Voice TTS playback ring buffer (bytes)"
+    default 262144
+    range 65536 524288
+    help
+        TTS 播放环形缓冲大小（PSRAM），默认 256*1024。
+
+config DESKMATE_VOICE_CHAT_DURATION_MS
+    int "Voice single chat duration (ms)"
+    default 8000
+    range 2000 60000
+    help
+        单次语音对话时长上限，单位毫秒。
+
+config DESKMATE_VOICE_WAKE_COOLDOWN_MS
+    int "Wake-word cooldown (ms)"
+    default 2000
+    range 0 30000
+    help
+        唤醒词触发后的冷却去抖时间，单位毫秒。
+
+config DESKMATE_AUDIO_SPEECH_MIN_MS
+    int "Capture speech minimum duration (ms)"
+    default 200
+    range 50 2000
+    help
+        采集中判定为"有效人声"的最短时长，单位毫秒。
+
+config DESKMATE_AUDIO_DRAIN_MAX_WAIT_MS
+    int "AFE drain max wait on stop (ms)"
+    default 300
+    range 50 5000
+    help
+        AFE 停止时 drain 的最长等待，单位毫秒。
+
+endmenu
+
+menu "DeskMate Display"
+
+config DESKMATE_DISPLAY_PARTIAL_FLUSH
+    bool "Enable partial flush"
+    default y
+    help
+        局部刷新开关。脏区占比超过阈值时退化为全屏刷新。
+
+config DESKMATE_DISPLAY_PARTIAL_FULL_PERCENT
+    int "Partial flush -> full flush dirty ratio (%)"
+    default 70
+    range 20 100
+    help
+        脏区占 framebuffer 的百分比超过此值时，退化为全屏刷新。
+
+config DESKMATE_DISPLAY_TE_SYNC
+    bool "Enable TE (tearing-effect) sync"
+    default y
+    help
+        撕裂效应同步开关。连续多次 TE 超时会自动关闭。
+
+config DESKMATE_DISPLAY_TE_WAIT_TIMEOUT_MS
+    int "TE signal wait timeout (ms)"
+    default 60
+    range 5 1000
+    help
+        等待 TE 信号的超时，单位毫秒。
+
+config DESKMATE_DISPLAY_TE_MAX_TIMEOUTS
+    int "TE max consecutive timeouts before auto-disable"
+    default 5
+    range 1 50
+    help
+        连续 TE 超时达到此次数后自动关闭 TE 同步。
+
+config DESKMATE_DISPLAY_RGB565_BLACK_THRESHOLD
+    int "RGB565 -> mono black threshold"
+    default 6368
+    range 0 65535
+    help
+        RGB565 转单色时判黑的亮度阈值（代码内强制转 uint32_t 比较）。
+
+config DESKMATE_DISPLAY_I1_INVERT
+    bool "Invert I1 pixel polarity"
+    default n
+    help
+        I1 像素反相（显示极性开关）。
+
+config DESKMATE_DISPLAY_PERF_LOG_INTERVAL_US
+    int "Display perf log interval (us)"
+    default 5000000
+    range 1000000 60000000
+    help
+        显示性能日志输出间隔，单位微秒（默认 5s = 5000000）。
+
+config DESKMATE_UI_PAGE_ENTER_ANIM_MS
+    int "Page enter animation duration (ms)"
+    default 200
+    range 0 2000
+    help
+        页面进入滑入动画时长，单位毫秒。
+
+config DESKMATE_UI_SETTINGS_RESULT_AUTO_RETURN_MS
+    int "Settings result auto return (ms)"
+    default 3000
+    range 500 30000
+    help
+        设置菜单中“无更新”和“检查失败”结果自动返回根菜单的时长，单位毫秒。
+
+config DESKMATE_UI_TASK_STACK_SIZE
+    int "UI task stack size (bytes)"
+    default 8192
+    range 4096 16384
+    help
+        UI 消息任务的内部 SRAM 栈大小。全屏 LVGL 实刷和字体分区
+        mmap/munmap 会在该任务中执行；后者冻结 Cache 时不能使用 PSRAM 栈。
+        默认 8KB。
+
+endmenu
+

@@ -1,0 +1,633 @@
+<!--
+  Adapted from Crosslink src/network/html/FilesPage.html.
+  Copyright (c) 2025 Dave Allie, MIT License.
+  Modified for DeskMate authenticated HTTP file management.
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>DeskMate 文件管理</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, sans-serif;
+      --ink: #172033;
+      --muted-ink: #526176;
+      --workbench: #ffffff;
+      --page: #f4f7fb;
+      --device-blue: #285b91;
+      --device-blue-dark: #1d4672;
+      --storage-teal: #16898d;
+      --line: #dce4ef;
+      --soft-line: #e8edf4;
+      --danger: #b4232d;
+      --danger-dark: #8d1922;
+      --success: #14724a;
+      color: var(--ink);
+      background: var(--page);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .card { width: min(1040px, 100%); background: var(--workbench); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 24px #1d355716; overflow: hidden; }
+    header { padding: 24px 28px; color: #fff; background: var(--device-blue); }
+    h1 { margin: 0; font-size: 1.45rem; } .subtitle { margin: 6px 0 0; opacity: .86; }
+    main { padding: 24px 28px 28px; } .hidden { display: none !important; }
+    label { display: block; font-weight: 650; margin-bottom: 7px; } input, button, select { font: inherit; }
+    input[type="text"], input[type="file"], select { width: 100%; min-height: 42px; padding: 9px 11px; color: var(--ink); background: #fff; border: 1px solid #c7d2e2; border-radius: 8px; }
+    input:focus, select:focus, button:focus-visible { outline: 3px solid #2d6ca32b; outline-offset: 2px; }
+    button { border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; color: #fff; background: var(--device-blue); }
+    button:hover:not(:disabled) { background: var(--device-blue-dark); } button:disabled { opacity: .48; cursor: not-allowed; }
+    button.secondary { color: var(--device-blue); background: #edf3f9; }
+    button.secondary:hover:not(:disabled) { background: #dfeaf4; }
+    button.danger { background: var(--danger); }
+    button.danger:hover:not(:disabled) { background: var(--danger-dark); }
+    .login { width: min(360px, 100%); margin: 16px auto; } .login button { width: 100%; margin-top: 14px; }
+    .notice { min-height: 1.4em; margin: 12px 0; color: var(--danger); } .notice.success { color: var(--success); } .notice.info { color: var(--muted-ink); }
+    .toolbar { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .upload { flex: 1 1 310px; } .logout { background: #6b7280; }
+    .breadcrumbs { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 14px; color: #435269; }
+    .breadcrumbs button { padding: 0; background: transparent; color: var(--device-blue); border-radius: 0; }
+    .breadcrumbs button:hover:not(:disabled) { background: transparent; color: #173b80; text-decoration: underline; }
+    .storage { margin: 0 0 16px; padding: 12px 14px; background: #f7fafc; border: 1px solid var(--line); border-radius: 9px; }
+    .storage-copy { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 8px; color: var(--muted-ink); font-size: .88rem; }
+    .storage-track { height: 8px; overflow: hidden; background: #dfe7ef; border-radius: 99px; }
+    .storage-track > div { width: 0; height: 100%; background: var(--storage-teal); transition: width .15s ease-out; }
+    .manager-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, 190px) auto; gap: 10px; align-items: end; margin-bottom: 12px; }
+    .manager-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .selection-copy { align-self: center; color: var(--muted-ink); font-size: .9rem; white-space: nowrap; }
+    .action-panel { margin: 0 0 12px; padding: 13px; background: #f8fafc; border: 1px solid var(--line); border-radius: 9px; }
+    .action-panel form { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 9px; align-items: end; }
+    .action-panel label { margin: 0; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
+    table { width: 100%; border-collapse: collapse; min-width: 680px; } th, td { padding: 11px 13px; text-align: left; border-bottom: 1px solid var(--soft-line); }
+    th { color: #526176; background: #f8fafc; font-size: .86rem; } tr:last-child td { border-bottom: 0; }
+    tr.selected { background: #eff6fb; }
+    .check-cell { width: 46px; text-align: center; } .check-cell input { width: 17px; height: 17px; accent-color: var(--device-blue); }
+    .name-button { padding: 0; color: var(--ink); background: transparent; text-align: left; } .name-button:hover:not(:disabled) { color: var(--device-blue); background: transparent; }
+    .empty-row { padding: 26px; color: var(--muted-ink); text-align: center; }
+    .progress { height: 10px; background: #e2e8f0; border-radius: 99px; overflow: hidden; margin-top: 16px; }
+    .progress > div { width: 0; height: 100%; background: var(--storage-teal); transition: width .12s linear; }
+    #progressText { margin: 8px 0 0; color: var(--muted-ink); font-variant-numeric: tabular-nums; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    @media (max-width: 760px) {
+      body { padding: 0; place-items: stretch; }
+      .card { border: 0; border-radius: 0; box-shadow: none; }
+      main, header { padding-left: 18px; padding-right: 18px; }
+      .manager-toolbar { grid-template-columns: 1fr 1fr; }
+      .manager-actions { grid-column: 1 / -1; justify-content: flex-start; }
+      .action-panel form { grid-template-columns: 1fr auto; }
+      .action-panel form label { grid-column: 1 / -1; }
+    }
+    @media (max-width: 480px) {
+      .manager-toolbar { grid-template-columns: 1fr; }
+      .manager-actions { grid-column: auto; }
+      .toolbar > button { flex: 1 1 auto; }
+      .storage-copy { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <section class="card">
+    <header><h1>DeskMate 文件管理</h1><p class="subtitle">通过本地网络安全管理设备文件</p></header>
+    <main>
+      <form id="loginView" class="login">
+        <label for="accessCode">6 位访问码</label>
+        <input id="accessCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required type="text">
+        <button type="submit">登录</button>
+        <p id="loginMessage" class="notice" role="alert"></p>
+      </form>
+
+      <section id="filesView" class="hidden">
+        <div class="toolbar">
+          <div class="upload"><label for="fileInput">上传到当前目录</label><input id="fileInput" type="file"></div>
+          <button id="uploadButton" type="button">上传文件</button>
+          <button id="cancelUploadButton" class="secondary" type="button" disabled>取消上传</button>
+          <button id="retryUploadButton" class="secondary hidden" type="button">重试失败文件</button>
+          <button id="logoutButton" class="logout" type="button">退出登录</button>
+        </div>
+        <p id="fileMessage" class="notice" role="alert"></p>
+        <nav id="breadcrumbs" class="breadcrumbs" aria-label="当前目录"></nav>
+        <section class="storage" aria-label="SD 卡容量">
+          <div class="storage-copy"><strong>SD 卡容量</strong><span id="storageText">正在读取…</span></div>
+          <div class="storage-track" aria-hidden="true"><div id="storageBar"></div></div>
+        </section>
+
+        <div class="manager-toolbar">
+          <div>
+            <label for="filterInput">名称筛选</label>
+            <input id="filterInput" type="text" placeholder="输入文件或目录名称">
+          </div>
+          <div>
+            <label for="sortSelect">排序方式</label>
+            <select id="sortSelect">
+              <option value="name-asc">名称 A → Z</option>
+              <option value="name-desc">名称 Z → A</option>
+              <option value="size-desc">大小从大到小</option>
+              <option value="size-asc">大小从小到大</option>
+              <option value="type">类型</option>
+            </select>
+          </div>
+          <div class="manager-actions">
+            <span id="selectionText" class="selection-copy">未选择项目</span>
+            <button id="newFolderButton" class="secondary" type="button">新建目录</button>
+            <button id="renameButton" class="secondary" type="button" disabled>重命名</button>
+            <button id="moveButton" class="secondary" type="button" disabled>移动所选</button>
+            <button id="deleteButton" class="danger" type="button" disabled>删除所选</button>
+          </div>
+        </div>
+
+        <section id="folderEditor" class="action-panel hidden">
+          <form id="folderForm">
+            <label for="folderName">在当前目录创建新目录
+              <input id="folderName" type="text" maxlength="255" autocomplete="off" placeholder="目录名称">
+            </label>
+            <button type="submit">创建</button>
+            <button class="secondary editorCancel" type="button">取消</button>
+          </form>
+        </section>
+        <section id="renameEditor" class="action-panel hidden">
+          <form id="renameForm">
+            <label for="renameName">输入新的文件名
+              <input id="renameName" type="text" maxlength="255" autocomplete="off">
+            </label>
+            <button type="submit">保存</button>
+            <button class="secondary editorCancel" type="button">取消</button>
+          </form>
+        </section>
+        <section id="moveEditor" class="action-panel hidden">
+          <form id="moveForm">
+            <label for="moveDestination">目标目录绝对路径
+              <input id="moveDestination" type="text" maxlength="511" autocomplete="off" list="moveDestinations" placeholder="/目标目录">
+              <datalist id="moveDestinations"></datalist>
+            </label>
+            <button type="submit">移动</button>
+            <button class="secondary editorCancel" type="button">取消</button>
+          </form>
+        </section>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th class="check-cell"><input id="selectAll" type="checkbox" aria-label="选择当前筛选结果"></th><th>名称</th><th>类型</th><th>大小</th></tr></thead>
+            <tbody id="fileRows"></tbody>
+          </table>
+        </div>
+        <div class="progress" aria-hidden="true"><div id="progressBar"></div></div>
+        <p id="progressText" aria-live="polite"></p>
+      </section>
+    </main>
+  </section>
+
+<script>
+const API = {
+  session: "/api/session",
+  files: "/api/files",
+  file: "/api/file",
+  directory: "/api/directory",
+};
+const TOKEN_KEY = "deskmateWebFileToken";
+let currentPath = "/";
+let currentEntries = [];
+let operationActive = false;
+let operationKind = "";
+let activeUploadRequest = null;
+let failedUploadFile = null;
+const selectedPaths = new Set();
+
+const loginView = document.getElementById("loginView");
+const filesView = document.getElementById("filesView");
+const fileInput = document.getElementById("fileInput");
+const uploadButton = document.getElementById("uploadButton");
+const cancelUploadButton = document.getElementById("cancelUploadButton");
+const retryUploadButton = document.getElementById("retryUploadButton");
+const logoutButton = document.getElementById("logoutButton");
+const progressBar = document.getElementById("progressBar");
+const progressText = document.getElementById("progressText");
+const fileMessage = document.getElementById("fileMessage");
+const filterInput = document.getElementById("filterInput");
+const sortSelect = document.getElementById("sortSelect");
+const selectAll = document.getElementById("selectAll");
+const newFolderButton = document.getElementById("newFolderButton");
+const renameButton = document.getElementById("renameButton");
+const moveButton = document.getElementById("moveButton");
+const deleteButton = document.getElementById("deleteButton");
+const editors = ["folderEditor", "renameEditor", "moveEditor"].map((id) => document.getElementById(id));
+
+function token() { return sessionStorage.getItem(TOKEN_KEY); }
+function setMessage(element, message, state = "error") {
+  element.textContent = message;
+  element.classList.toggle("success", state === "success");
+  element.classList.toggle("info", state === "info");
+}
+function fileHeaders(extra = {}) { return { Authorization: `Bearer ${token()}`, ...extra }; }
+function pathFor(name) { return currentPath === "/" ? `/${name}` : `${currentPath}/${name}`; }
+function parentPath(path) {
+  const index = path.lastIndexOf("/");
+  return index <= 0 ? "/" : path.slice(0, index);
+}
+function baseName(path) { return path.slice(path.lastIndexOf("/") + 1); }
+function joinPath(parent, name) { return parent === "/" ? `/${name}` : `${parent}/${name}`; }
+function normalizeDirectoryPath(value) {
+  let path = value.trim();
+  if (!path) throw new Error("请输入目标目录路径。");
+  if (path.includes("\\")) throw new Error("目录路径不能包含反斜杠。");
+  if (!path.startsWith("/")) path = `/${path}`;
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  if (path.split("/").some((part) => part === "." || part === "..")) throw new Error("目录路径不能包含 . 或 ..。");
+  return path;
+}
+function validateItemName(value, label) {
+  const name = value.trim();
+  if (!name) throw new Error(`请输入${label}。`);
+  if (name === "." || name === ".." || /[\u0000-\u001f\u007f/\\]/.test(name)) throw new Error(`${label}包含无效字符。`);
+  if (new TextEncoder().encode(name).length > 255) throw new Error(`${label}不能超过 255 字节。`);
+  return name;
+}
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = Math.max(0, bytes); let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+}
+function entryIsDirectory(entry) { return entry.type === "directory" || entry.isDirectory === true; }
+function entryPath(entry) { return pathFor(entry.name); }
+function updateUploadControls() {
+  uploadButton.disabled = operationActive || fileInput.files.length === 0;
+  cancelUploadButton.disabled = !(operationActive && operationKind === "upload" && activeUploadRequest);
+  retryUploadButton.classList.toggle("hidden", failedUploadFile === null);
+  retryUploadButton.disabled = operationActive || failedUploadFile === null;
+}
+function selectedEntries() {
+  return currentEntries.filter((entry) => selectedPaths.has(entryPath(entry)));
+}
+function updateSelectionControls() {
+  const selected = selectedEntries();
+  document.getElementById("selectionText").textContent =
+    selected.length === 0 ? "未选择项目" : `已选择 ${selected.length} 项`;
+  renameButton.disabled = operationActive || selected.length !== 1 || entryIsDirectory(selected[0]);
+  moveButton.disabled = operationActive || selected.length === 0 || selected.some(entryIsDirectory);
+  deleteButton.disabled = operationActive || selected.length === 0;
+
+  const visiblePaths = visibleEntries().map(entryPath);
+  const visibleSelected = visiblePaths.filter((path) => selectedPaths.has(path)).length;
+  selectAll.checked = visiblePaths.length > 0 && visibleSelected === visiblePaths.length;
+  selectAll.indeterminate = visibleSelected > 0 && visibleSelected < visiblePaths.length;
+  selectAll.disabled = operationActive || visiblePaths.length === 0;
+}
+function setOperationActive(active, kind = "") {
+  operationActive = active;
+  operationKind = active ? kind : "";
+  loginView.querySelector("button").disabled = active;
+  logoutButton.disabled = active;
+  fileInput.disabled = active;
+  filterInput.disabled = active;
+  sortSelect.disabled = active;
+  newFolderButton.disabled = active;
+  document.querySelectorAll(".name-button, .breadcrumbs button, .row-select, .action-panel input, .action-panel button")
+    .forEach((element) => { element.disabled = active; });
+  updateUploadControls();
+  updateSelectionControls();
+}
+function returnToLogin(message = "") {
+  sessionStorage.removeItem(TOKEN_KEY);
+  currentPath = "/";
+  currentEntries = [];
+  selectedPaths.clear();
+  failedUploadFile = null;
+  activeUploadRequest = null;
+  setOperationActive(false);
+  filesView.classList.add("hidden");
+  loginView.classList.remove("hidden");
+  setMessage(document.getElementById("loginMessage"), message);
+}
+async function checkedFetch(url, options = {}) {
+  const response = await fetch(url, { ...options, headers: fileHeaders(options.headers) });
+  if (response.status === 401) { returnToLogin("登录已失效，请重新输入访问码。"); throw new Error("登录已失效"); }
+  return response;
+}
+async function responseError(response, fallback) {
+  try {
+    const payload = await response.json();
+    if (payload && payload.message) return payload.message;
+  } catch (_) {}
+  return `${fallback}（${response.status}）`;
+}
+function renderBreadcrumbs() {
+  const container = document.getElementById("breadcrumbs"); container.replaceChildren();
+  const parts = currentPath.split("/").filter(Boolean); let assembled = "";
+  [{ label: "根目录", path: "/" }, ...parts.map((part) => { assembled += `/${part}`; return { label: part, path: assembled }; })].forEach((item, index) => {
+    if (index) container.append(" / ");
+    const button = document.createElement("button"); button.type = "button"; button.textContent = item.label;
+    button.disabled = operationActive;
+    button.addEventListener("click", () => loadDirectory(item.path)); container.append(button);
+  });
+}
+function visibleEntries() {
+  const needle = filterInput.value.trim().toLocaleLowerCase();
+  const entries = currentEntries.filter((entry) => !needle || entry.name.toLocaleLowerCase().includes(needle));
+  const mode = sortSelect.value;
+  return entries.slice().sort((left, right) => {
+    const leftDirectory = entryIsDirectory(left);
+    const rightDirectory = entryIsDirectory(right);
+    if (leftDirectory !== rightDirectory) return leftDirectory ? -1 : 1;
+    const nameOrder = left.name.localeCompare(right.name, "zh-CN", { numeric: true, sensitivity: "base" });
+    const leftSize = Number(left.sizeBytes ?? left.size ?? 0);
+    const rightSize = Number(right.sizeBytes ?? right.size ?? 0);
+    if (mode === "name-desc") return -nameOrder;
+    if (mode === "size-desc" && leftSize !== rightSize) return rightSize - leftSize;
+    if (mode === "size-asc" && leftSize !== rightSize) return leftSize - rightSize;
+    if (mode === "type") {
+      const leftType = leftDirectory ? "" : (left.name.includes(".") ? left.name.split(".").pop() : "");
+      const rightType = rightDirectory ? "" : (right.name.includes(".") ? right.name.split(".").pop() : "");
+      const typeOrder = leftType.localeCompare(rightType, "zh-CN", { sensitivity: "base" });
+      if (typeOrder) return typeOrder;
+    }
+    return nameOrder;
+  });
+}
+function renderRows() {
+  const rows = document.getElementById("fileRows"); rows.replaceChildren();
+  const entries = visibleEntries();
+  if (entries.length === 0) {
+    const row = document.createElement("tr"); const cell = document.createElement("td");
+    cell.colSpan = 4; cell.className = "empty-row";
+    cell.textContent = currentEntries.length === 0 ? "当前目录为空" : "没有符合筛选条件的项目";
+    row.append(cell); rows.append(row); updateSelectionControls(); return;
+  }
+  for (const entry of entries) {
+    const isDirectory = entryIsDirectory(entry); const path = entryPath(entry);
+    const row = document.createElement("tr"); row.classList.toggle("selected", selectedPaths.has(path));
+    const checkCell = document.createElement("td"); checkCell.className = "check-cell";
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.className = "row-select";
+    checkbox.checked = selectedPaths.has(path); checkbox.disabled = operationActive; checkbox.setAttribute("aria-label", `选择 ${entry.name}`);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedPaths.add(path); else selectedPaths.delete(path);
+      row.classList.toggle("selected", checkbox.checked); updateSelectionControls();
+    });
+    checkCell.append(checkbox); row.append(checkCell);
+    const name = document.createElement("td");
+    const button = document.createElement("button"); button.type = "button"; button.className = "name-button"; button.textContent = entry.name;
+    button.disabled = operationActive;
+    button.addEventListener("click", () => isDirectory ? loadDirectory(pathFor(entry.name)) : downloadFile(entry.name));
+    name.append(button); row.append(name);
+    const type = document.createElement("td"); type.textContent = isDirectory ? "目录" : "文件"; row.append(type);
+    const size = document.createElement("td"); size.textContent = isDirectory ? "—" : formatBytes(Number(entry.sizeBytes ?? entry.size)); row.append(size); rows.append(row);
+  }
+  updateSelectionControls();
+}
+function renderStorage(payload) {
+  const total = Number(payload && payload.totalBytes);
+  const free = Number(payload && payload.freeBytes);
+  const storageBar = document.getElementById("storageBar");
+  const storageText = document.getElementById("storageText");
+  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(free)) {
+    storageBar.style.width = "0%"; storageText.textContent = "容量信息不可用"; return;
+  }
+  const safeFree = Math.min(total, Math.max(0, free)); const used = total - safeFree;
+  const percent = Math.min(100, Math.max(0, used / total * 100));
+  storageBar.style.width = `${percent.toFixed(1)}%`;
+  storageText.textContent = `已用 ${formatBytes(used)} / ${formatBytes(total)} · 可用 ${formatBytes(safeFree)}`;
+}
+function renderMoveDestinations() {
+  const paths = new Set(["/", currentPath, parentPath(currentPath)]);
+  currentEntries.filter(entryIsDirectory).forEach((entry) => paths.add(entryPath(entry)));
+  const list = document.getElementById("moveDestinations"); list.replaceChildren();
+  [...paths].sort((left, right) => left.localeCompare(right, "zh-CN", { numeric: true })).forEach((path) => {
+    const option = document.createElement("option"); option.value = path; list.append(option);
+  });
+}
+async function requestDirectory(path) {
+  setMessage(fileMessage, "", "info");
+  try {
+    const response = await checkedFetch(`${API.files}?path=${encodeURIComponent(path)}`);
+    if (!response.ok) throw new Error(await responseError(response, "无法读取目录"));
+    const payload = await response.json();
+    currentPath = Array.isArray(payload) ? path : (payload.path || path);
+    currentEntries = Array.isArray(payload) ? payload : (payload.entries || []);
+    selectedPaths.clear(); hideEditors(); renderBreadcrumbs(); renderStorage(payload); renderMoveDestinations(); renderRows();
+    return true;
+  } catch (error) {
+    if (token()) setMessage(fileMessage, error.message);
+    return false;
+  }
+}
+async function loadDirectory(path = currentPath) {
+  if (operationActive) return;
+  setOperationActive(true, "browse");
+  try { await requestDirectory(path); }
+  finally { if (token()) setOperationActive(false); }
+}
+async function downloadFile(name) {
+  if (operationActive) return;
+  setOperationActive(true, "download"); progressBar.style.width = "0%"; progressText.textContent = `正在下载 ${name}…`;
+  try {
+    const response = await checkedFetch(`${API.file}?path=${encodeURIComponent(pathFor(name))}`);
+    if (!response.ok) throw new Error(await responseError(response, "下载失败"));
+    const blob = await response.blob(); const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob); link.download = name; link.click(); URL.revokeObjectURL(link.href);
+    progressBar.style.width = "100%"; progressText.textContent = `下载完成：${name}`;
+  } catch (error) { if (token()) { setMessage(fileMessage, error.message); progressText.textContent = ""; } }
+  finally { if (token()) setOperationActive(false); }
+}
+function uploadFile(file, overwrite = false) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest(); const startedAt = performance.now();
+    activeUploadRequest = request; updateUploadControls();
+    request.open("PUT", `${API.file}?path=${encodeURIComponent(pathFor(file.name))}`);
+    request.setRequestHeader("Authorization", `Bearer ${token()}`);
+    if (overwrite) request.setRequestHeader("X-DeskMate-Overwrite", "confirm");
+    request.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      const percent = Math.round(event.loaded / event.total * 100); const seconds = Math.max((performance.now() - startedAt) / 1000, .001);
+      progressBar.style.width = `${percent}%`; progressText.textContent = `正在上传 ${formatBytes(event.loaded)} / ${formatBytes(event.total)}（${percent}% · ${formatBytes(event.loaded / seconds)}/秒）`;
+    };
+    const finish = (callback) => {
+      if (activeUploadRequest === request) activeUploadRequest = null;
+      updateUploadControls(); callback();
+    };
+    request.onload = () => finish(() => resolve(request));
+    request.onerror = () => finish(() => reject(new Error("上传网络错误")));
+    request.onabort = () => finish(() => {
+      const error = new Error("上传已取消"); error.cancelled = true; reject(error);
+    });
+    request.send(file);
+  });
+}
+function uploadErrorCode(request) {
+  try { return JSON.parse(request.responseText).error || ""; } catch (_) { return ""; }
+}
+async function startUpload(retryFile = null) {
+  const file = retryFile || fileInput.files[0]; if (!file || operationActive) return;
+  failedUploadFile = null; setOperationActive(true, "upload"); setMessage(fileMessage, "", "info"); progressBar.style.width = "0%";
+  let uploadSucceeded = false;
+  try {
+    let response = await uploadFile(file);
+    if (response.status === 401) { returnToLogin("登录已失效，请重新输入访问码。"); return; }
+    if (response.status === 409 && uploadErrorCode(response) === "overwrite_required") {
+      if (confirm("同名文件已存在，是否覆盖？")) {
+        response = await uploadFile(file, true);
+      } else {
+        const error = new Error("已取消覆盖现有文件。"); error.cancelled = true; throw error;
+      }
+    }
+    if (response.status === 401) { returnToLogin("登录已失效，请重新输入访问码。"); return; }
+    if (response.status < 200 || response.status >= 300) {
+      let message = `上传失败（${response.status}）`;
+      try { message = JSON.parse(response.responseText).message || message; } catch (_) {}
+      throw new Error(message);
+    }
+    progressBar.style.width = "100%"; progressText.textContent = `上传完成：${file.name}`; fileInput.value = "";
+    uploadSucceeded = true;
+  } catch (error) {
+    progressText.textContent = "";
+    if (error.cancelled) {
+      const message = error.message === "上传已取消"
+        ? "上传已取消，未完成的临时文件将被清理。"
+        : error.message;
+      setMessage(fileMessage, message, "info");
+    } else {
+      failedUploadFile = file;
+      setMessage(fileMessage, `${error.message}，可以重试该文件。`);
+    }
+  } finally {
+    if (token()) setOperationActive(false);
+    updateUploadControls();
+  }
+  if (uploadSucceeded && token()) {
+    await loadDirectory(currentPath);
+  }
+}
+function cancelUpload() {
+  if (!activeUploadRequest) return;
+  cancelUploadButton.disabled = true; progressText.textContent = "正在取消上传…";
+  activeUploadRequest.abort();
+}
+function hideEditors() { editors.forEach((editor) => editor.classList.add("hidden")); }
+function showEditor(editor) {
+  hideEditors(); editor.classList.remove("hidden");
+  const input = editor.querySelector("input"); if (input) { input.focus(); input.select(); }
+}
+async function mutationRequest(url, method) {
+  const response = await checkedFetch(url, { method });
+  if (!response.ok) throw new Error(await responseError(response, "文件操作失败"));
+}
+async function performMutations(tasks, successMessage) {
+  if (operationActive || tasks.length === 0) return;
+  setOperationActive(true, "mutation"); setMessage(fileMessage, "", "info");
+  const failures = [];
+  for (const task of tasks) {
+    try { await task.run(); }
+    catch (error) {
+      failures.push(`${task.name}：${error.message}`);
+      if (!token()) break;
+    }
+  }
+  if (token()) setOperationActive(false);
+  if (!token()) return;
+  await loadDirectory(currentPath);
+  if (failures.length === 0) setMessage(fileMessage, successMessage, "success");
+  else setMessage(fileMessage, failures.join("；"));
+}
+
+document.getElementById("folderForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const name = validateItemName(document.getElementById("folderName").value, "目录名称");
+    const target = pathFor(name);
+    await performMutations([{
+      name,
+      run: () => mutationRequest(`${API.directory}?path=${encodeURIComponent(target)}`, "PUT"),
+    }], `目录“${name}”已创建。`);
+  } catch (error) { setMessage(fileMessage, error.message); }
+});
+document.getElementById("renameForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const selected = selectedEntries();
+  if (selected.length !== 1 || entryIsDirectory(selected[0])) return;
+  try {
+    const name = validateItemName(document.getElementById("renameName").value, "文件名");
+    const source = entryPath(selected[0]); const destination = joinPath(parentPath(source), name);
+    await performMutations([{
+      name: selected[0].name,
+      run: () => mutationRequest(
+        `${API.file}?path=${encodeURIComponent(source)}&destination=${encodeURIComponent(destination)}`,
+        "PATCH"),
+    }], `文件已重命名为“${name}”。`);
+  } catch (error) { setMessage(fileMessage, error.message); }
+});
+document.getElementById("moveForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const selected = selectedEntries();
+  if (selected.length === 0 || selected.some(entryIsDirectory)) return;
+  try {
+    const destinationDirectory = normalizeDirectoryPath(document.getElementById("moveDestination").value);
+    const tasks = selected.map((entry) => {
+      const source = entryPath(entry); const destination = joinPath(destinationDirectory, entry.name);
+      return {
+        name: entry.name,
+        run: () => mutationRequest(
+          `${API.file}?path=${encodeURIComponent(source)}&destination=${encodeURIComponent(destination)}`,
+          "PATCH"),
+      };
+    });
+    await performMutations(tasks, `${selected.length} 个文件已移动。`);
+  } catch (error) { setMessage(fileMessage, error.message); }
+});
+
+loginView.addEventListener("submit", async (event) => {
+  event.preventDefault(); const code = document.getElementById("accessCode").value.trim();
+  if (!/^\d{6}$/.test(code)) { setMessage(document.getElementById("loginMessage"), "请输入 6 位数字访问码。"); return; }
+  try {
+    const response = await fetch(API.session, { method: "POST", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: code });
+    if (!response.ok) throw new Error("访问码无效或登录失败。");
+    const result = await response.json(); if (!result.token) throw new Error("服务器未返回登录令牌。");
+    sessionStorage.setItem(TOKEN_KEY, result.token); loginView.classList.add("hidden"); filesView.classList.remove("hidden"); await loadDirectory("/");
+  } catch (error) { setMessage(document.getElementById("loginMessage"), error.message); }
+});
+uploadButton.addEventListener("click", () => startUpload());
+cancelUploadButton.addEventListener("click", cancelUpload);
+retryUploadButton.addEventListener("click", () => startUpload(failedUploadFile));
+fileInput.addEventListener("change", updateUploadControls);
+logoutButton.addEventListener("click", () => returnToLogin());
+filterInput.addEventListener("input", renderRows);
+sortSelect.addEventListener("change", renderRows);
+selectAll.addEventListener("change", () => {
+  for (const entry of visibleEntries()) {
+    const path = entryPath(entry);
+    if (selectAll.checked) selectedPaths.add(path); else selectedPaths.delete(path);
+  }
+  renderRows();
+});
+newFolderButton.addEventListener("click", () => {
+  document.getElementById("folderName").value = "";
+  showEditor(document.getElementById("folderEditor"));
+});
+renameButton.addEventListener("click", () => {
+  const selected = selectedEntries();
+  if (selected.length !== 1 || entryIsDirectory(selected[0])) return;
+  document.getElementById("renameName").value = selected[0].name;
+  showEditor(document.getElementById("renameEditor"));
+});
+moveButton.addEventListener("click", () => {
+  document.getElementById("moveDestination").value = currentPath;
+  showEditor(document.getElementById("moveEditor"));
+});
+deleteButton.addEventListener("click", async () => {
+  const selected = selectedEntries(); if (selected.length === 0) return;
+  const names = selected.map((entry) => entry.name).join("、");
+  if (!confirm(`确定删除以下 ${selected.length} 项吗？目录必须为空。\n${names}`)) return;
+  const tasks = selected.map((entry) => ({
+    name: entry.name,
+    run: () => mutationRequest(`${API.file}?path=${encodeURIComponent(entryPath(entry))}`, "DELETE"),
+  }));
+  await performMutations(tasks, `${selected.length} 个项目已删除。`);
+});
+document.querySelectorAll(".editorCancel").forEach((button) => button.addEventListener("click", hideEditors));
+updateUploadControls();
+if (token()) { loginView.classList.add("hidden"); filesView.classList.remove("hidden"); loadDirectory("/"); }
+</script>
+</body>
+</html>

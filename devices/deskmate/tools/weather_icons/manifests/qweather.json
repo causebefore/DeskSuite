@@ -1,0 +1,17 @@
+{
+  "catalog": "qweather",
+  "source_root": "tools/weather_icons/QWeather-Icons-1.8.0/icons",
+  "source_pattern": "{key}-fill.svg",
+  "outputs": {
+    "c": "esp32/components/ui_platform/images/generated/qweather_i1_assets.c",
+    "h": "esp32/components/ui_platform/images/generated/qweather_i1_assets.h"
+  },
+  "variants": { "small": 20, "large": 48 },
+  "keys": [
+    100, 101, 102, 103, 104, 150, 151, 152, 153,
+    300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310,
+    311, 312, 313, 314, 315, 316, 317, 318, 350, 351, 399,
+    400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 499,
+    500, 501, 502, 503, 504, 507, 508, 509, 510, 511, 512, 513
+  ]
+}

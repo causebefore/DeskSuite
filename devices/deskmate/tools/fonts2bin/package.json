@@ -1,0 +1,13 @@
+{
+  "name": "rlcd-font-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Font conversion tools for RLCD Home Panel.",
+  "scripts": {
+    "generate": "python gen_font_bin.py",
+    "generate:zh": "python gen_font_bin.py"
+  },
+  "dependencies": {
+    "lv_font_conv": "^1.5.3"
+  }
+}

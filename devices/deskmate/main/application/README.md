@@ -1,0 +1,241 @@
+# Application
+
+> Application 层负责 DeskMate 产品用例、用户意图、产品调度和跨能力状态收敛。
+
+## 1. 定位
+
+- 触发方：Composition Root、`button_service` 事实事件和其他明确的产品事件。
+- 主要输出：向下层提交命令、更新产品状态，并通过 Presentation 发布页面或设置动作。
+- 当前构建：本目录仍属于 `main` ESP-IDF 组件，不是独立聚合组件。
+
+## 2. 职责边界
+
+负责：
+
+- 页面导航、按键语义、配网入口、OTA 时机、语音会话、网页文件管理和低功耗顺序。
+- 产品采样周期、Dashboard 同步时机、截止时间、重试、跳过和降级判断。
+- 跨 Service、Communication、Data、System 和 Device 的完整用例编排。
+- 拥有产品流程状态的 Task、Queue 和 Timer。
+
+不负责：
+
+- 不定义 LVGL 控件、样式或页面布局。
+- 不把领域快照格式化成 View Model；该职责属于 Presentation。
+- 不替 Service 管理可复用事务，也不包含 BSP、Driver 或 Board 头文件。
+- 不以 Task 类型建立独立目录；Task 始终跟随状态所有者。
+
+## 3. 主要流程
+
+```text
+用户或系统事实
+    → Application 判断产品动作
+    → Service / Communication / Data / System / Device 执行
+    → 不可变结果事实
+    → Application 收敛状态
+    → Presentation 呈现
+```
+
+按键双边沿输入事件流为：
+
+```text
+GPIO 双边沿 → BSP ISR → Device 活动事实 → Button Service 临时 one-shot 扫描
+    → Device 稳定事件 → app_key → 默认事件循环
+```
+
+GPIO ISR 只提交活动事实；`button_service` 在 ESP Timer Task 上下文完成消抖、长按推进和事件
+转发，`app_key` 再把稳定事实解释为产品输入。
+
+## 4. 依赖关系
+
+| 方向 | 层级 | 用途 |
+| --- | --- | --- |
+| 调用 | Presentation | 发布页面切换、刷新等类型化呈现事件 |
+| 调用 | UI Runtime | 仅由电源用例执行有界启停与状态查询 |
+| 调用 | Service / Communication | 执行持续流程、联网事务和共享资源协调 |
+| 调用 | Data / System / Device | 使用稳定同步能力与状态快照 |
+| 调用 | `utils` | 低频输出 Application Task 的历史最小剩余栈 |
+| 被调用 | Main | 装配并启动产品用例 |
+
+Application 可以依赖 Presentation；电源用例还可以依赖 UI 的窄化 Runtime 生命周期契约。
+Presentation 和 UI 均不得反向包含 Application 头文件。
+
+## 5. 当前模块
+
+| 模块 | 职责 |
+| --- | --- |
+| `app_key` | 把稳定按键事实转换为产品输入 |
+| `app_page` | 维护顶层环形页面、Screen 切换门控和 500 ms 完成事件兜底 |
+| `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页文件明确停止后清理会话 |
+| `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
+| `app_voice` | 语音会话、唤醒仲裁和网络租约 |
+| `app_web_file` | SD/在线前置检查、Web 文件租约、网页文件 Service 启停与安全回滚 |
+| `app_power` | 拥有 60 秒活动窗口、产品阻止条件、UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
+| `app_environment` | 电池与温湿度产品采样周期 |
+| `app_network` | Network Manager 会话退避、Dashboard 截止时间与同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
+
+`app_network` 不直接操作 Wi‑Fi Driver、Portal HTTP/DNS 或底层重连状态机；这些技术能力属于
+Communication 的 `network_manager` 和 `connect`。Network Manager 一轮内部重试结束后，
+`app_network` 才根据产品策略决定是否延时建立新会话。
+
+设置菜单的数据流为：
+
+```text
+button_service → app_key → app_settings → Presentation 设置动作 → UI
+UI 用户意图 → app_main → app_settings / app_ota / app_web_file → app_network / web_file_service
+```
+
+焦点、菜单历史和子页位置只属于 LVGL。`app_settings` 不复制这些状态；离开设置页、UI
+重建或轻睡眠准备时，先非阻塞提交网页文件管理停止意图，再读取 Application 状态快照；只有
+明确到达 `STOPPED` 才清除菜单门控与尚未安装的 OTA 目标。仍在启动、运行、停止或保留资源的
+错误态一律关闭失败并保持当前导航门，不能把任意 `ESP_ERR_INVALID_STATE` 当作安全终态。
+手动 OTA 检查始终要求用户确认，即使持久化自动安装策略已开启；自动检查来源才允许继续应用
+自动安装策略。
+
+Dashboard 的 HTTP 协议在 Communication，JSON 缓存和领域快照在 Data，拉取时机、重试和
+Weather → Calendar → Mail → Quota 刷新顺序由 `app_network` 拥有。401 只收敛为鉴权失败，
+不清除 Token 或尝试注册。它还在每个网络会话上线后按当前服务地址和稳定设备 ID
+启动产品标识为 `2` 的远端日志上传，并在停止 Network Manager 前同步停止上传 Task，不额外延长
+在线窗口或增加轻睡眠唤醒就绪事件。远端日志只在网络上线且服务地址有效时才以 8 条队列、4 条批次
+的低内存配置初始化，日志突发可丢弃但不得影响轻睡眠等核心产品 Task。音频采集、处理和语音事务仍由 Service 链拥有；
+`app_voice` 只解释用户意图并申请实时语音租约。
+
+`app_network` 同一时刻只授予一个带类型和代次的互斥网络产品租约，当前类型为实时语音和
+Web 文件管理。两类租约都阻止 Dashboard 手动/周期同步、OTA 检查与安装、显式或无配置自动
+Portal，以及整机进入 Light-sleep；对应租约释放成功后才按当前产品开关恢复 Dashboard 和
+OTA Timer。租约只占用这些产品策略，不停止 Network Manager 的技术状态机：Web 文件服务
+运行期间，已保存 STA 仍可在断线后重连并更新 IPv4 地址。显式或无配置自动 Portal 请求在
+网络 Application Task 内先用同一状态锁检查活动租约并占用 Portal 过渡状态，Network Manager
+立即拒绝或发布明确状态后才清除该占位，因此异步 Portal 切换窗口不能插入新租约。
+`app_network` 还允许唯一固件进程期静态订阅者注册链路变化借用回调。回调在现有耐久 Manager
+pending 标志由 `app_network_task` 收敛后复制，并在网络状态锁外调用；它不携带事件历史或
+Manager 内部指针，订阅者只能合并自身通知并重新读取最新事实。网页文件订阅回调只在自身
+Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presenter 或网络控制 API。
+
+租约 release 命令必须先原子认领仍匹配请求、尚未过期的同步回执槽，随后才能清除活动租约；
+已超时并由调用方放弃或已经复用的槽不会改变租约。租约代次从 `1` 单调发放到 `UINT32_MAX`，
+最大值只发放一次，之后以 `0` 作为耗尽哨兵并拒绝新租约，直至设备重启，避免极旧句柄重新匹配。
+
+网页文件管理的完整数据流为：
+
+```text
+设备设置页选择“网页文件管理”
+  → app_web_file 检查 /sdcard
+  → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
+  → web_file_service 恢复事务并启动 HTTPD
+  → 浏览器用 6 位访问码换取 Bearer token
+  → handler 串行浏览、下载或事务上传
+  → 设备返回时 Service 安全停止后释放网络租约
+```
+
+`app_web_file.c` 拥有产品阶段、Web 文件租约代次、是否仍需清理 Service 的事实以及状态快照
+边界；`app_web_file_task.c` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
+`web_file_service` 独占 HTTPD、认证、handler、文件事务和传输资源。
+Application 在授予租约后还会复核 Network Manager `ONLINE` 与当前 STA IPv4；它不因 STA
+短暂断线停止 Service。Service 启动成功后，`app_web_file_task` 先在
+状态锁外读取当前内存链路与 Service 状态，验证六位访问码，再在一个状态锁临界区写入 URL、
+访问码和 `RUNNING`，随后只发布一次完整 Presenter 快照。运行期间 Network Manager 断线、
+重连或 IPv4 更新通过上述双层合并通知唤醒同一 Task；Task 在没有停止请求时重新读取
+`connect` 内存快照，断线时清空 URL，重连或地址变化时替换 URL，访问码和 HTTPD 生命周期
+保持不变。公共状态 Getter 只在短临界区复制已经收敛的快照，不轮询 Network、Service 或文件
+系统。每次产品状态迁移及实际 URL 变化后，Application 都在自身状态锁内为待推送快照分配严格单调的 64 位
+展示版本，再在锁外向 Presenter 推送完整有界展示事实。Presenter 只接受晚于已应用版本的
+输入；Application 的私有静态互斥量把 Presenter 仲裁、持久刷新 pending 和轻量呈现事件入队
+串成一个受控步骤，更高版本只能在当前已接受版本完成派发尝试后生效，因此并发 Getter 和状态
+迁移不会让旧调用产生滞后的刷新事件。Presenter 接受新版本后先置 pending，只有默认 Event
+Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当前 pending。运行等待阶段的同一
+一次性 Task 使用有界间隔只重试事件入队，不轮询网络；启动错误、停止错误和 `STOPPED` 终态
+在 Task 解绑删除前必须完成入队，期间更晚停止序列始终优先并进入下一轮清理。版本
+`UINT64_MAX` 只使用一次，耗尽后拒绝继续推送且不发布刷新事件，也拒绝
+新的启动意图，避免页面仍显示可安全退出的 `STOPPED` 时继续取得资源；已经活动的流程仍允许
+执行停止清理。版本禁止回绕复用；Presenter 不反向读取 Application 或资源所有者。
+
+一次性 Task 创建失败属于 request API 的同步拒绝，不是已接受异步命令的终态。创建门仍被
+当前调用占用且 `s_task` 尚未发布时，Application 在 Presenter 推送互斥量内写入最新
+`ERROR` View Model；该版本被接受后清除本命令准备态尚未进入默认 Event Loop 的刷新 pending，
+不新增无人重试的异步事件。UI 调用方按 request 的非 `ESP_OK` 返回立即读取 Presenter 并携带
+`action_error` 重绘；若此前事件已成功入队，它处理时也只会读取最新 ERROR。启动 Task 创建
+窗口内已经返回成功的并发停止意图在释放创建门后接续一次清理创建；停止 Task 自身创建失败不
+递归重试，保留停止序列、Service 和租约所有权，由收到同步错误的调用方稍后再次提交停止。
+
+停止严格按以下顺序收敛：
+
+```text
+停止意图 → STOPPING
+  → web_file_service_stop(6000 ms)
+  → web_file_service_deinit()
+  → app_network_release_web_file_lease()
+  → STOPPED
+```
+
+`web_file_service_stop()` 超时、清理失败或 `deinit()` 未完成时，Application 保留租约和
+明确错误态，后续停止意图只重试同一清理所有权；绝不在 HTTPD 或 handler 仍可能存活时释放
+租约。Service 已反初始化但租约释放失败时同样保留代次供幂等重试。启动失败只逆序释放本轮
+实际取得的资源；Service 报告 `STOPPING/CLEANUP_FAILED` 时保留租约，不能伪装为可退出。
+任何 request API 返回非 `ESP_OK` 时均不承诺后续 Presentation 事件，调用方直接处理同步错误。
+本阶段的产品契约不包含配置编辑、删除、重命名、创建目录、WebDAV 或 WebSocket。
+
+同步回执 waiter 在同一个 `s_state_lock` 临界区完成 deadline 最终仲裁：`COMPLETED` 先复制
+结果并释放槽，`EXECUTING` 解锁后等待最终信号，已到期的 `PENDING` 当场释放；不存在检查
+执行态后再分次放弃槽的窗口。Network Manager 通知使用耐久 pending 标志，队列 marker
+只负责唤醒；即使 marker 因队列已满无法投递，网络 Task 也会在每次阻塞接收前主动收敛最新
+Manager 快照，不使用周期轮询或额外 Task。
+
+## 6. Task 与状态所有权
+
+| Task 文件 | 唯一所有状态 |
+| --- | --- |
+| `app_power_task.c` | 无活动窗口、睡眠编号、Timer 刷新计数、按键唤醒状态和失败终态 |
+| `app_environment_task.c` | 两类产品采样截止时间和采样命令 |
+| `app_network_task.c` | 网络产品命令队列、Dashboard/OTA、类型化互斥租约、会话退避和策略 Timer |
+| `app_web_file_task.c` | 网页文件管理启动、运行和可失败停止的一次性产品状态机 |
+
+Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 API 不暴露 RTOS 句柄。
+每个 Task 通过统一工具向串口输出 `uxTaskGetStackHighWaterMark()`；常驻任务按 60 秒周期
+节流，一次性或可停止任务在退出前输出最终值。
+
+`app_web_file_task.c` 的一次性 Task 只在启动、运行和停止期间存在。它不创建命令队列：重复启动
+明确拒绝，每个有效停止意图都在 Task 锁内取得严格单调的 64 位序列并通知活动 Task；链路变化
+使用同一把 Task 锁合并为耐久 pending，并通过 Task notification 唤醒。Task 醒来始终先检查
+停止序列，只有仍处于 `RUNNING` 且没有停止请求时才刷新 URL；停止清理期间到达的链路通知在
+解绑 Task 时清除，不能在 Service 停止后发布运行快照。每轮
+有界清理先记录已消费序列；失败后在同一把锁内比较最新序列，只有没有更新请求时才解绑并
+进入 `ERROR`，否则立即继续下一轮。成功进入 `STOPPED` 可以原子消费全部并发停止请求。
+`UINT64_MAX` 只分配一次，耗尽后停止与后续启动都拒绝，避免回绕后吞掉清理重试。Task 退出前
+清空私有句柄并输出最终栈高水位。
+
+当前低功耗阶段同时使用 UI Runtime 与网络链路的可逆 `stop/start`。睡前先关闭 UI 业务
+入口、停止 LVGL timer、等待显示 DMA 静止，再由 `app_network` 停止产品 Timer、远端日志、
+Network Manager 和 Wi-Fi Driver。ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止
+时间更近则缩短本轮间隔以对齐计划整点；普通周期保持停网；
+可信 UTC 到达 Dashboard 返回的 `next_refresh_at_utc` 后，电源 Task 恢复网络、同步等待
+Dashboard 完成、保存新截止时间并再次停网，随后 UI 从 Presenter 重同步并等待完整显示传输。
+同步失败保留旧截止时间，下个 Timer 周期重试。左右键唤醒则按以下链路恢复产品按键事实：
+
+```text
+EXT1 左右键掩码 → app_power 恢复网络与 UI
+    → button_service_request_light_sleep_wakeup_copy()
+    → 原按键状态机或快速释放短按重放
+```
+
+Button Service 保持 RUNNING，不增加睡前 `stop()` 或醒后 `start()`；提交失败属于恢复错误
+并进入 BLOCKED。环境、按键扫描、音频和 RTC Service 尚未增加独立低功耗生命周期，电源流程
+不访问 SD 卡。Dashboard 同步失败是可重试的数据错误；网络或 UI 无法证明已安全停止/恢复才
+进入 BLOCKED。
+
+`app_environment` 的同一 Application Task 继续分别拥有 2000 ms 电池采样截止时间和
+30000 ms 温湿度采样截止时间。OTA Timer、Firmware OTA 初始化/启动和 Network Task 生命周期
+本次按键调度改造不变。
+
+## 7. 验证
+
+- 静态核对除 `app_power_task.c` 的 `ui_runtime.h` 外，Application 不包含 UI 头文件。
+- 静态核对所有 Task 文件和入口均以 `_task` 结尾。
+- 按键按需扫描和 Light Sleep 桥接执行
+  `.\tools\tests\check_button_event_driven.ps1`。
+- 本轮合并未运行测试、网页生成器、固件编译或实机流程；后续编译必须通过仓库统一命令
+  `.\dm.ps1 build` 执行。
+
+相关规范：
+
+- [`../../docs/architecture/layering.md`](../../docs/architecture/layering.md)
+- [`../../docs/architecture/data_flow.md`](../../docs/architecture/data_flow.md)
