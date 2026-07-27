@@ -22,6 +22,7 @@ set(EXTRA_COMPONENT_DIRS
     ../../shared/components/communication/connect
     ../../shared/components/communication/transport
     ../../shared/components/communication/protocols
+    ../../shared/components/communication/time_sync
     ../../shared/components/communication/network_manager
     ../../shared/components/communication/tools/firmware_ota
     ../../shared/components/communication/tools/remote_log

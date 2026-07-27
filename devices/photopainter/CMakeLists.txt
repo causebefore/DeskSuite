@@ -17,6 +17,7 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/connect"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/network_manager"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/protocols"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/time_sync"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/transport"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/tools/firmware_ota"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/tools/remote_log"

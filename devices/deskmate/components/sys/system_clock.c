@@ -12,13 +12,13 @@
 #include "device_rtc.h"
 #include "esp_check.h"
 #include "esp_log.h"
-#include "esp_netif_sntp.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #include "system_storage.h"
+#include "time_sync.h"
 
 /** @brief 日志标签 */
 static const char *TAG = "system_clock";
@@ -688,39 +688,23 @@ esp_err_t system_clock_sync_from_sntp(const char *server, uint32_t timeout_ms)
     const int64_t started_us = esp_timer_get_time();
     ESP_LOGI(TAG, "开始 SNTP 网络校时：server=%s，单样本超时=%lu ms", server, (unsigned long) timeout_ms);
 
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(server);
-    esp_err_t         result = esp_netif_sntp_init(&config);
-    if (result != ESP_OK)
-    {
-        const uint64_t total_ms = (uint64_t) (esp_timer_get_time() - started_us + 999LL) / 1000ULL;
-        ESP_LOGE(TAG,
-                 "SNTP 网络校时失败：server=%s，阶段=初始化客户端，total=%llu ms，错误=%s",
-                 server,
-                 (unsigned long long) total_ms,
-                 esp_err_to_name(result));
-        return result;
-    }
-
     uint8_t     sample_count          = 0U;
     time_t      candidate             = 0;
     time_t      trusted_at_sample     = 0;
     bool        had_trusted_at_sample = false;
     const char *failure_stage         = "等待第一个 SNTP 样本";
+    esp_err_t   result                = ESP_OK;
     while (sample_count < 2U)
     {
-        result = esp_netif_sntp_sync_wait(pdMS_TO_TICKS(timeout_ms));
+        time_sync_sample_t sample = { 0 };
+        result                    = time_sync_sample_sntp_once_copy(server, timeout_ms, &sample);
         if (result != ESP_OK)
         {
             break;
         }
 
         ++sample_count;
-        failure_stage = "读取 SNTP 样本";
-        if (time(&candidate) == (time_t) -1)
-        {
-            result = ESP_FAIL;
-            break;
-        }
+        candidate             = sample.utc_timestamp;
 
         failure_stage         = "接受 SNTP 样本";
         had_trusted_at_sample = system_clock_get_trusted_time(&trusted_at_sample, NULL) == ESP_OK;
@@ -731,16 +715,9 @@ esp_err_t system_clock_sync_from_sntp(const char *server, uint32_t timeout_ms)
         }
 
         ESP_LOGW(TAG, "SNTP 大跳变需要二次确认，立即请求第二个连续样本");
-        failure_stage = "请求第二个 SNTP 样本";
-        result        = esp_netif_sntp_start();
-        if (result != ESP_OK)
-        {
-            break;
-        }
         failure_stage = "等待第二个 SNTP 样本";
     }
 
-    esp_netif_sntp_deinit();
     const uint64_t total_ms = (uint64_t) (esp_timer_get_time() - started_us + 999LL) / 1000ULL;
     if (result != ESP_OK)
     {

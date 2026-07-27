@@ -12,7 +12,6 @@ idf_component_register(
         device_storage
         esp_app_format
         esp_hw_support
-        esp_netif
         esp_psram
         esp_timer
         freertos
@@ -20,4 +19,5 @@ idf_component_register(
         heap
         log
         nvs_flash
+        time_sync
 )
