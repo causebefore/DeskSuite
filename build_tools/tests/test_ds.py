@@ -126,6 +126,40 @@ def test_init_build_cache_creates_generated_include_before_reconfigure(tmp_path,
     assert header.parent.is_dir()
 
 
+def test_fixed_environment_accepts_idf_selected_ninja_path(tmp_path, monkeypatch):
+    """固定环境校验应接受 ESP-IDF 实际写入缓存的用户级 Ninja 路径。"""
+    idf_path = tmp_path / "esp-idf"
+    python_path = tmp_path / "python.exe"
+    ninja_path = tmp_path / ".espressif" / "tools" / "ninja" / "1.12.1" / "ninja.exe"
+    build_path = tmp_path / "build"
+    idf_path.mkdir()
+    python_path.write_bytes(b"python")
+    ninja_path.parent.mkdir(parents=True)
+    ninja_path.write_bytes(b"ninja")
+    build_path.mkdir()
+    (build_path / "CMakeCache.txt").write_text(
+        f"CMAKE_MAKE_PROGRAM:FILEPATH={str(ninja_path).replace(chr(92), '/')}\n",
+        encoding="utf-8",
+    )
+    (build_path / "config.env").write_text(
+        json.dumps({"IDF_PATH": str(idf_path), "IDF_TARGET": "esp32s3"}),
+        encoding="utf-8",
+    )
+    (build_path / "build.ninja").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(ds, "EXPECTED_IDF_PATH", idf_path)
+    monkeypatch.setattr(ds, "EXPECTED_PYTHON_PATH", python_path)
+    monkeypatch.setattr(ds, "EXPECTED_NINJA_PATH", ninja_path)
+    monkeypatch.setattr(ds, "BUILD_PATH", build_path)
+    monkeypatch.setattr(
+        ds,
+        "run_powershell",
+        lambda *args, **kwargs: SimpleNamespace(stdout="1.12.1"),
+    )
+
+    ds.check_fixed_environment()
+
+
 def test_cmd_build_initializes_cache_before_validation_and_identity(tmp_path, monkeypatch):
     """干净构建必须先创建缓存，再校验固定环境并生成产品身份头。"""
     events = []

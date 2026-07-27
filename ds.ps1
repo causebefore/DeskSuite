@@ -22,6 +22,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:PYTHONIOENCODING = "utf-8"
 $pythonExe = "C:\Users\lbq08\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe"
 $toolPath = Join-Path $PSScriptRoot "build_tools\ds.py"
 

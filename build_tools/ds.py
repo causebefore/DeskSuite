@@ -26,7 +26,9 @@ EXPECTED_IDF_PATH = Path(r"C:\esp\v6.0.1\esp-idf")
 EXPECTED_PYTHON_PATH = Path(
     r"C:\Users\lbq08\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe"
 )
-EXPECTED_NINJA_PATH = Path(r"C:\Espressif\tools\ninja\1.12.1\ninja.exe")
+EXPECTED_NINJA_PATH = Path(
+    r"C:\Users\lbq08\.espressif\tools\ninja\1.12.1\ninja.exe"
+)
 EXPECTED_NINJA_VERSION = "1.12.1"
 
 # ── DeskSuite 与产品配置 ─────────────────────────────────────────────────
