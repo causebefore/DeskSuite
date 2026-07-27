@@ -6,6 +6,9 @@
 .vscode/
 **/.vscode/
 
+# Brainstorming 视觉伴侣会话产物（本地草稿，不入库）
+.superpowers/
+
 # 密钥与本地环境
 .env
 **/.env
