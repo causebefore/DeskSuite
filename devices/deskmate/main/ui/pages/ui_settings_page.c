@@ -695,7 +695,7 @@ static esp_err_t open_menu(void)
         show_overview();
         return ESP_ERR_NO_MEM;
     }
-    lv_group_set_wrap(s_view.group, false);
+    lv_group_set_wrap(s_view.group, true);
 
     s_view.root_page     = lv_menu_page_create(s_view.menu, NULL);
     s_view.network_page  = lv_menu_page_create(s_view.menu, "网络设置");
