@@ -125,6 +125,8 @@ static void init_optional_sd_filesystem(void)
  */
 void app_main(void)
 {
+    ESP_LOGI(TAG, "DeskMate OTA 验证固件已启动");
+
     // esp_log_level_set("*", ESP_LOG_WARN);
     // esp_log_level_set(TAG, ESP_LOG_INFO);
     // esp_log_level_set(TASK_STACK_STATS_LOG_TAG, ESP_LOG_INFO);
