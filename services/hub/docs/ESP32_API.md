@@ -271,6 +271,10 @@ X-Device-Id: <稳定设备 ID>
 共用 `config.toml [display.refresh_schedule]`。设备在普通内部 Timer 唤醒时保持离线，只有
 可信系统时间达到该截止时间后才恢复网络并再次拉取 Dashboard；成功响应会替换下一截止时间。
 
+Dashboard 的 `mail.messages` 保持最多 5 条，但专门按 DeskMate 浏览顺序投影：先按时间倒序
+返回未读邮件，不足上限时再按时间倒序补入已读邮件。`mail.unread_count` 仍表示收件箱完整
+未读总数，不受列表上限影响。共享显示页面使用的邮件数据仍保持“最近邮件”顺序。
+
 ## 9. 已删除接口
 
 以下路径不再提供，调用返回 `404`：

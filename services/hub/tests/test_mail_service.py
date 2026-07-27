@@ -62,8 +62,20 @@ class _FakeMailbox:
         return False
 
     def fetch(self, criteria, limit, reverse, mark_seen, headers_only):
-        _FakeMailbox.fetch_calls.append({"mark_seen": mark_seen})
-        return list(self.folder._messages)
+        _FakeMailbox.fetch_calls.append(
+            {
+                "criteria": criteria,
+                "limit": limit,
+                "mark_seen": mark_seen,
+                "headers_only": headers_only,
+            }
+        )
+        messages = list(self.folder._messages)
+        if criteria == "UNSEEN":
+            messages = [message for message in messages if "\\Seen" not in message.flags]
+        elif criteria == "SEEN":
+            messages = [message for message in messages if "\\Seen" in message.flags]
+        return messages[:limit]
 
 
 def _patch_mailbox(monkeypatch, messages, unseen):
@@ -129,6 +141,78 @@ def test_fetch_always_passes_mark_seen_false(monkeypatch):
     svc.get_mail_summary("Asia/Shanghai")
     assert _FakeMailbox.fetch_calls, "fetch 应被调用"
     assert all(c["mark_seen"] is False for c in _FakeMailbox.fetch_calls)
+    assert all(c["headers_only"] is True for c in _FakeMailbox.fetch_calls)
+
+
+def test_prioritizes_unread_and_fills_with_recent_seen(monkeypatch):
+    msgs = [
+        _FakeMsg("104", "已读甲", "已读最新", datetime(2026, 7, 4, 4, 0, tzinfo=UTC), seen=True),
+        _FakeMsg("103", "未读甲", "未读最新", datetime(2026, 7, 4, 3, 0, tzinfo=UTC), seen=False),
+        _FakeMsg("102", "已读乙", "已读次新", datetime(2026, 7, 4, 2, 0, tzinfo=UTC), seen=True),
+        _FakeMsg("101", "未读乙", "未读次新", datetime(2026, 7, 4, 1, 0, tzinfo=UTC), seen=False),
+    ]
+    _patch_mailbox(monkeypatch, msgs, unseen=2)
+    svc = MailService(_settings(imap_max_messages=3))
+
+    result = svc.get_mail_summary("Asia/Shanghai", prioritize_unread=True)
+
+    assert [message.uid for message in result.messages] == ["103", "101", "104"]
+    assert [call["criteria"] for call in _FakeMailbox.fetch_calls] == [
+        "UNSEEN",
+        "SEEN",
+    ]
+    assert [call["limit"] for call in _FakeMailbox.fetch_calls] == [3, 1]
+
+
+def test_single_unread_is_followed_by_latest_seen(monkeypatch):
+    msgs = [
+        _FakeMsg("3", "已读甲", "已读最新", datetime(2026, 7, 4, 3, 0, tzinfo=UTC), seen=True),
+        _FakeMsg("2", "未读甲", "唯一未读", datetime(2026, 7, 4, 2, 0, tzinfo=UTC), seen=False),
+        _FakeMsg("1", "已读乙", "已读较早", datetime(2026, 7, 4, 1, 0, tzinfo=UTC), seen=True),
+    ]
+    _patch_mailbox(monkeypatch, msgs, unseen=1)
+    svc = MailService(_settings(imap_max_messages=2))
+
+    result = svc.get_mail_summary("Asia/Shanghai", prioritize_unread=True)
+
+    assert [message.uid for message in result.messages] == ["2", "3"]
+
+
+def test_no_unread_returns_latest_seen(monkeypatch):
+    msgs = [
+        _FakeMsg("3", "已读甲", "已读最新", datetime(2026, 7, 4, 3, 0, tzinfo=UTC), seen=True),
+        _FakeMsg("2", "已读乙", "已读次新", datetime(2026, 7, 4, 2, 0, tzinfo=UTC), seen=True),
+        _FakeMsg("1", "已读丙", "已读较早", datetime(2026, 7, 4, 1, 0, tzinfo=UTC), seen=True),
+    ]
+    _patch_mailbox(monkeypatch, msgs, unseen=0)
+    svc = MailService(_settings(imap_max_messages=2))
+
+    result = svc.get_mail_summary("Asia/Shanghai", prioritize_unread=True)
+
+    assert [message.uid for message in result.messages] == ["3", "2"]
+
+
+def test_recent_and_unread_first_results_use_separate_caches(monkeypatch):
+    msgs = [
+        _FakeMsg("2", "已读", "最新已读", datetime(2026, 7, 4, 2, 0, tzinfo=UTC), seen=True),
+        _FakeMsg("1", "未读", "较早未读", datetime(2026, 7, 4, 1, 0, tzinfo=UTC), seen=False),
+    ]
+    _patch_mailbox(monkeypatch, msgs, unseen=1)
+    svc = MailService(_settings())
+
+    recent = svc.get_mail_summary("Asia/Shanghai")
+    unread_first = svc.get_mail_summary(
+        "Asia/Shanghai",
+        prioritize_unread=True,
+    )
+
+    assert [message.uid for message in recent.messages] == ["2", "1"]
+    assert [message.uid for message in unread_first.messages] == ["1", "2"]
+    assert [call["criteria"] for call in _FakeMailbox.fetch_calls] == [
+        "ALL",
+        "UNSEEN",
+        "SEEN",
+    ]
 
 
 def test_degrades_on_exception(monkeypatch):

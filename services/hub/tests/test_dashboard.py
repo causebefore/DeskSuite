@@ -135,6 +135,7 @@ class _ValueService:
         self.value = value
         self.error = error
         self.delay = delay
+        self.mail_prioritize_unread = None
 
     def _get(self):
         if self.delay:
@@ -151,8 +152,9 @@ class _ValueService:
         assert timezone == "Asia/Shanghai"
         return self._get()
 
-    def get_mail_summary(self, timezone: str):
+    def get_mail_summary(self, timezone: str, *, prioritize_unread: bool = False):
         assert timezone == "Asia/Shanghai"
+        self.mail_prioritize_unread = prioritize_unread
         return self._get()
 
     def check_glm(self):
@@ -189,9 +191,14 @@ def _headers(token: str = "shared-secret") -> dict[str, str]:
 
 
 def test_dashboard_success_matches_schema_3_and_esp32_bounds():
-    response = _client().get("/api/v1/dashboard", headers=_headers())
+    mail_service = _ValueService(_mail())
+    response = _client(mail_service=mail_service).get(
+        "/api/v1/dashboard",
+        headers=_headers(),
+    )
 
     assert response.status_code == 200
+    assert mail_service.mail_prioritize_unread is True
     payload = response.json()
     assert payload["schema"] == 3
     assert payload["device_id"] == "esp32-001122aabbcc"

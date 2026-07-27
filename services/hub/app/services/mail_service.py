@@ -35,12 +35,18 @@ class MailService:
 
     # ── 公开 API ──────────────────────────────────────
 
-    def get_mail_summary(self, timezone: str) -> MailPayload:
+    def get_mail_summary(
+        self,
+        timezone: str,
+        *,
+        prioritize_unread: bool = False,
+    ) -> MailPayload:
         """
         获取收件箱未读数 + 最近邮件（唯一对外接口）。
 
         Args:
             timezone: 设备时区，用于生成 date_text 本地化文本
+            prioritize_unread: 是否先返回最近未读邮件，并用最近已读邮件补足上限
 
         Returns:
             MailPayload；未配置凭据或失败时为 mock
@@ -50,9 +56,9 @@ class MailService:
             return self._mock_mail(timezone, "未配置 IMAP，返回 mock 数据")
         return self._get_cached(
             self._inbox_cache,
-            "inbox",
+            "inbox:unread-first" if prioritize_unread else "inbox:recent",
             self._settings.imap_inbox_cache_seconds,
-            lambda: self._fetch_imap(timezone),
+            lambda: self._fetch_imap(timezone, prioritize_unread=prioritize_unread),
         )
 
     # ── 通用缓存 ──────────────────────────────────────
@@ -74,8 +80,13 @@ class MailService:
 
     # ── IMAP 拉取 ─────────────────────────────────────
 
-    def _fetch_imap(self, timezone: str) -> MailPayload:
-        """只读拉取收件箱；任何异常降级为 mock 并缓存。"""
+    def _fetch_imap(
+        self,
+        timezone: str,
+        *,
+        prioritize_unread: bool,
+    ) -> MailPayload:
+        """只读拉取收件箱，并按调用方选择的顺序返回有界邮件列表。"""
         logger.info("开始拉取 IMAP 邮件：host={}", self._settings.imap_host)
         try:
             # use_ssl=True 走 IMAP4_SSL（imap_tools MailBox 默认即 SSL）
@@ -91,17 +102,14 @@ class MailService:
                 # imap_tools 1.13.0 的 folder manager 没有 info()；用 status() 取 UNSEEN
                 # 某些服务器可能省略 UNSEEN 键，用 .get 容错（只让计数降级，不抛 KeyError）
                 unread_count = mailbox.folder.status("INBOX", ["UNSEEN"]).get("UNSEEN", 0)
-                # mark_seen=False 是只读的关键保证；headers_only 不拉正文
-                # criteria 用字符串 'ALL'（imap_tools 1.13.0 没有 A.all()）
-                msgs = list(
-                    mailbox.fetch(
-                        "ALL",
-                        limit=self._settings.imap_max_messages,
-                        reverse=True,
-                        mark_seen=False,
-                        headers_only=True,
-                    )
-                )
+                max_messages = self._settings.imap_max_messages
+                if prioritize_unread:
+                    msgs = self._fetch_headers(mailbox, "UNSEEN", max_messages)
+                    remaining = max_messages - len(msgs)
+                    if remaining > 0:
+                        msgs.extend(self._fetch_headers(mailbox, "SEEN", remaining))
+                else:
+                    msgs = self._fetch_headers(mailbox, "ALL", max_messages)
                 items = [
                     m
                     for m in (self._parse_message(msg, timezone) for msg in msgs)
@@ -116,6 +124,21 @@ class MailService:
         except Exception as exc:
             logger.warning("IMAP 拉取失败，降级 mock：{}", exc)
             return self._mock_mail(timezone, f"IMAP 请求失败: {exc}")
+
+    @staticmethod
+    def _fetch_headers(mailbox, criteria: str, limit: int) -> list:
+        """只读拉取指定条件的邮件头，不下载正文或改变已读状态。"""
+        if limit <= 0:
+            return []
+        return list(
+            mailbox.fetch(
+                criteria,
+                limit=limit,
+                reverse=True,
+                mark_seen=False,
+                headers_only=True,
+            )
+        )
 
     def _parse_message(self, msg, timezone: str) -> MailMessage | None:
         """从 imap_tools MailMessage 解析出 MailMessage；单条失败跳过，不影响整体（spec §8）。"""

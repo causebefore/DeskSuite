@@ -93,7 +93,8 @@ class DashboardService:
                 self._settings.display_default_timezone
             ),
             "mail": lambda: self._mail_service.get_mail_summary(
-                self._settings.display_default_timezone
+                self._settings.display_default_timezone,
+                prioritize_unread=True,
             ),
             "quota": self._quota_service.check_glm,
         }
