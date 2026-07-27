@@ -170,12 +170,13 @@ config DESKMATE_API_SYNC_RETRY_DELAY_MS
     help
         同步重试退避基数（× attempt），单位毫秒。
 
-config DESKMATE_API_DEFAULT_REFRESH_SEC
-    int "Default dashboard refresh seconds fallback"
-    default 300
-    range 30 3600
+config DESKMATE_DASHBOARD_FAILURE_RETRY_SEC
+    int "Dashboard failure retry interval in seconds"
+    default 60
+    range 10 3600
     help
-        NVS 未存 refresh_seconds 时的兜底周期，单位秒。
+        Dashboard 完整同步重试仍失败后，再次尝试同步的本地退避间隔。
+        成功场景只使用服务端 next_refresh_at_utc，不使用本地相对刷新周期。
 
 config DESKMATE_API_DASHBOARD_JSON_MAX
     int "Dashboard response JSON buffer cap (bytes)"
@@ -198,13 +199,6 @@ config DESKMATE_WEB_FILE_NETWORK_WAIT_MS
     help
         网页文件管理启动前等待网络 ONLINE 的最长时间，单位毫秒。
         需覆盖唤醒重连与上线后 Dashboard 同步占用网络任务的窗口。
-
-config DESKMATE_DASHBOARD_REFRESH_DEFAULT_SEC
-    int "Dashboard refresh default period (seconds)"
-    default 1800
-    range 60 7200
-    help
-        dashboard 本地默认刷新周期（服务端未下发 refresh_seconds 时使用）。
 
 config DESKMATE_SETTINGS_NAMESPACE
     string "NVS namespace"

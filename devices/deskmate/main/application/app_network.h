@@ -110,13 +110,15 @@ esp_err_t app_network_cancel_sync(void);
 esp_err_t app_network_sync_for_light_sleep(uint32_t timeout_ms);
 
 /**
- * @brief 复制最近一次成功 Dashboard 响应给出的下一刷新 UTC 时间
+ * @brief 复制当前有效的下一次 Dashboard 自动同步 UTC 截止
+ *
+ * 成功场景返回最近响应的 `next_refresh_at_utc`；完整同步失败后返回本地失败退避截止。
  *
  * @param[out] out_utc_timestamp UTC Unix 时间戳，单位秒
  * @return ESP_OK 已复制；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE
- *         尚未成功解析过服务端截止时间
+ *         尚无服务端截止且没有可换算为 UTC 的失败退避截止
  */
-esp_err_t app_network_get_next_refresh_at_utc(int64_t *out_utc_timestamp);
+esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp);
 
 /**
  * @brief 从当前持久化设置构造完整后端连接上下文
@@ -157,11 +159,13 @@ esp_err_t app_network_suspend_for_light_sleep(uint32_t timeout_ms);
 esp_err_t app_network_resume_from_light_sleep(uint32_t timeout_ms);
 
 /**
- * @brief 启用或停用 Dashboard 周期同步
+ * @brief 启用或停用 Dashboard 自动同步
  *
- * @param[in] enabled true 启用；false 停用
+ * 启用后，成功场景按服务端 `next_refresh_at_utc` 安排一次性同步；失败场景按本地退避重试。
+ *
+ * @param[in] enabled true 启用；false 停用并停止自动同步 Timer
  */
-void app_network_set_periodic_enabled(bool enabled);
+void app_network_set_dashboard_auto_sync_enabled(bool enabled);
 
 /**
  * @brief 启用或停用 OTA 自动检查

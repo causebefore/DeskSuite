@@ -97,7 +97,6 @@ void settings_store_set_defaults(device_settings_t *config)
         return;
     }
     memset(config, 0, sizeof(*config));
-    config->refresh_seconds = CONFIG_DESKMATE_DASHBOARD_REFRESH_DEFAULT_SEC;
 #ifdef CONFIG_DESKMATE_OTA_DEFAULT_ENABLED
     config->ota_enabled = true;
 #endif
@@ -171,7 +170,6 @@ esp_err_t settings_store_load_copy(device_settings_t *out)
     (void) nvs_get_str(nvs, "service", out->service_url, &length);
     length = sizeof(out->device_token);
     (void) nvs_get_str(nvs, "token", out->device_token, &length);
-    (void) nvs_get_u32(nvs, "refresh", &out->refresh_seconds);
 
     uint8_t flag = 0;
     if (nvs_get_u8(nvs, "ota_en", &flag) == ESP_OK)
@@ -227,7 +225,6 @@ esp_err_t settings_store_save(const device_settings_t *config)
     SAVE_IF_OK(nvs_set_str(nvs, "pass", config->wifi_password));
     SAVE_IF_OK(nvs_set_str(nvs, "service", config->service_url));
     SAVE_IF_OK(nvs_set_str(nvs, "token", config->device_token));
-    SAVE_IF_OK(nvs_set_u32(nvs, "refresh", config->refresh_seconds));
     SAVE_IF_OK(nvs_set_u8(nvs, "ota_en", config->ota_enabled ? 1 : 0));
     SAVE_IF_OK(nvs_set_u8(nvs, "ota_auto", config->ota_auto_install ? 1 : 0));
     SAVE_IF_OK(nvs_set_u32(nvs, "ota_int", config->ota_check_interval_sec));

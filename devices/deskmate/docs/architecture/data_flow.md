@@ -142,6 +142,11 @@ Communication 不直接调用 Data、Presentation 或 UI，不决定是否保持
 固件安装成功后的底层强制重启属于 `firmware_ota` 已声明的原子事务；是否发起检查或安装仍由
 Application 决定。
 
+成功 Dashboard 响应中的 `next_refresh_at_utc` 是清醒态和 Light-sleep 状态下下一次自动同步
+的唯一正常调度权威。`app_network` 在清醒态把它换算为一次性 Timer；`app_power` 在
+Light-sleep 前把同一截止时间换算为内部唤醒间隔。完整同步失败后才使用本地失败退避，失败
+退避只负责错误恢复，不构成第二套正常刷新周期。
+
 后端上下文是无 Task、无持久化状态的按值快照。持久化字段由 Application 装配，稳定硬件设备
 ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保存第二套身份来源。网络诊断
 通过 `network_manager_get_diagnostics_copy()` 一次复制 Manager 会话事实，并实时补充 AP、

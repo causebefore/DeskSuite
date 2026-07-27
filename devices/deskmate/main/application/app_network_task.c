@@ -37,6 +37,7 @@
 #define NETWORK_CONTROL_RESPONSE_SLOTS     2U
 #define NETWORK_MANAGER_POLL_INTERVAL_MS   100U
 #define NETWORK_TIME_SYNC_TIMEOUT_MS       10000U
+#define DASHBOARD_TIMER_MIN_DELAY_US       1000ULL
 #define REMOTE_LOG_STOP_TIMEOUT_MS         5000U
 #define DESKMATE_REMOTE_LOG_QUEUE_CAPACITY 8U
 #define DESKMATE_REMOTE_LOG_BATCH_CAPACITY 4U
@@ -93,7 +94,7 @@ static const char *TAG = "app_network_task";
 
 static QueueHandle_t                      s_command_queue;
 static TaskHandle_t                       s_task;
-static esp_timer_handle_t                 s_periodic_timer;
+static esp_timer_handle_t                 s_dashboard_timer;
 static esp_timer_handle_t                 s_reconnect_timer;
 static esp_timer_handle_t                 s_ota_timer;
 static esp_timer_handle_t                 s_time_sync_timer;
@@ -101,7 +102,8 @@ static portMUX_TYPE                       s_state_lock = portMUX_INITIALIZER_UNL
 static bool                               s_sync_queued;
 static bool                               s_sync_running;
 static bool                               s_sync_cancel_requested;
-static bool                               s_periodic_enabled;
+static bool                               s_dashboard_auto_sync_enabled;
+static bool                               s_dashboard_retry_pending;
 static bool                               s_ota_queued;
 static bool                               s_ota_running;
 static bool                               s_ota_pending_update;
@@ -114,6 +116,7 @@ static bool                               s_light_sleep_suspended;
 static bool                               s_manager_change_pending;
 static bool                               s_dashboard_online;
 static int64_t                            s_next_refresh_at_utc;
+static int64_t                            s_dashboard_retry_at_utc;
 static bool                               s_remote_log_initialized;
 static uint32_t                           s_active_lease_generation;
 static uint32_t                           s_next_lease_generation = 1U;
@@ -515,18 +518,6 @@ static bool is_sync_cancel_requested(void)
     return cancelled;
 }
 
-/** @brief 读取合法 Dashboard 刷新周期并提供产品默认值 */
-static uint32_t get_dashboard_refresh_seconds(void)
-{
-    device_settings_t settings;
-    if (settings_store_load_copy(&settings) == ESP_OK && settings.refresh_seconds >= 60U
-        && settings.refresh_seconds <= 3600U)
-    {
-        return settings.refresh_seconds;
-    }
-    return CONFIG_DESKMATE_API_DEFAULT_REFRESH_SEC;
-}
-
 /** @brief 仅在服务连通事实变化时更新状态栏 */
 static void set_dashboard_online(bool online)
 {
@@ -598,7 +589,9 @@ static esp_err_t fetch_dashboard(void)
     if (error == ESP_OK)
     {
         taskENTER_CRITICAL(&s_state_lock);
-        s_next_refresh_at_utc = dashboard.next_refresh_at_utc;
+        s_next_refresh_at_utc     = dashboard.next_refresh_at_utc;
+        s_dashboard_retry_pending = false;
+        s_dashboard_retry_at_utc  = 0;
         taskEXIT_CRITICAL(&s_state_lock);
     }
     deskmate_api_dashboard_release(&dashboard);
@@ -727,30 +720,131 @@ static void schedule_reconnect_backoff(void)
     }
 }
 
-/** @brief 根据当前产品开关重新设置 Dashboard 周期同步 Timer */
-static void reschedule_periodic_timer(void)
+/**
+ * @brief 把 Dashboard 完整同步失败收敛为独立的本地重试截止
+ *
+ * 可信 UTC 可用时记录绝对重试时间，供清醒态 Timer 与 Light-sleep 共用；时间不可信时仅保留
+ * retry pending，由清醒态 Timer 或 Light-sleep 屏幕维护周期提供有界重试机会。
+ */
+static void mark_dashboard_failure_retry(void)
 {
-    if (s_periodic_timer == NULL)
+    system_clock_snapshot_t clock       = { 0 };
+    const bool              clock_valid = system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid;
+    const int64_t           retry_at_utc =
+        clock_valid ? (int64_t) clock.utc_timestamp + CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC : 0;
+
+    taskENTER_CRITICAL(&s_state_lock);
+    s_dashboard_retry_pending = true;
+    s_dashboard_retry_at_utc  = retry_at_utc;
+    taskEXIT_CRITICAL(&s_state_lock);
+}
+
+/**
+ * @brief 按服务端绝对截止或失败退避重新设置 Dashboard 一次性 Timer
+ *
+ * 成功响应提供的 `next_refresh_at_utc` 是正常调度的唯一权威。只有完整同步失败或系统时间
+ * 暂时不可信时才使用本地失败退避；互斥租约和轻睡眠暂停期间保持 Timer 停止。
+ */
+static void reschedule_dashboard_timer(void)
+{
+    if (s_dashboard_timer == NULL)
     {
         return;
     }
-    (void) esp_timer_stop(s_periodic_timer);
+    (void) esp_timer_stop(s_dashboard_timer);
 
     taskENTER_CRITICAL(&s_state_lock);
     const bool enabled =
-        s_periodic_enabled && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_light_sleep_suspended;
+        s_dashboard_auto_sync_enabled && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_light_sleep_suspended;
+    const bool    retry_pending       = s_dashboard_retry_pending;
+    const int64_t retry_at_utc        = s_dashboard_retry_at_utc;
+    const int64_t next_refresh_at_utc = s_next_refresh_at_utc;
     taskEXIT_CRITICAL(&s_state_lock);
     if (!enabled)
     {
         return;
     }
 
-    const uint64_t  interval_us = (uint64_t) get_dashboard_refresh_seconds() * 1000000ULL;
-    const esp_err_t error       = esp_timer_start_periodic(s_periodic_timer, interval_us);
+    uint64_t    delay_us = 0U;
+    const char *reason   = NULL;
+    if (retry_pending)
+    {
+        system_clock_snapshot_t clock = { 0 };
+        if (retry_at_utc > 0 && system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid)
+        {
+            const int64_t remaining_seconds = retry_at_utc - (int64_t) clock.utc_timestamp;
+            delay_us = remaining_seconds > 0 ? (uint64_t) remaining_seconds * 1000000ULL : DASHBOARD_TIMER_MIN_DELAY_US;
+        }
+        else
+        {
+            delay_us = (uint64_t) CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC * 1000000ULL;
+        }
+        reason = "同步失败退避";
+    }
+    else if (next_refresh_at_utc > 0)
+    {
+        system_clock_snapshot_t clock = { 0 };
+        if (system_clock_get_snapshot_copy(&clock) != ESP_OK || !clock.valid)
+        {
+            delay_us = (uint64_t) CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC * 1000000ULL;
+            reason   = "等待可信系统时间";
+        }
+        else
+        {
+            const int64_t remaining_seconds = next_refresh_at_utc - (int64_t) clock.utc_timestamp;
+            delay_us = remaining_seconds > 0 ? (uint64_t) remaining_seconds * 1000000ULL : DASHBOARD_TIMER_MIN_DELAY_US;
+            reason   = "服务端绝对截止";
+        }
+    }
+    else
+    {
+        return;
+    }
+
+    const esp_err_t error = esp_timer_start_once(s_dashboard_timer, delay_us);
     if (error != ESP_OK)
     {
-        ESP_LOGW(TAG, "启动 Dashboard 周期定时器失败: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "启动 Dashboard 一次性 Timer 失败: %s", esp_err_to_name(error));
+        return;
     }
+    ESP_LOGI(TAG,
+             "Dashboard 自动同步已安排: 原因=%s，等待=%llu ms，服务端截止=%lld，失败重试截止=%lld",
+             reason,
+             (unsigned long long) ((delay_us + 999ULL) / 1000ULL),
+             (long long) next_refresh_at_utc,
+             (long long) retry_at_utc);
+}
+
+/**
+ * @brief 判断网络上线后是否应立即执行 Dashboard 自动同步
+ *
+ * 已进入失败退避时继续由一次性 Timer 控制重试；没有服务端计划、系统时间不可信或绝对截止
+ * 已到达时立即同步。未来截止只重新安排 Timer，避免每次网络恢复都提前拉取。
+ */
+static bool dashboard_auto_sync_is_due(void)
+{
+    taskENTER_CRITICAL(&s_state_lock);
+    const bool    enabled             = s_dashboard_auto_sync_enabled;
+    const bool    retry_pending       = s_dashboard_retry_pending;
+    const int64_t retry_at_utc        = s_dashboard_retry_at_utc;
+    const int64_t next_refresh_at_utc = s_next_refresh_at_utc;
+    taskEXIT_CRITICAL(&s_state_lock);
+    if (!enabled)
+    {
+        return false;
+    }
+    const int64_t target_utc = retry_pending ? retry_at_utc : next_refresh_at_utc;
+    if (target_utc <= 0)
+    {
+        return !retry_pending;
+    }
+
+    system_clock_snapshot_t clock = { 0 };
+    if (system_clock_get_snapshot_copy(&clock) != ESP_OK || !clock.valid)
+    {
+        return !retry_pending;
+    }
+    return (int64_t) clock.utc_timestamp >= target_utc;
 }
 
 /** @brief 根据 OTA 产品开关和持久化设置重新设置自动检查 Timer */
@@ -805,7 +899,9 @@ static void sync_system_clock(void)
     if (error != ESP_OK)
     {
         ESP_LOGW(TAG, "SNTP 校时失败: %s", esp_err_to_name(error));
+        return;
     }
+    reschedule_dashboard_timer();
 }
 #endif
 
@@ -986,13 +1082,17 @@ static void handle_manager_changed_command(void)
                 }
             }
 #endif
-            taskENTER_CRITICAL(&s_state_lock);
-            const bool periodic_enabled = s_periodic_enabled;
-            taskEXIT_CRITICAL(&s_state_lock);
-            const esp_err_t sync_error = periodic_enabled ? app_network_request_sync() : ESP_ERR_INVALID_STATE;
-            if (sync_error != ESP_OK && sync_error != ESP_ERR_INVALID_STATE)
+            if (dashboard_auto_sync_is_due())
             {
-                ESP_LOGW(TAG, "联网后投递 Dashboard 同步失败: %s", esp_err_to_name(sync_error));
+                const esp_err_t sync_error = app_network_request_sync();
+                if (sync_error != ESP_OK && sync_error != ESP_ERR_INVALID_STATE)
+                {
+                    ESP_LOGW(TAG, "联网后投递 Dashboard 同步失败: %s", esp_err_to_name(sync_error));
+                }
+            }
+            else
+            {
+                reschedule_dashboard_timer();
             }
         }
         return;
@@ -1158,16 +1258,20 @@ static esp_err_t execute_sync_command(void)
         }
         else if (!is_sync_cancel_requested())
         {
+            mark_dashboard_failure_retry();
             set_dashboard_online(false);
             ESP_LOGW(TAG, "Dashboard 同步失败: %s", esp_err_to_name(error));
         }
-        reschedule_periodic_timer();
     }
 
     taskENTER_CRITICAL(&s_state_lock);
     s_sync_running          = false;
     s_sync_cancel_requested = false;
     taskEXIT_CRITICAL(&s_state_lock);
+    if (should_run)
+    {
+        reschedule_dashboard_timer();
+    }
     return error;
 }
 
@@ -1437,7 +1541,7 @@ static void handle_lease_acquire_command(const network_command_t *command)
 
     if (granted)
     {
-        reschedule_periodic_timer();
+        reschedule_dashboard_timer();
         reschedule_ota_timer();
         ESP_LOGI(TAG,
                  "已授予互斥网络产品租约: 类型=%u，代次=%lu",
@@ -1491,7 +1595,7 @@ static void handle_lease_release_command(const network_command_t *command)
                  "已释放互斥网络产品租约: 类型=%u，代次=%lu",
                  (unsigned) command->lease_type,
                  (unsigned long) command->lease_generation);
-        reschedule_periodic_timer();
+        reschedule_dashboard_timer();
         reschedule_ota_timer();
     }
     if (signal != NULL)
@@ -1504,7 +1608,7 @@ static void handle_lease_release_command(const network_command_t *command)
 static void stop_network_policy_timers(void)
 {
     esp_timer_handle_t timers[] = {
-        s_periodic_timer,
+        s_dashboard_timer,
         s_reconnect_timer,
         s_ota_timer,
         s_time_sync_timer,
@@ -1557,7 +1661,7 @@ static void handle_suspend_for_light_sleep_command(const network_command_t *comm
         s_light_sleep_suspended = false;
         s_sync_cancel_requested = false;
         taskEXIT_CRITICAL(&s_state_lock);
-        reschedule_periodic_timer();
+        reschedule_dashboard_timer();
         reschedule_ota_timer();
         ESP_LOGE(TAG, "停止远端日志以进入轻睡眠失败: %s", esp_err_to_name(error));
         complete_control_response(command, error);
@@ -1578,7 +1682,7 @@ static void handle_suspend_for_light_sleep_command(const network_command_t *comm
         s_light_sleep_suspended = false;
         s_sync_cancel_requested = false;
         taskEXIT_CRITICAL(&s_state_lock);
-        reschedule_periodic_timer();
+        reschedule_dashboard_timer();
         reschedule_ota_timer();
         ESP_LOGE(TAG, "暂停网络以进入轻睡眠失败: %s", esp_err_to_name(error));
         complete_control_response(command, error);
@@ -1621,7 +1725,6 @@ static void handle_resume_from_light_sleep_command(const network_command_t *comm
     s_light_sleep_suspended = false;
     s_sync_cancel_requested = false;
     taskEXIT_CRITICAL(&s_state_lock);
-    reschedule_periodic_timer();
     reschedule_ota_timer();
     ESP_LOGI(TAG, "轻睡眠唤醒后网络产品策略已恢复");
     complete_control_response(command, ESP_OK);
@@ -1766,11 +1869,17 @@ static void app_network_task(void *arg)
     }
 }
 
-/** @brief Dashboard 周期 Timer 回调，只投递同步命令 */
-static void periodic_timer_cb(void *arg)
+/** @brief Dashboard 截止或失败退避 Timer 回调，只投递同步命令 */
+static void dashboard_timer_cb(void *arg)
 {
     (void) arg;
-    (void) app_network_request_sync();
+    const esp_err_t error = app_network_request_sync();
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE)
+    {
+        mark_dashboard_failure_retry();
+        ESP_LOGW(TAG, "Dashboard Timer 投递同步失败: %s", esp_err_to_name(error));
+        reschedule_dashboard_timer();
+    }
 }
 
 /** @brief 网络会话退避 Timer 回调，只投递重启命令 */
@@ -1804,7 +1913,7 @@ static void time_sync_timer_cb(void *arg)
 static void delete_created_timers(void)
 {
     esp_timer_handle_t *timers[] = {
-        &s_periodic_timer,
+        &s_dashboard_timer,
         &s_reconnect_timer,
         &s_ota_timer,
         &s_time_sync_timer,
@@ -1822,11 +1931,11 @@ static void delete_created_timers(void)
 /** @brief 创建网络 Application 使用的全部 Timer */
 static esp_err_t create_network_timers(void)
 {
-    const esp_timer_create_args_t periodic_args = {
-        .callback = periodic_timer_cb,
+    const esp_timer_create_args_t dashboard_args = {
+        .callback = dashboard_timer_cb,
         .name     = "app_dashboard",
     };
-    ESP_RETURN_ON_ERROR(esp_timer_create(&periodic_args, &s_periodic_timer), TAG, "创建 Dashboard Timer 失败");
+    ESP_RETURN_ON_ERROR(esp_timer_create(&dashboard_args, &s_dashboard_timer), TAG, "创建 Dashboard Timer 失败");
 
     const esp_timer_create_args_t reconnect_args = {
         .callback = reconnect_timer_cb,
@@ -2059,18 +2168,18 @@ esp_err_t app_network_sync_for_light_sleep(uint32_t timeout_ms)
     return wait_control_response(slot_index, request_id, deadline_us, NULL);
 }
 
-esp_err_t app_network_get_next_refresh_at_utc(int64_t *out_utc_timestamp)
+esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp)
 {
-    ESP_RETURN_ON_FALSE(out_utc_timestamp != NULL, ESP_ERR_INVALID_ARG, TAG, "下一刷新时间输出为空");
+    ESP_RETURN_ON_FALSE(out_utc_timestamp != NULL, ESP_ERR_INVALID_ARG, TAG, "下一次 Dashboard 同步时间输出为空");
 
     taskENTER_CRITICAL(&s_state_lock);
-    const int64_t next_refresh_at_utc = s_next_refresh_at_utc;
+    const int64_t next_sync_at_utc = s_dashboard_retry_pending ? s_dashboard_retry_at_utc : s_next_refresh_at_utc;
     taskEXIT_CRITICAL(&s_state_lock);
-    if (next_refresh_at_utc <= 0)
+    if (next_sync_at_utc <= 0)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    *out_utc_timestamp = next_refresh_at_utc;
+    *out_utc_timestamp = next_sync_at_utc;
     return ESP_OK;
 }
 
@@ -2093,12 +2202,12 @@ esp_err_t app_network_resume_from_light_sleep(uint32_t timeout_ms)
                                             NULL);
 }
 
-void app_network_set_periodic_enabled(bool enabled)
+void app_network_set_dashboard_auto_sync_enabled(bool enabled)
 {
     taskENTER_CRITICAL(&s_state_lock);
-    s_periodic_enabled = enabled;
+    s_dashboard_auto_sync_enabled = enabled;
     taskEXIT_CRITICAL(&s_state_lock);
-    reschedule_periodic_timer();
+    reschedule_dashboard_timer();
 }
 
 void app_network_set_ota_auto_check_enabled(bool enabled)

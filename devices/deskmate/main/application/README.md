@@ -71,7 +71,7 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_web_file` | SD/在线前置检查、Web 文件租约、网页文件 Service 启停与安全回滚 |
 | `app_power` | 拥有 60 秒活动窗口、产品阻止条件、UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
-| `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 截止时间与同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
+| `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
 
 `app_network` 不直接操作 Wi‑Fi Driver、Portal HTTP/DNS 或底层重连状态机；这些技术能力属于
 Communication 的 `network_manager` 和 `connect`。Network Manager 一轮内部重试结束后，
@@ -99,14 +99,19 @@ UI 用户意图 → app_main → app_settings / app_ota / app_web_file → app_n
 
 Dashboard 的 HTTP 协议在 Communication，JSON 缓存和领域快照在 Data，拉取时机、重试和
 Weather → Calendar → Mail → Quota 刷新顺序由 `app_network` 拥有。401 只收敛为鉴权失败，
-不清除 Token 或尝试注册。它还在每个网络会话上线后按当前服务地址和稳定设备 ID
+不清除 Token 或尝试注册。成功响应中的 `next_refresh_at_utc` 是下一次 Dashboard 自动同步
+的唯一正常调度权威：清醒态使用一次性 `esp_timer` 对齐绝对截止，Light-sleep 使用同一截止
+时间决定何时恢复网络。完整同步失败后才使用
+`CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC`，本地退避只负责错误恢复，不再存在 NVS 相对
+刷新周期。系统时间重新校准后会按同一绝对截止重新换算清醒态 Timer。它还在每个网络会话上线
+后按当前服务地址和稳定设备 ID
 启动产品标识为 `2` 的远端日志上传，并在停止 Network Manager 前同步停止上传 Task，不额外延长
 在线窗口或增加轻睡眠唤醒就绪事件。远端日志只在网络上线且服务地址有效时才以 8 条队列、4 条批次
 的低内存配置初始化，日志突发可丢弃但不得影响轻睡眠等核心产品 Task。音频采集、处理和语音事务仍由 Service 链拥有；
 `app_voice` 只解释用户意图并申请实时语音租约。
 
 `app_network` 同一时刻只授予一个带类型和代次的互斥网络产品租约，当前类型为实时语音和
-Web 文件管理。两类租约都阻止 Dashboard 手动/周期同步、OTA 检查与安装、显式或无配置自动
+Web 文件管理。两类租约都阻止 Dashboard 手动/自动同步、OTA 检查与安装、显式或无配置自动
 Portal，以及整机进入 Light-sleep；对应租约释放成功后才按当前产品开关恢复 Dashboard 和
 OTA Timer。租约只占用这些产品策略，不停止 Network Manager 的技术状态机：Web 文件服务
 运行期间，已保存 STA 仍可在断线后重连并更新 IPv4 地址。显式或无配置自动 Portal 请求在
@@ -192,7 +197,7 @@ Manager 快照，不使用周期轮询或额外 Task。
 | --- | --- |
 | `app_power_task.c` | 无活动窗口、睡眠编号、Timer 刷新计数、按键唤醒状态和失败终态 |
 | `app_environment_task.c` | 两类产品采样截止时间和采样命令 |
-| `app_network_task.c` | 网络产品命令队列、Dashboard/OTA、类型化互斥租约、会话退避和策略 Timer |
+| `app_network_task.c` | 网络产品命令队列、Dashboard 绝对截止与失败退避、OTA、类型化互斥租约、会话退避和策略 Timer |
 | `app_web_file_task.c` | 网页文件管理启动、运行和可失败停止的一次性产品状态机 |
 
 Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 API 不暴露 RTOS 句柄。
@@ -210,7 +215,8 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 清空私有句柄并输出最终栈高水位。
 
 当前低功耗阶段同时使用 UI Runtime 与网络链路的可逆 `stop/start`。睡前先关闭 UI 业务
-入口、停止 LVGL timer、等待显示 DMA 静止，再由 `app_network` 停止产品 Timer、远端日志、
+入口、停止 LVGL timer、等待显示 DMA 静止，再由 `app_network` 停止 Dashboard 截止、
+失败退避及其他产品 Timer、远端日志、
 Network Manager 和 Wi-Fi Driver。ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止
 时间更近则缩短本轮间隔以对齐计划整点；普通周期保持停网；
 可信 UTC 到达 Dashboard 返回的 `next_refresh_at_utc` 后，电源 Task 恢复网络、同步等待

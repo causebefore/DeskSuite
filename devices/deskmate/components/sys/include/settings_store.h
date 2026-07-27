@@ -3,7 +3,7 @@
  * @brief DeskMate 产品设置兼容接口
  *
  * PhotoPainter 的通用 system_storage 只覆盖网络、时区和 RTC/OTA 状态。本接口保留
- * DeskMate 独有的刷新和 OTA 通道设置，避免这些产品策略进入通用存储结构。
+ * DeskMate 独有的 OTA 自动检查、自动安装和通道设置，避免这些产品策略进入通用存储结构。
  */
 #pragma once
 
@@ -30,7 +30,6 @@ extern "C"
         char     wifi_password[SETTINGS_WIFI_PASSWORD_MAX];
         char     service_url[SETTINGS_SERVICE_URL_MAX];
         char     device_token[SETTINGS_DEVICE_TOKEN_MAX];
-        uint32_t refresh_seconds;
         bool     ota_enabled;
         bool     ota_auto_install;
         uint32_t ota_check_interval_sec;

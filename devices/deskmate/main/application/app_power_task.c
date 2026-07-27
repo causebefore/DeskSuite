@@ -360,11 +360,11 @@ static esp_err_t restore_awake_runtime(bool *network_suspended, bool *ui_stopped
     return first_error;
 }
 
-/** @brief 判断服务端 Dashboard 截止时间是否已经到达；未知时间按到期处理 */
+/** @brief 判断当前 Dashboard 正常截止或失败退避截止是否已经到达；未知时间按到期处理 */
 static bool network_maintenance_is_due(void)
 {
-    int64_t next_refresh_at_utc = 0;
-    if (app_network_get_next_refresh_at_utc(&next_refresh_at_utc) != ESP_OK)
+    int64_t next_sync_at_utc = 0;
+    if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) != ESP_OK)
     {
         return true;
     }
@@ -374,18 +374,18 @@ static bool network_maintenance_is_due(void)
     {
         return true;
     }
-    return (int64_t) clock.utc_timestamp >= next_refresh_at_utc;
+    return (int64_t) clock.utc_timestamp >= next_sync_at_utc;
 }
 
 /**
- * @brief 取屏幕维护间隔与服务端联网截止时间中更近的内部 Timer 间隔
+ * @brief 取屏幕维护间隔与当前 Dashboard 同步截止中更近的内部 Timer 间隔
  *
  * @return 下一次 Light-sleep Timer 间隔，单位毫秒，至少为 1
  */
 static uint32_t next_light_sleep_interval_ms(void)
 {
-    int64_t next_refresh_at_utc = 0;
-    if (app_network_get_next_refresh_at_utc(&next_refresh_at_utc) != ESP_OK)
+    int64_t next_sync_at_utc = 0;
+    if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) != ESP_OK)
     {
         return s_config.refresh_interval_ms;
     }
@@ -396,7 +396,7 @@ static uint32_t next_light_sleep_interval_ms(void)
         return s_config.refresh_interval_ms;
     }
 
-    const int64_t remaining_seconds = next_refresh_at_utc - (int64_t) clock.utc_timestamp;
+    const int64_t remaining_seconds = next_sync_at_utc - (int64_t) clock.utc_timestamp;
     if (remaining_seconds <= 0)
     {
         return 1U;
@@ -432,7 +432,7 @@ static void log_next_wakeup(uint32_t interval_ms)
                      planned_local.tm_sec,
                      (long long) planned_utc,
                      (unsigned long) interval_ms,
-                     interval_ms < s_config.refresh_interval_ms ? "服务端刷新截止时间" : "屏幕维护周期");
+                     interval_ms < s_config.refresh_interval_ms ? "Dashboard 同步截止" : "屏幕维护周期");
             return;
         }
     }
@@ -466,10 +466,10 @@ static esp_err_t run_network_maintenance(uint32_t expected_generation, bool *net
     const esp_err_t sync_error = app_network_sync_for_light_sleep(APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS);
     if (sync_error == ESP_OK)
     {
-        int64_t next_refresh_at_utc = 0;
-        if (app_network_get_next_refresh_at_utc(&next_refresh_at_utc) == ESP_OK)
+        int64_t next_sync_at_utc = 0;
+        if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) == ESP_OK)
         {
-            ESP_LOGI(TAG, "联网维护同步完成，下一刷新 UTC=%lld", (long long) next_refresh_at_utc);
+            ESP_LOGI(TAG, "联网维护同步完成，下一次 Dashboard 同步 UTC=%lld", (long long) next_sync_at_utc);
         }
     }
     else

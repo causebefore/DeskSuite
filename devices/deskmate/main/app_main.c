@@ -558,7 +558,7 @@ esp_err_t app_main_start(void)
         ESP_LOGW(TAG, "确认当前 OTA 镜像本地启动健康失败: %s", esp_err_to_name(confirm_error));
     }
 
-    app_network_set_periodic_enabled(true);
+    app_network_set_dashboard_auto_sync_enabled(true);
     const esp_err_t sync_err = app_network_request_sync();
     if (sync_err != ESP_OK && sync_err != ESP_ERR_INVALID_STATE)
     {
@@ -566,7 +566,7 @@ esp_err_t app_main_start(void)
     }
     else
     {
-        ESP_LOGI(TAG, "Dashboard 首次同步已请求，周期同步已启用");
+        ESP_LOGI(TAG, "Dashboard 首次同步已请求，服务端截止时间调度已启用");
     }
     return ESP_OK;
 }
