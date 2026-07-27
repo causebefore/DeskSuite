@@ -62,11 +62,24 @@ extern "C"
  */
     typedef struct
     {
-        bool   associated;
-        bool   has_ipv4;
-        int8_t rssi_dbm;
-        char   ssid[CONNECT_WIFI_SSID_MAX];
-        char   ip[16];
+        bool    associated;                  /**< 已关联 Wi-Fi AP */
+        bool    has_ipv4;                    /**< 已取得非零 IPv4 */
+        int8_t  rssi_dbm;                    /**< 当前 RSSI，单位 dBm */
+        char    ssid[CONNECT_WIFI_SSID_MAX]; /**< 当前 AP SSID */
+        uint8_t bssid[6];                    /**< 当前 AP BSSID */
+        uint8_t primary_channel;             /**< 主信道 */
+        uint8_t secondary_channel;           /**< ESP-IDF wifi_second_chan_t 原始值 */
+        uint8_t auth_mode;                   /**< ESP-IDF wifi_auth_mode_t 原始值 */
+        uint8_t bandwidth;                   /**< ESP-IDF wifi_bandwidth_t 原始值 */
+        bool    phy_11b;                     /**< AP 支持 802.11b */
+        bool    phy_11g;                     /**< AP 支持 802.11g */
+        bool    phy_11n;                     /**< AP 支持 802.11n */
+        bool    phy_11ax;                    /**< AP 支持 802.11ax */
+        char    ip[16];                      /**< STA IPv4 */
+        char    netmask[16];                 /**< STA IPv4 子网掩码 */
+        char    gateway[16];                 /**< STA IPv4 网关 */
+        char    dns_primary[16];             /**< 主 DNS IPv4；不可用时为空 */
+        char    dns_backup[16];              /**< 备用 DNS IPv4；不可用时为空 */
     } connect_link_info_t;
 
     /**
@@ -82,7 +95,8 @@ extern "C"
  * @brief 底层链路事件不可变数据
  *
  * GOT_IP 事件的 `link` 包含当前 SSID、IPv4 和 RSSI；DISCONNECTED 事件的
- * `link` 保留驱动提供的断开前 SSID/RSSI，`disconnect_reason` 为 ESP-IDF 原始原因码。
+ * `link` 保留驱动提供的断开前 SSID/RSSI，`disconnect_reason` 为 ESP-IDF
+ * 原始原因码。
  */
     typedef struct
     {
@@ -116,7 +130,8 @@ extern "C"
     /**
  * @brief Portal 显式用户活动回调
  *
- * 回调运行于 HTTP Server 任务，只表示页面发生了真实输入、点击等活动；自动扫描和状态轮询
+ * 回调运行于 HTTP Server
+ * 任务，只表示页面发生了真实输入、点击等活动；自动扫描和状态轮询
  * 不会触发。回调必须快速返回，只能复制事实或向调用方队列投递命令。
  *
  * @param[in] ctx 调用方上下文
@@ -147,9 +162,11 @@ extern "C"
  *
  * 函数在返回前同步复制回调函数值和 context 指针，不保留 `callbacks`
  * 结构指针本身。回调和 context 可在函数返回后由 ESP 事件循环或 HTTP
- * Server 任务调用。清除槽位不会等待已经复制到事件任务栈上的回调返回，因此当前内部
- * 调用方必须使用静态函数，并让 context 在设备运行期保持有效；本接口不得传入临时对象。
- * 后续设置替换、传入 NULL 或 connect_stop() 会阻止新的回调取得该槽位。
+ * Server
+ * 任务调用。清除槽位不会等待已经复制到事件任务栈上的回调返回，因此当前内部
+ * 调用方必须使用静态函数，并让 context
+ * 在设备运行期保持有效；本接口不得传入临时对象。 后续设置替换、传入 NULL 或
+ * connect_stop() 会阻止新的回调取得该槽位。
  *
  * @param[in] callbacks 回调集合；NULL 表示清除槽位，但不等待已经在途的回调
  */
@@ -168,8 +185,9 @@ extern "C"
     /**
  * @brief 保留配网 Portal 并复制配置发起一次 STA 候选连接
  *
- * 调用前 Portal 必须已启动。函数会停止后台 Wi-Fi 扫描，保持 HTTP、DNS 和 SoftAP，继续使用
- * APSTA 模式验证候选配置。函数返回前完成配置复制，不保留调用方指针。
+ * 调用前 Portal 必须已启动。函数会停止后台 Wi-Fi 扫描，保持 HTTP、DNS 和
+ * SoftAP，继续使用 APSTA
+ * 模式验证候选配置。函数返回前完成配置复制，不保留调用方指针。
  *
  * @param[in] config STA 候选连接参数，只在调用期间借用
  * @return ESP_OK 已发起连接；其他值表示参数、Portal 状态或驱动操作失败
@@ -186,8 +204,9 @@ extern "C"
     /**
  * @brief 候选连接验证成功后关闭 Portal 并保留 STA 链路
  *
- * 同步停止 Portal DNS、HTTP 和扫描资源，再把 Wi-Fi 从 APSTA 切换为 STA。只有返回 ESP_OK
- * 时，调用方才能确认配网入口已经关闭且当前 STA 链路仍由 connect 持有。
+ * 同步停止 Portal DNS、HTTP 和扫描资源，再把 Wi-Fi 从 APSTA 切换为
+ * STA。只有返回 ESP_OK 时，调用方才能确认配网入口已经关闭且当前 STA 链路仍由
+ * connect 持有。
  *
  * @return ESP_OK Portal 已关闭并切换为 STA；其他值表示清理或模式切换失败
  */
@@ -291,9 +310,10 @@ extern "C"
  *
  * 本函数会先停止 HTTPD、DNS 和扫描任务，再停止 Wi-Fi、注销事件处理器、
  * 销毁默认 STA/AP netif，最后调用 `esp_wifi_deinit()`。默认事件循环和
- * lwIP 基础任务属于平台共享资源，不由本函数销毁。只有返回 ESP_OK 时才能确认 connect
- * 私有任务已退出并再次调用 connect_init()。清理失败时组件锁存不可重启状态，防止残留
- * Task、handler 或 Driver 被下一会话复用。
+ * lwIP 基础任务属于平台共享资源，不由本函数销毁。只有返回 ESP_OK 时才能确认
+ * connect 私有任务已退出并再次调用
+ * connect_init()。清理失败时组件锁存不可重启状态，防止残留 Task、handler 或
+ * Driver 被下一会话复用。
  *
  * 尚未初始化时调用属于幂等清理并返回 ESP_OK。不得从 connect 回调中调用。
  *
@@ -308,8 +328,8 @@ extern "C"
  * `associated`/`has_ipv4` 返回 false。该接口不读取缓存的业务状态。
  *
  * @param[out] out 当前链路信息
- * @return ESP_OK 查询完成；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE 尚未初始化；
- *         其他值表示底层查询失败
+ * @return ESP_OK 查询完成；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE
+ * 尚未初始化； 其他值表示底层查询失败
  */
     esp_err_t connect_get_link_snapshot_copy(connect_link_info_t *out);
 

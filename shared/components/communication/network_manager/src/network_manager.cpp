@@ -16,13 +16,12 @@ static const char *TAG = "network_manager";
 /** @brief 收拢 Network Manager 公共门面的并发状态 */
 struct NetworkManagerPublicState
 {
-    bool                        initialized         = false;                        /**< 公共 API 是否已初始化 */
-    bool                        has_saved_config    = false;                        /**< active 配置是否已持久化 */
-    network_manager_status_t    status              = {};                           /**< 最近发布的状态元数据 */
-    connect_portal_info_t       portal_info         = {};                           /**< 按需读取的 Portal 信息 */
-    network_manager_notify_cb_t notify_callback     = nullptr;                      /**< 借用的变化通知回调 */
-    void                       *notify_callback_ctx = nullptr;                      /**< 借用的回调上下文 */
-    portMUX_TYPE                lock                = portMUX_INITIALIZER_UNLOCKED; /**< 公共状态临界区锁 */
+    bool                          initialized         = false;                        /**< 公共 API 是否已初始化 */
+    network_manager_diagnostics_t diagnostics         = {};                           /**< 最近发布的诊断事实 */
+    connect_portal_info_t         portal_info         = {};                           /**< 按需读取的 Portal 信息 */
+    network_manager_notify_cb_t   notify_callback     = nullptr;                      /**< 借用的变化通知回调 */
+    void                         *notify_callback_ctx = nullptr;                      /**< 借用的回调上下文 */
+    portMUX_TYPE                  lock                = portMUX_INITIALIZER_UNLOCKED; /**< 公共状态临界区锁 */
 };
 
 /** @brief Network Manager 公共门面状态 */
@@ -44,26 +43,24 @@ static bool network_manager_is_initialized(void)
 /**
  * @brief 发布不可变网络状态元数据并在锁外通知当前订阅者
  *
- * @param[in] status 待复制状态元数据
- * @param[in] has_saved_config 当前 active 配置是否已经持久化
+ * @param[in] diagnostics 待复制诊断事实
  */
-void network_manager_internal_publish_status_copy(const network_manager_status_t *status, bool has_saved_config)
+void network_manager_internal_publish_diagnostics_copy(const network_manager_diagnostics_t *diagnostics)
 {
-    if (status == nullptr)
+    if (diagnostics == nullptr)
     {
-        ESP_LOGE(TAG, "发布网络状态失败：状态指针为空");
+        ESP_LOGE(TAG, "发布网络诊断失败：快照指针为空");
         return;
     }
 
-    const network_manager_status_t published = *status;
-    network_manager_notify_cb_t    callback;
-    void                          *callback_ctx;
+    const network_manager_diagnostics_t published = *diagnostics;
+    network_manager_notify_cb_t         callback;
+    void                               *callback_ctx;
 
     taskENTER_CRITICAL(&s_public_state.lock);
-    s_public_state.status           = published;
-    s_public_state.has_saved_config = has_saved_config;
-    callback                        = s_public_state.notify_callback;
-    callback_ctx                    = s_public_state.notify_callback_ctx;
+    s_public_state.diagnostics = published;
+    callback                   = s_public_state.notify_callback;
+    callback_ctx               = s_public_state.notify_callback_ctx;
     taskEXIT_CRITICAL(&s_public_state.lock);
 
     if (callback != nullptr)
@@ -113,7 +110,8 @@ esp_err_t network_manager_init_borrow(const network_manager_config_store_t *conf
 /**
  * @brief 启动一轮新的有界网络管理会话
  *
- * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 尚未初始化或生命周期不允许；或资源错误码
+ * @return ESP_OK 成功；ESP_ERR_INVALID_STATE
+ * 尚未初始化或生命周期不允许；或资源错误码
  */
 esp_err_t network_manager_start(void)
 {
@@ -125,7 +123,8 @@ esp_err_t network_manager_start(void)
 /**
  * @brief 同步停止网络会话并释放 Wi-Fi Driver
  *
- * @return ESP_OK 已完全停止；ESP_ERR_INVALID_STATE 生命周期不允许；其他值表示清理失败
+ * @return ESP_OK 已完全停止；ESP_ERR_INVALID_STATE
+ * 生命周期不允许；其他值表示清理失败
  */
 esp_err_t network_manager_stop(void)
 {
@@ -153,8 +152,24 @@ esp_err_t network_manager_get_status_copy(network_manager_status_t *out_status)
     ESP_RETURN_ON_FALSE(out_status != nullptr, ESP_ERR_INVALID_ARG, TAG, "状态输出指针为空");
 
     taskENTER_CRITICAL(&s_public_state.lock);
-    *out_status = s_public_state.status;
+    *out_status = s_public_state.diagnostics.status;
     taskEXIT_CRITICAL(&s_public_state.lock);
+    return ESP_OK;
+}
+
+/** @brief 复制 Manager 诊断事实并实时补充底层链路快照 */
+esp_err_t network_manager_get_diagnostics_copy(network_manager_diagnostics_t *out_diagnostics)
+{
+    ESP_RETURN_ON_FALSE(out_diagnostics != nullptr, ESP_ERR_INVALID_ARG, TAG, "网络诊断输出指针为空");
+
+    network_manager_diagnostics_t diagnostics = {};
+    taskENTER_CRITICAL(&s_public_state.lock);
+    diagnostics = s_public_state.diagnostics;
+    taskEXIT_CRITICAL(&s_public_state.lock);
+
+    diagnostics.link                = {};
+    diagnostics.link_snapshot_error = connect_get_link_snapshot_copy(&diagnostics.link);
+    *out_diagnostics                = diagnostics;
     return ESP_OK;
 }
 
@@ -165,8 +180,8 @@ esp_err_t network_manager_get_portal_info_copy(connect_portal_info_t *out_info)
 
     *out_info = {};
     taskENTER_CRITICAL(&s_public_state.lock);
-    const bool available = (s_public_state.status.state == NETWORK_STATE_PROVISIONING
-                            || s_public_state.status.state == NETWORK_STATE_VALIDATING)
+    const bool available = (s_public_state.diagnostics.status.state == NETWORK_STATE_PROVISIONING
+                            || s_public_state.diagnostics.status.state == NETWORK_STATE_VALIDATING)
                            && s_public_state.portal_info.active;
     if (available)
     {
@@ -181,7 +196,7 @@ esp_err_t network_manager_has_saved_config(bool *out_has_saved_config)
 {
     ESP_RETURN_ON_FALSE(out_has_saved_config != nullptr, ESP_ERR_INVALID_ARG, TAG, "配置状态输出指针为空");
     taskENTER_CRITICAL(&s_public_state.lock);
-    *out_has_saved_config = s_public_state.has_saved_config;
+    *out_has_saved_config = s_public_state.diagnostics.has_saved_config;
     taskEXIT_CRITICAL(&s_public_state.lock);
     return ESP_OK;
 }

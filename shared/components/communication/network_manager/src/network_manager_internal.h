@@ -25,8 +25,8 @@ extern "C"
     /**
  * @brief 同步停止网络管理状态机任务和底层 Wi-Fi 会话
  *
- * @return ESP_OK 已停止；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_TIMEOUT 尚未收敛；
- *         其他值表示清理失败且生命周期进入不可重启状态
+ * @return ESP_OK 已停止；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_TIMEOUT
+ * 尚未收敛； 其他值表示清理失败且生命周期进入不可重启状态
  */
     esp_err_t network_manager_internal_task_stop(void);
 
@@ -44,12 +44,14 @@ extern "C"
     esp_err_t network_manager_internal_request_forget_and_start_portal(void);
 
     /**
- * @brief 发布网络状态元数据并在锁外通知回调
+ * @brief 发布网络诊断事实并在锁外通知回调
  *
- * @param[in] status 待复制状态元数据
- * @param[in] has_saved_config 当前 active 配置是否已经持久化
+ * `link` 与 `link_snapshot_error` 由公共快照读取时实时覆盖；内部状态机只发布
+ * Manager 状态、会话计数和 Portal 事实。
+ *
+ * @param[in] diagnostics 待复制诊断事实
  */
-    void network_manager_internal_publish_status_copy(const network_manager_status_t *status, bool has_saved_config);
+    void network_manager_internal_publish_diagnostics_copy(const network_manager_diagnostics_t *diagnostics);
 
     /**
  * @brief 更新按需读取的 Portal 展示信息

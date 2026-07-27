@@ -177,7 +177,8 @@ static void notify_link_event(const connect_link_event_t *event)
  * @brief 将 Portal 表单提交转交给已注册回调
  *
  * @param[in] submission Portal 表单提交数据
- * @return ESP_OK 调用方已接收；ESP_ERR_INVALID_STATE 未注册回调；其他值由回调返回
+ * @return ESP_OK 调用方已接收；ESP_ERR_INVALID_STATE
+ * 未注册回调；其他值由回调返回
  */
 esp_err_t connect_internal_submit_credentials(const connect_portal_submission_t *submission)
 {
@@ -196,7 +197,8 @@ esp_err_t connect_internal_submit_credentials(const connect_portal_submission_t 
 /**
  * @brief 将 Portal 显式用户活动转交给已注册回调
  *
- * @return ESP_OK 调用方已接收；ESP_ERR_INVALID_STATE 未注册回调；其他值由回调返回
+ * @return ESP_OK 调用方已接收；ESP_ERR_INVALID_STATE
+ * 未注册回调；其他值由回调返回
  */
 esp_err_t connect_internal_notify_portal_activity(void)
 {
@@ -540,6 +542,15 @@ esp_err_t connect_get_link_snapshot_copy(connect_link_info_t *out)
     out->associated = true;
     out->rssi_dbm   = ap.rssi;
     copy_ssid(out->ssid, sizeof(out->ssid), ap.ssid, sizeof(ap.ssid));
+    memcpy(out->bssid, ap.bssid, sizeof(out->bssid));
+    out->primary_channel   = ap.primary;
+    out->secondary_channel = static_cast<uint8_t>(ap.second);
+    out->auth_mode         = static_cast<uint8_t>(ap.authmode);
+    out->bandwidth         = static_cast<uint8_t>(ap.bandwidth);
+    out->phy_11b           = ap.phy_11b != 0U;
+    out->phy_11g           = ap.phy_11g != 0U;
+    out->phy_11n           = ap.phy_11n != 0U;
+    out->phy_11ax          = ap.phy_11ax != 0U;
     if (s_runtime.sta_netif == nullptr)
     {
         return ESP_OK;
@@ -555,6 +566,21 @@ esp_err_t connect_get_link_snapshot_copy(connect_link_info_t *out)
     {
         out->has_ipv4 = true;
         (void) snprintf(out->ip, sizeof(out->ip), IPSTR, IP2STR(&ip_info.ip));
+        (void) snprintf(out->netmask, sizeof(out->netmask), IPSTR, IP2STR(&ip_info.netmask));
+        (void) snprintf(out->gateway, sizeof(out->gateway), IPSTR, IP2STR(&ip_info.gw));
+    }
+
+    esp_netif_dns_info_t dns = {};
+    if (esp_netif_get_dns_info(s_runtime.sta_netif, ESP_NETIF_DNS_MAIN, &dns) == ESP_OK
+        && dns.ip.type == ESP_IPADDR_TYPE_V4 && dns.ip.u_addr.ip4.addr != 0U)
+    {
+        (void) snprintf(out->dns_primary, sizeof(out->dns_primary), IPSTR, IP2STR(&dns.ip.u_addr.ip4));
+    }
+    dns = {};
+    if (esp_netif_get_dns_info(s_runtime.sta_netif, ESP_NETIF_DNS_BACKUP, &dns) == ESP_OK
+        && dns.ip.type == ESP_IPADDR_TYPE_V4 && dns.ip.u_addr.ip4.addr != 0U)
+    {
+        (void) snprintf(out->dns_backup, sizeof(out->dns_backup), IPSTR, IP2STR(&dns.ip.u_addr.ip4));
     }
     return ESP_OK;
 }

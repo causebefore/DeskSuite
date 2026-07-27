@@ -37,6 +37,30 @@ extern "C"
     } network_manager_status_t;
 
     /**
+ * @brief Network Manager 完整网络诊断快照
+ *
+ * Manager 状态和计数来自最近一次状态发布；`link` 在读取本快照时向 connect
+ * 实时查询。 `link_snapshot_error` 单独报告链路查询结果，不会让本 API
+ * 丢失其余诊断事实。所有计数均 以当前 Network Manager
+ * 会话为范围，新会话启动时清零。
+ */
+    typedef struct
+    {
+        network_manager_status_t status;                 /**< Manager 状态、错误与 Portal 活动序号 */
+        connect_link_info_t      link;                   /**< 当前 Wi-Fi、IPv4、网关与 DNS 事实 */
+        esp_err_t                link_snapshot_error;    /**< 本次底层链路查询结果 */
+        bool                     has_saved_config;       /**< active 配置是否已经持久化 */
+        bool                     portal_active;          /**< 配网 Portal 当前是否激活 */
+        uint32_t                 session_id;             /**< 当前 Manager 会话编号 */
+        uint32_t                 connection_attempts;    /**< STA 连接发起次数，含候选验证 */
+        uint32_t                 successful_connections; /**< 到达 ONLINE 的次数 */
+        uint32_t                 disconnect_events;      /**< 已处理的断链事件数 */
+        uint32_t                 portal_sessions;        /**< Portal 启动成功次数 */
+        uint8_t                  current_retry_count;    /**< 当前 active 配置重试序号 */
+        uint8_t                  last_disconnect_reason; /**< ESP-IDF 最近断链原始原因码 */
+    } network_manager_diagnostics_t;
+
+    /**
  * @brief Network Manager 使用的完整网络配置
  *
  * 所有字符数组都必须在各自容量内以 '\0' 结尾，ssid 不能为空。
@@ -52,20 +76,23 @@ extern "C"
     /**
  * @brief 复制加载已生效网络配置的回调
  *
- * 回调运行于 network_manager_task，可以同步访问有界持久化存储；返回 ESP_OK 前必须完整填写
- * 合法输出，不得保存输出指针。Network Manager 会再次校验字符串边界和必填字段。
+ * 回调运行于 network_manager_task，可以同步访问有界持久化存储；返回 ESP_OK
+ * 前必须完整填写 合法输出，不得保存输出指针。Network Manager
+ * 会再次校验字符串边界和必填字段。
  *
  * @param[out] out_config 网络配置输出，仅在返回 ESP_OK 时有效
  * @param[in] ctx 借用的提供者上下文
  * @return ESP_OK 已加载；ESP_ERR_NOT_FOUND 不存在配置；
- *         ESP_ERR_INVALID_SIZE 或 ESP_ERR_INVALID_RESPONSE 表示配置损坏或不兼容；其他值表示存储错误
+ *         ESP_ERR_INVALID_SIZE 或 ESP_ERR_INVALID_RESPONSE
+ * 表示配置损坏或不兼容；其他值表示存储错误
  */
     typedef esp_err_t (*network_manager_config_load_cb_t)(network_manager_config_t *out_config, void *ctx);
 
     /**
  * @brief 同步保存完整网络配置的回调
  *
- * 回调运行于 network_manager_task，只在调用期间借用配置指针，返回前必须完成持久化。
+ * 回调运行于
+ * network_manager_task，只在调用期间借用配置指针，返回前必须完成持久化。
  *
  * @param[in] config 待保存配置
  * @param[in] ctx 借用的提供者上下文
@@ -104,7 +131,8 @@ extern "C"
     /**
  * @brief 借用配置持久化回调并初始化网络管理器
  *
- * 函数会复制回调集合，长期保存其中的回调函数指针并借用 ctx；调用方必须保证回调实现和 ctx
+ * 函数会复制回调集合，长期保存其中的回调函数指针并借用
+ * ctx；调用方必须保证回调实现和 ctx
  * 在固件进程期内始终有效。该函数不启动任务，也不发起 Wi-Fi 连接。
  *
  * @param[in] config_store 配置持久化回调集合
@@ -116,7 +144,8 @@ extern "C"
  * @brief 启动网络管理任务
  *
  * 启动后读取持久化配置；无配置时发布错误事实，由 Application 决定是否请求配网。
- * 每次启动会建立新的内部会话并初始化 Wi-Fi Driver。已运行或正在停止时调用属于非法状态。
+ * 每次启动会建立新的内部会话并初始化 Wi-Fi
+ * Driver。已运行或正在停止时调用属于非法状态。
  *
  * @return ESP_OK 成功，或其他错误码
  */
@@ -125,8 +154,9 @@ extern "C"
     /**
  * @brief 同步停止网络会话并释放 Wi-Fi Driver
  *
- * 本函数向 network_manager_task 提交最高优先级停止命令，并在有界时间内等待 Task 完成
- * Portal、DNS、扫描、Wi-Fi 事件和 Driver 清理后退出。返回 ESP_OK 后可以再次调用
+ * 本函数向 network_manager_task 提交最高优先级停止命令，并在有界时间内等待 Task
+ * 完成 Portal、DNS、扫描、Wi-Fi 事件和 Driver 清理后退出。返回 ESP_OK
+ * 后可以再次调用
  * network_manager_start()。超时或清理失败时保持不可重启状态，调用方必须进入顶层故障
  * 策略。不得从变化通知回调或 network_manager_task 中调用。
  *
@@ -146,11 +176,23 @@ extern "C"
     esp_err_t network_manager_get_status_copy(network_manager_status_t *out_status);
 
     /**
+ * @brief 复制当前完整网络诊断快照
+ *
+ * 即使 Wi-Fi 会话已停止或底层实时查询失败，本函数仍返回
+ * ESP_OK，并把查询错误放入 `link_snapshot_error`；调用方可同时取得最后发布的
+ * Manager 状态和会话计数。
+ *
+ * @param[out] out_diagnostics 完整诊断快照
+ * @return ESP_OK 快照已复制；ESP_ERR_INVALID_ARG 输出为空
+ */
+    esp_err_t network_manager_get_diagnostics_copy(network_manager_diagnostics_t *out_diagnostics);
+
+    /**
  * @brief 复制当前配网 Portal 展示信息
  *
- * 状态为 NETWORK_STATE_PROVISIONING 或 NETWORK_STATE_VALIDATING 且 Portal 已激活时，
- * 返回完整展示信息；其他状态返回 `active=false` 的零值快照。大型二维码载荷只在
- * Portal 激活且调用本函数时复制。
+ * 状态为 NETWORK_STATE_PROVISIONING 或 NETWORK_STATE_VALIDATING 且 Portal
+ * 已激活时， 返回完整展示信息；其他状态返回 `active=false`
+ * 的零值快照。大型二维码载荷只在 Portal 激活且调用本函数时复制。
  *
  * @param[out] out_info Portal 展示信息输出指针
  * @return ESP_OK 快照已复制；ESP_ERR_INVALID_ARG 参数无效
@@ -160,7 +202,8 @@ extern "C"
     /**
  * @brief 查询当前 active 网络配置是否已经持久化
  *
- * @param[out] out_has_saved_config true 表示 active 配置来自持久化存储或已经提交成功
+ * @param[out] out_has_saved_config true 表示 active
+ * 配置来自持久化存储或已经提交成功
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效
  */
     esp_err_t network_manager_has_saved_config(bool *out_has_saved_config);

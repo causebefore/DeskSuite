@@ -90,6 +90,7 @@ struct NetworkManagerRuntime
     bool                           has_pending_config      = false; /**< 是否存在候选配置 */
     network_connection_source_t    connection_source       = NETWORK_CONNECTION_ACTIVE;
     network_manager_status_t       working_status          = {};                           /**< 权威状态元数据 */
+    network_manager_diagnostics_t  working_diagnostics     = {};                           /**< 当前会话诊断计数 */
     connect_portal_info_t          portal_info             = {};                           /**< 当前 Portal 展示信息 */
     bool                           link_event_pending      = false;                        /**< 是否有待对账链路事件 */
     uint32_t                       pending_link_session_id = 0;                            /**< 待处理事件会话编号 */
@@ -142,7 +143,8 @@ static bool network_manager_session_is_running(uint32_t session_id)
 /**
  * @brief 为当前会话重新注册 connect 回调
  *
- * connect_stop() 会终止回调借用，因此每次停止链路后再次启动 STA 或 Portal 前都要重新注册。
+ * connect_stop() 会终止回调借用，因此每次停止链路后再次启动 STA 或 Portal
+ * 前都要重新注册。
  */
 static void network_manager_bind_connect_callbacks(void)
 {
@@ -213,10 +215,15 @@ static const network_manager_config_t *network_manager_current_config(void)
  */
 static void network_manager_publish(network_manager_state_t state, esp_err_t error)
 {
-    s_runtime.working_status.state      = state;
-    s_runtime.working_status.last_error = error;
-    s_runtime.state                     = state;
-    network_manager_internal_publish_status_copy(&s_runtime.working_status, s_runtime.has_saved_config);
+    s_runtime.working_status.state                    = state;
+    s_runtime.working_status.last_error               = error;
+    s_runtime.state                                   = state;
+    s_runtime.working_diagnostics.status              = s_runtime.working_status;
+    s_runtime.working_diagnostics.has_saved_config    = s_runtime.has_saved_config;
+    s_runtime.working_diagnostics.portal_active       = s_runtime.portal_info.active;
+    s_runtime.working_diagnostics.session_id          = s_runtime.session_id;
+    s_runtime.working_diagnostics.current_retry_count = s_runtime.retry_count;
+    network_manager_internal_publish_diagnostics_copy(&s_runtime.working_diagnostics);
 }
 
 /** @brief 清除内部和公共 Portal 展示信息 */
@@ -257,7 +264,8 @@ static esp_err_t network_manager_post_command(const network_command_t *command)
 /**
  * @brief 原子取走最近一个待对账的链路事件
  *
- * 多个底层事件可以合并，因为 manager 会重新查询当前物理链路，而不依赖事件历史重放。
+ * 多个底层事件可以合并，因为 manager
+ * 会重新查询当前物理链路，而不依赖事件历史重放。
  *
  * @param[out] out 最近链路事件
  * @return true 已取到事件；false 当前没有待处理事件
@@ -496,6 +504,7 @@ static void network_manager_complete_online(const connect_link_info_t *link)
 
     s_runtime.connection_source = NETWORK_CONNECTION_ACTIVE;
     s_runtime.retry_count       = 0;
+    ++s_runtime.working_diagnostics.successful_connections;
     network_manager_clear_portal_info();
     network_manager_publish(NETWORK_STATE_ONLINE, ESP_OK);
     const char *ssid = link->ssid[0] != '\0' ? link->ssid : s_runtime.active_config.ssid;
@@ -510,6 +519,7 @@ static void network_manager_connect_station(void)
     ESP_LOGI(TAG, "开始第 %u 次 Wi-Fi 连接: SSID=%s", (unsigned int) (s_runtime.retry_count + 1U), config.ssid);
     network_manager_bind_connect_callbacks();
     network_manager_clear_portal_info();
+    ++s_runtime.working_diagnostics.connection_attempts;
     const esp_err_t error = connect_request_start_station_copy(&config);
     if (error != ESP_OK)
     {
@@ -544,6 +554,7 @@ static void network_manager_enter_portal(void)
     }
     s_runtime.retry_count = 0;
     s_runtime.portal_info = portal;
+    ++s_runtime.working_diagnostics.portal_sessions;
     network_manager_internal_set_portal_info_copy(&s_runtime.portal_info);
     network_manager_publish(NETWORK_STATE_PROVISIONING, ESP_OK);
 }
@@ -576,6 +587,7 @@ static void network_manager_handle_submission(const connect_portal_submission_t 
 
     connect_sta_config_t config;
     network_manager_make_sta_config(&config);
+    ++s_runtime.working_diagnostics.connection_attempts;
     const esp_err_t error = connect_request_start_station_with_portal_copy(&config);
     if (error != ESP_OK)
     {
@@ -601,8 +613,8 @@ static bool network_manager_link_is_usable(const connect_link_info_t *link)
  * @brief 在 manager 单任务内解释一个 connect 原始链路事件
  *
  * 事件只作为唤醒提示；状态转换前再次查询物理链路，避免延迟事件污染新一轮连接。
- * 连接期间收到明确断开且链路仍不可用时立即结束本次尝试；30 秒截止时间仅兜底没有终态
- * 事件或已关联但尚未取得 IPv4 的情况。
+ * 连接期间收到明确断开且链路仍不可用时立即结束本次尝试；30
+ * 秒截止时间仅兜底没有终态 事件或已关联但尚未取得 IPv4 的情况。
  *
  * @param[in] event connect 原始链路事件
  */
@@ -617,6 +629,12 @@ static void network_manager_handle_link_event(const connect_link_event_t *event)
         && s_runtime.state != NETWORK_STATE_ONLINE)
     {
         return;
+    }
+
+    if (event->type == CONNECT_LINK_EVENT_DISCONNECTED)
+    {
+        ++s_runtime.working_diagnostics.disconnect_events;
+        s_runtime.working_diagnostics.last_disconnect_reason = event->disconnect_reason;
     }
 
     connect_link_info_t link      = {};
@@ -805,6 +823,8 @@ static void network_manager_task(void *arg)
                 s_runtime.has_pending_config                      = false;
                 s_runtime.connection_source                       = NETWORK_CONNECTION_ACTIVE;
                 s_runtime.working_status.portal_activity_sequence = 0U;
+                s_runtime.working_diagnostics                     = {};
+                s_runtime.working_diagnostics.session_id          = s_runtime.session_id;
                 network_manager_clear_portal_info();
                 esp_err_t err =
                     s_runtime.config_store.load_config_copy(&s_runtime.active_config, s_runtime.config_store.ctx);
@@ -921,14 +941,16 @@ esp_err_t network_manager_internal_task_init_borrow(const network_manager_config
                       TAG,
                       "创建网络管理任务退出信号量失败");
     memset(&s_runtime.working_status, 0, sizeof(s_runtime.working_status));
+    memset(&s_runtime.working_diagnostics, 0, sizeof(s_runtime.working_diagnostics));
     memset(&s_runtime.portal_info, 0, sizeof(s_runtime.portal_info));
-    s_runtime.working_status.state = NETWORK_STATE_STOPPED;
-    s_runtime.state                = NETWORK_STATE_STOPPED;
+    s_runtime.working_status.state       = NETWORK_STATE_STOPPED;
+    s_runtime.working_diagnostics.status = s_runtime.working_status;
+    s_runtime.state                      = NETWORK_STATE_STOPPED;
     taskENTER_CRITICAL(&s_runtime.lifecycle_lock);
     s_runtime.lifecycle = NETWORK_LIFECYCLE_INITIALIZED;
     taskEXIT_CRITICAL(&s_runtime.lifecycle_lock);
     network_manager_internal_set_portal_info_copy(&s_runtime.portal_info);
-    network_manager_internal_publish_status_copy(&s_runtime.working_status, s_runtime.has_saved_config);
+    network_manager_internal_publish_diagnostics_copy(&s_runtime.working_diagnostics);
     return ESP_OK;
 
 cleanup:
@@ -1040,7 +1062,8 @@ esp_err_t network_manager_internal_task_start(void)
 /**
  * @brief 同步停止网络管理状态机任务和底层 Wi-Fi 会话
  *
- * @return ESP_OK 已停止；ESP_ERR_INVALID_STATE 生命周期不允许；其他值表示清理失败
+ * @return ESP_OK 已停止；ESP_ERR_INVALID_STATE
+ * 生命周期不允许；其他值表示清理失败
  */
 esp_err_t network_manager_internal_task_stop(void)
 {
@@ -1059,7 +1082,8 @@ esp_err_t network_manager_internal_task_stop(void)
     taskEXIT_CRITICAL(&s_runtime.lifecycle_lock);
     ESP_RETURN_ON_FALSE(can_stop, ESP_ERR_INVALID_STATE, TAG, "网络管理任务当前状态不允许停止");
 
-    /* STOPPING 后所有生产者都会拒绝新命令；丢弃旧业务命令以保证停止命令必有槽位。 */
+    /* STOPPING 后所有生产者都会拒绝新命令；丢弃旧业务命令以保证停止命令必有槽位。
+   */
     (void) xQueueReset(s_runtime.command_queue);
     network_command_t command = {};
     command.type              = NETWORK_COMMAND_STOP;
