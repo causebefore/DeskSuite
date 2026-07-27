@@ -36,6 +36,26 @@ extern "C"
 
     ESP_EVENT_DECLARE_BASE(VOICE_SERVICE_EVENT);
 
+    /** @brief 语音 Service 可逆运行状态。 */
+    typedef enum
+    {
+        VOICE_SERVICE_STATE_UNINITIALIZED = 0, /*!< 尚未初始化 */
+        VOICE_SERVICE_STATE_STOPPED,           /*!< 资源保留，拒绝新会话 */
+        VOICE_SERVICE_STATE_RUNNING,           /*!< 允许提交语音会话 */
+        VOICE_SERVICE_STATE_STOPPING,          /*!< 正在关闭会话入口 */
+        VOICE_SERVICE_STATE_CLEANUP_FAILED,    /*!< 停止不完整，只允许继续收敛 */
+    } voice_service_state_t;
+
+    /** @brief 语音 Service 只读状态快照。 */
+    typedef struct
+    {
+        voice_service_state_t state;                /*!< 生命周期状态 */
+        bool                  session_busy;         /*!< 是否存在活动语音回合 */
+        bool                  chat_task_active;     /*!< 会话 Task 是否仍存在 */
+        bool                  playback_task_active; /*!< 播放 Task 是否仍存在 */
+        esp_err_t             last_error;           /*!< 最近生命周期错误 */
+    } voice_service_status_t;
+
     /**
      * @brief 初始化语音服务
      *
@@ -47,14 +67,37 @@ extern "C"
     esp_err_t voice_service_init(void);
 
     /**
-     * @brief 取消并有界等待活动会话退出，然后释放语音会话资源
+     * @brief 可逆启动语音 Service 并开放新会话入口
+     *
+     * @return ESP_OK 已进入 RUNNING；ESP_ERR_INVALID_STATE 生命周期不允许
+     */
+    esp_err_t voice_service_start(void);
+
+    /**
+     * @brief 在会话空闲时关闭新会话入口并进入 STOPPED
+     *
+     * 本函数不会取消活动会话。
+     *
+     * @return ESP_OK 已停止；ESP_ERR_INVALID_STATE 尚未初始化、会话活动或生命周期不允许
+     */
+    esp_err_t voice_service_stop(void);
+
+    /**
+     * @brief 从 STOPPED 释放语音会话资源
      *
      * 本函数不释放依赖的 Audio Service，其生命周期由 Composition Root 管理。
      *
-     * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 尚未初始化；
-     *         ESP_ERR_TIMEOUT 会话未能在内部期限内协作退出
+     * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 尚未初始化、未停止或 Task 仍存在
      */
     esp_err_t voice_service_deinit(void);
+
+    /**
+     * @brief 复制语音 Service 完整状态
+     *
+     * @param[out] out_status 状态输出
+     * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
+     */
+    esp_err_t voice_service_get_status_copy(voice_service_status_t *out_status);
 
     /**
      * @brief 触发一次完整的语音对话回合

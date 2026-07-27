@@ -50,6 +50,7 @@
 #define APP_UI_STOP_TIMEOUT_MS          5000
 #define APP_ENVIRONMENT_STOP_TIMEOUT_MS 1000
 #define APP_POWER_STOP_TIMEOUT_MS       1000
+#define APP_VOICE_LIFECYCLE_TIMEOUT_MS  3000
 
 static const char *TAG = "app_main";
 
@@ -135,6 +136,24 @@ static void rollback_ui_runtime(void)
     }
 }
 
+/** @brief 启动失败时尽力把语音 Runtime 收敛回 STOPPED。 */
+static void rollback_voice_runtime(void)
+{
+    app_voice_status_t status = { 0 };
+    if (app_voice_get_status_copy(&status) != ESP_OK)
+    {
+        return;
+    }
+    if (status.state == APP_VOICE_STATE_RUNNING)
+    {
+        const esp_err_t error = app_voice_stop(APP_VOICE_LIFECYCLE_TIMEOUT_MS);
+        if (error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "回滚停止语音 Runtime 失败: %s", esp_err_to_name(error));
+        }
+    }
+}
+
 /**
  * @brief 由 Composition Root 按 Device → Service 顺序装配音频能力
  *
@@ -152,7 +171,6 @@ static esp_err_t init_audio_runtime(void)
     bool      audio_initialized     = false;
     bool      processor_initialized = false;
     bool      voice_initialized     = false;
-    bool      input_enabled         = false;
     esp_err_t ret                   = device_audio_init(&device_config);
     if (ret != ESP_OK)
     {
@@ -185,26 +203,9 @@ static esp_err_t init_audio_runtime(void)
     }
     voice_initialized = true;
 
-#if CONFIG_DESKMATE_WAKE_WORD_ENABLE
-    ret = audio_service_enable_input(true);
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "启动 WakeNet 常驻输入失败: %s", esp_err_to_name(ret));
-        goto cleanup;
-    }
-    input_enabled = true;
-#endif
     return ESP_OK;
 
 cleanup:
-    if (input_enabled)
-    {
-        const esp_err_t cleanup_error = audio_service_enable_input(false);
-        if (cleanup_error != ESP_OK)
-        {
-            ESP_LOGE(TAG, "回滚 WakeNet 输入失败: %s", esp_err_to_name(cleanup_error));
-        }
-    }
     if (voice_initialized)
     {
         const esp_err_t cleanup_error = voice_service_deinit();
@@ -507,11 +508,22 @@ esp_err_t app_main_start(void)
         return error;
     }
 
+    error = app_voice_start(APP_VOICE_LIFECYCLE_TIMEOUT_MS);
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "启动语音 Runtime 失败: %s", esp_err_to_name(error));
+        (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        (void) app_power_deinit();
+        (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
+        return error;
+    }
+
     error = ui_runtime_start(APP_UI_START_TIMEOUT_MS);
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "UI Task 启动失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
+        rollback_voice_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
@@ -523,6 +535,7 @@ esp_err_t app_main_start(void)
     {
         ESP_LOGE(TAG, "派发首屏 UI 失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
+        rollback_voice_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
@@ -534,6 +547,7 @@ esp_err_t app_main_start(void)
     {
         ESP_LOGE(TAG, "启动轻睡眠 Application 失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
+        rollback_voice_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
@@ -547,6 +561,7 @@ esp_err_t app_main_start(void)
         (void) app_power_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         rollback_ui_runtime();
+        rollback_voice_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;

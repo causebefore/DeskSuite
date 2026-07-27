@@ -22,6 +22,35 @@ extern "C"
 {
 #endif
 
+    /** @brief AFE Service 可逆运行状态。 */
+    typedef enum
+    {
+        AUDIO_PROCESSOR_STATE_UNINITIALIZED = 0, /*!< 尚未初始化 */
+        AUDIO_PROCESSOR_STATE_STOPPED,           /*!< 资源保留，拒绝采集 */
+        AUDIO_PROCESSOR_STATE_RUNNING,           /*!< 允许按需采集 */
+        AUDIO_PROCESSOR_STATE_STOPPING,          /*!< 正在等待处理 Task 停泊 */
+        AUDIO_PROCESSOR_STATE_CLEANUP_FAILED,    /*!< 停泊不完整，只允许继续 stop 收敛 */
+    } audio_processor_service_state_t;
+
+    /** @brief 单次 AFE 收集事务状态。 */
+    typedef enum
+    {
+        AUDIO_PROCESSOR_CAPTURE_IDLE = 0, /*!< 无活动收集 */
+        AUDIO_PROCESSOR_CAPTURE_CAPTURING, /*!< 正在采集 */
+        AUDIO_PROCESSOR_CAPTURE_DRAINING,  /*!< 已停 feed，正在排空 AFE */
+    } audio_processor_capture_state_t;
+
+    /** @brief AFE Service 只读状态快照。 */
+    typedef struct
+    {
+        audio_processor_service_state_t state;         /*!< Runtime 状态 */
+        audio_processor_capture_state_t capture_state; /*!< 收集状态 */
+        bool                            tasks_created;  /*!< 是否已经创建处理 Task */
+        bool                            feed_parked;    /*!< feed Task 未创建或已阻塞 */
+        bool                            fetch_parked;   /*!< fetch Task 未创建或已阻塞 */
+        esp_err_t                       last_error;     /*!< 最近生命周期错误 */
+    } audio_processor_service_status_t;
+
     /**
      * @brief 音频处理器事件（唤醒检测上报）
      *
@@ -45,6 +74,24 @@ extern "C"
     esp_err_t audio_processor_service_init(void);
 
     /**
+     * @brief 可逆启动 AFE Service，允许后续发起收集但不读取麦克风
+     *
+     * @return ESP_OK 已进入 RUNNING；ESP_ERR_INVALID_STATE 生命周期不允许
+     */
+    esp_err_t audio_processor_service_start(void);
+
+    /**
+     * @brief 同步等待 AFE Task 停泊并可逆停止 Service
+     *
+     * 活动收集或 drain 期间不会强制取消，直接返回 ESP_ERR_INVALID_STATE。
+     *
+     * @param[in] timeout_ms 等待 Task 停泊的最长时间
+     * @return ESP_OK 已进入 STOPPED；ESP_ERR_INVALID_ARG 超时为零；
+     *         ESP_ERR_INVALID_STATE 生命周期或收集状态不允许；ESP_ERR_TIMEOUT Task 未停泊
+     */
+    esp_err_t audio_processor_service_stop(uint32_t timeout_ms);
+
+    /**
      * @brief 停止常驻处理 Task 并释放模型、AFE、重采样器和缓冲资源
      *
      * 调用前不得存在活动收集会话。
@@ -58,9 +105,17 @@ extern "C"
     bool audio_processor_service_is_initialized(void);
 
     /**
+     * @brief 复制 AFE Service 完整状态
+     *
+     * @param[out] out_status 状态输出
+     * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
+     */
+    esp_err_t audio_processor_service_get_status_copy(audio_processor_service_status_t *out_status);
+
+    /**
      * @brief 进入降噪 PCM 收集模式
      *
-     * 置 collecting=true，重置缓冲；默认配置下按需启动 feed/fetch 任务。
+     * 从 RUNNING + IDLE 进入 CAPTURING，重置缓冲并按需启动 feed/fetch 任务。
      * fetch 任务会把降噪后的 16kHz 单声道 PCM 写入 out_buf。
      *
      * @param[in] out_buf 输出缓冲（int16 数组，建议放 PSRAM）
@@ -72,7 +127,7 @@ extern "C"
     /**
      * @brief 结束收集（drain 管线），返回收集到的样本数
      *
-     * 触发 fetch 任务排空 AFE 管线残余数据后清 collecting。
+     * 触发 fetch 任务排空 AFE 管线残余数据，等待 Task 停泊后回到 IDLE。
      *
      * @param[out] out_sample_count 实际写入 out_buf 的 int16 样本总数
      * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 无活动会话；ESP_ERR_TIMEOUT 排空超时

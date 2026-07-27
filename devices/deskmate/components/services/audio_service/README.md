@@ -25,8 +25,10 @@
 
 ```text
 Composition Root: device_audio_init → audio_service_init
-调用方 PCM 请求 → audio_service 状态校验 → device_audio 同步读写 → 最终结果
-audio_service_deinit → 停止输入/输出 → 释放 Service 互斥锁
+app_voice_start → audio_service_start（只开放控制入口，硬件仍关闭）
+语音会话 → enable_input/output(true) → device_audio 同步读写 → enable_input/output(false)
+app_voice_stop → audio_service_stop（确认输入输出均关闭，保留 Codec/I2S 实例）
+audio_service_deinit → 仅从 STOPPED 释放 Service 互斥锁
 Composition Root: device_audio_deinit
 ```
 
@@ -42,20 +44,26 @@ Composition Root: device_audio_deinit
 
 公共头文件：[`include/audio_service.h`](include/audio_service.h)
 
-`init/deinit` 只拥有 Service 自身状态与互斥锁；`stop` 只关闭数据链路并保留初始化资源。
+`init/deinit` 只拥有 Service 自身状态与互斥锁；`start/stop` 是可逆 Runtime 生命周期，
+`stop` 只关闭数据链路并保留初始化资源。
 PCM API 使用 `esp_err_t` 返回错误事实，并通过输出参数返回实际样本数。
 
 ## 6. 状态、生命周期与并发
 
-- 生命周期：`UNINITIALIZED → INITIALIZED → deinit → UNINITIALIZED`。
+- 生命周期：`UNINITIALIZED → STOPPED ↔ RUNNING → STOPPED → deinit`。
 - 状态所有者：组件私有 context，由互斥锁保护。
 - Task：本组件不创建 Task。
 - 回调/队列：无。
+- `start()` 不打开麦克风或扬声器；只有 `RUNNING` 可执行
+  `enable_input/output(true)`。
+- `stop()` 与输入输出 enable 操作使用同一控制互斥量串行化；返回 `ESP_OK` 时两条硬件链路
+  均已关闭。`audio_service_is_running()` 只表示输入或输出链路活跃，不表示 Runtime 状态。
 
 ## 7. 故障与恢复
 
 Device 未初始化时拒绝初始化 Service。输出打开后若恢复音量失败，会立即关闭输出。音量和
-静音字段只在底层提交成功后更新。`deinit` 停止链路失败时保留 Service 资源，允许再次收敛。
+静音字段只在底层提交成功后更新。`stop()` 的任一关闭操作失败时记录真实输入输出状态并进入
+`CLEANUP_FAILED`；此状态只允许再次 `stop()` 收敛，禁止 `start()` 和 `deinit()`。
 
 ## 8. 配置与文件
 

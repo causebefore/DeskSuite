@@ -9,6 +9,7 @@
  *   播放：server 流式帧响应 → 逐帧解析 → TTS_PCM 帧 → 边收边播
  */
 #include "voice_service.h"
+#include "voice_service_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -38,10 +39,6 @@ static const char *TAG = "voice_service";
 /* 单个 int16 样本 */
 #define VOICE_SAMPLE_SIZE       2
 
-#define VOICE_TASK_STACK        12288
-#define VOICE_PLAY_TASK_STACK   4096
-#define VOICE_TASK_PRIO         2
-#define VOICE_DEINIT_TIMEOUT_MS 5000U
 /* HTTP/VAD/WebSocket 超时与缓冲、TTS 播放 ring 见 Kconfig: DeskMate Audio/Voice。 */
 
 /* HTTP 流式读取缓冲 */
@@ -51,9 +48,9 @@ ESP_EVENT_DEFINE_BASE(VOICE_SERVICE_EVENT);
 
 typedef struct
 {
-    bool initialized;
-    bool stopping;
-    bool busy;
+    voice_service_state_t state;
+    bool                  busy;
+    esp_err_t             last_error;
 } voice_service_ctx_t;
 
 /**
@@ -120,7 +117,7 @@ static bool session_try_activate(void)
 {
     bool activated = false;
     portENTER_CRITICAL(&s_session_lock);
-    if (s_ctx.initialized && !s_ctx.stopping && !s_ctx.busy)
+    if (s_ctx.state == VOICE_SERVICE_STATE_RUNNING && !s_ctx.busy)
     {
         s_ctx.busy = true;
         activated  = true;
@@ -146,7 +143,7 @@ static bool session_is_busy(void)
 
 /* ── 流式帧回调 ──────────────────────────────────────── */
 
-static void playback_task(void *arg)
+static void run_playback(void *arg)
 {
     stream_ctx_t *ctx = (stream_ctx_t *) arg;
     int16_t       buf[480]; /* 20ms @24kHz，小批喂 DMA */
@@ -223,7 +220,6 @@ static void playback_task(void *arg)
     {
         xSemaphoreGive(ctx->playback_done);
     }
-    vTaskDeleteWithCaps(NULL);
 }
 
 static bool session_cancelled(void)
@@ -248,12 +244,11 @@ static void finish_chat_task(voice_service_event_t terminal_event)
                      esp_err_to_name(post_err));
         }
     }
+    session_set_idle();
     if (s_chat_stopped != NULL)
     {
         (void) xSemaphoreGive(s_chat_stopped);
     }
-    session_set_idle();
-    vTaskDeleteWithCaps(NULL);
 }
 
 /**
@@ -279,14 +274,8 @@ static esp_err_t playback_start(stream_ctx_t *ctx)
         return err;
     }
     xStreamBufferReset(s_play_stream);
-    BaseType_t ok = xTaskCreateWithCaps(playback_task,
-                                        "voice_play",
-                                        VOICE_PLAY_TASK_STACK,
-                                        ctx,
-                                        VOICE_TASK_PRIO + 1,
-                                        NULL,
-                                        MALLOC_CAP_SPIRAM);
-    if (ok != pdPASS)
+    const esp_err_t task_error = voice_service_task_start_playback(run_playback, ctx);
+    if (task_error != ESP_OK)
     {
         (void) audio_service_enable_output(false);
         vSemaphoreDelete(ctx->playback_done);
@@ -295,7 +284,7 @@ static esp_err_t playback_start(stream_ctx_t *ctx)
                  "创建播放任务失败: 内部堆=%u PSRAM=%u",
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-        return ESP_ERR_NO_MEM;
+        return task_error;
     }
     ctx->playback_started = true;
     ESP_LOGI(TAG, "播放任务已启动: ring=%u bytes", (unsigned) CONFIG_DESKMATE_VOICE_PLAY_STREAM_BYTES);
@@ -600,7 +589,7 @@ static esp_err_t voice_http_stream(const uint8_t *upload, size_t upload_len)
     return stream.got_end ? ESP_OK : ESP_FAIL;
 }
 
-static void voice_chat_task(void *arg)
+static void run_voice_chat(void *arg)
 {
     uint32_t              duration_ms    = (uint32_t) (uintptr_t) arg;
     esp_err_t             err            = ESP_FAIL;
@@ -682,7 +671,7 @@ cleanup:
 
 esp_err_t voice_service_init(void)
 {
-    if (s_ctx.initialized)
+    if (s_ctx.state != VOICE_SERVICE_STATE_UNINITIALIZED)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -727,9 +716,9 @@ esp_err_t voice_service_init(void)
     }
 
     portENTER_CRITICAL(&s_session_lock);
-    s_ctx.initialized = true;
-    s_ctx.stopping    = false;
-    s_ctx.busy        = false;
+    s_ctx.state      = VOICE_SERVICE_STATE_STOPPED;
+    s_ctx.busy       = false;
+    s_ctx.last_error = ESP_OK;
     portEXIT_CRITICAL(&s_session_lock);
     ESP_LOGI(TAG,
              "语音服务初始化完成: 内部堆=%u PSRAM=%u",
@@ -738,41 +727,77 @@ esp_err_t voice_service_init(void)
     return ESP_OK;
 }
 
-esp_err_t voice_service_deinit(void)
+esp_err_t voice_service_start(void)
 {
     portENTER_CRITICAL(&s_session_lock);
-    if (!s_ctx.initialized)
+    if (s_ctx.state == VOICE_SERVICE_STATE_RUNNING)
+    {
+        portEXIT_CRITICAL(&s_session_lock);
+        return ESP_OK;
+    }
+    if (s_ctx.state != VOICE_SERVICE_STATE_STOPPED)
     {
         portEXIT_CRITICAL(&s_session_lock);
         return ESP_ERR_INVALID_STATE;
     }
-    s_ctx.stopping  = true;
-    const bool busy = s_ctx.busy;
+    s_ctx.state      = VOICE_SERVICE_STATE_RUNNING;
+    s_ctx.last_error = ESP_OK;
+    portEXIT_CRITICAL(&s_session_lock);
+    ESP_LOGI(TAG, "语音 Service 已启动，开放按键会话入口");
+    return ESP_OK;
+}
+
+esp_err_t voice_service_stop(void)
+{
+    portENTER_CRITICAL(&s_session_lock);
+    if (s_ctx.state == VOICE_SERVICE_STATE_STOPPED)
+    {
+        portEXIT_CRITICAL(&s_session_lock);
+        return ESP_OK;
+    }
+    if (s_ctx.state != VOICE_SERVICE_STATE_RUNNING || s_ctx.busy)
+    {
+        portEXIT_CRITICAL(&s_session_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_ctx.state = VOICE_SERVICE_STATE_STOPPING;
     portEXIT_CRITICAL(&s_session_lock);
 
-    if (busy)
+    voice_service_task_status_t task_status = { 0 };
+    voice_service_task_get_status(&task_status);
+    if (task_status.chat_task_active || task_status.playback_task_active)
     {
-        xEventGroupSetBits(s_session_events, VOICE_SESSION_CANCELLED);
-        const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(VOICE_DEINIT_TIMEOUT_MS);
-        if (xSemaphoreTake(s_chat_stopped, pdMS_TO_TICKS(VOICE_DEINIT_TIMEOUT_MS)) != pdTRUE)
-        {
-            ESP_LOGE(TAG, "等待语音会话协作退出超时");
-            return ESP_ERR_TIMEOUT;
-        }
-        while (session_is_busy())
-        {
-            if ((int32_t) (xTaskGetTickCount() - deadline) >= 0)
-            {
-                ESP_LOGE(TAG, "语音会话已报告停止，但生命周期状态未收敛");
-                return ESP_ERR_TIMEOUT;
-            }
-            vTaskDelay(1);
-        }
+        portENTER_CRITICAL(&s_session_lock);
+        s_ctx.state = VOICE_SERVICE_STATE_RUNNING;
+        portEXIT_CRITICAL(&s_session_lock);
+        return ESP_ERR_INVALID_STATE;
     }
-    else
+
+    portENTER_CRITICAL(&s_session_lock);
+    s_ctx.state      = VOICE_SERVICE_STATE_STOPPED;
+    s_ctx.last_error = ESP_OK;
+    portEXIT_CRITICAL(&s_session_lock);
+    ESP_LOGI(TAG, "语音 Service 已停止，新会话入口已关闭");
+    return ESP_OK;
+}
+
+esp_err_t voice_service_deinit(void)
+{
+    portENTER_CRITICAL(&s_session_lock);
+    if (s_ctx.state != VOICE_SERVICE_STATE_STOPPED || s_ctx.busy)
     {
-        (void) xSemaphoreTake(s_chat_stopped, 0U);
+        portEXIT_CRITICAL(&s_session_lock);
+        return ESP_ERR_INVALID_STATE;
     }
+    portEXIT_CRITICAL(&s_session_lock);
+
+    voice_service_task_status_t task_status = { 0 };
+    voice_service_task_get_status(&task_status);
+    if (task_status.chat_task_active || task_status.playback_task_active)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+    (void) xSemaphoreTake(s_chat_stopped, 0U);
 
     vStreamBufferDelete(s_play_stream);
     s_play_stream = NULL;
@@ -795,7 +820,7 @@ esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t
 {
     ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(backend), ESP_ERR_INVALID_ARG, TAG, "语音后端上下文无效");
     portENTER_CRITICAL(&s_session_lock);
-    const bool available = s_ctx.initialized && !s_ctx.stopping;
+    const bool available = s_ctx.state == VOICE_SERVICE_STATE_RUNNING;
     portEXIT_CRITICAL(&s_session_lock);
     if (!available)
     {
@@ -822,23 +847,18 @@ esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t
     (void) xSemaphoreTake(s_chat_stopped, 0U);
     s_chat_config = session_config;
     xEventGroupClearBits(s_session_events, VOICE_SESSION_CANCELLED);
-    BaseType_t ok = xTaskCreateWithCaps(voice_chat_task,
-                                        "voice_chat",
-                                        VOICE_TASK_STACK,
-                                        (void *) (uintptr_t) duration_ms,
-                                        VOICE_TASK_PRIO,
-                                        NULL,
-                                        MALLOC_CAP_SPIRAM);
-    if (ok != pdPASS)
+    const esp_err_t task_error =
+        voice_service_task_start_chat(run_voice_chat, (void *) (uintptr_t) duration_ms);
+    if (task_error != ESP_OK)
     {
         ESP_LOGE(TAG,
                  "创建 voice_chat 任务失败(需栈=%d): 内部堆=%u PSRAM=%u",
-                 VOICE_TASK_STACK,
+                  12288,
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         session_set_idle();
         (void) xSemaphoreGive(s_chat_stopped);
-        return ESP_ERR_NO_MEM;
+        return task_error;
     }
     return ESP_OK;
 }
@@ -846,6 +866,32 @@ esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t
 bool voice_service_is_busy(void)
 {
     return session_is_busy();
+}
+
+esp_err_t voice_service_get_status_copy(voice_service_status_t *out_status)
+{
+    ESP_RETURN_ON_FALSE(out_status != NULL, ESP_ERR_INVALID_ARG, TAG, "语音状态输出为空");
+    portENTER_CRITICAL(&s_session_lock);
+    if (s_ctx.state == VOICE_SERVICE_STATE_UNINITIALIZED)
+    {
+        portEXIT_CRITICAL(&s_session_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    const voice_service_state_t state      = s_ctx.state;
+    const bool                  busy       = s_ctx.busy;
+    const esp_err_t             last_error = s_ctx.last_error;
+    portEXIT_CRITICAL(&s_session_lock);
+
+    voice_service_task_status_t task_status = { 0 };
+    voice_service_task_get_status(&task_status);
+    *out_status = (voice_service_status_t) {
+        .state                = state,
+        .session_busy         = busy,
+        .chat_task_active     = task_status.chat_task_active,
+        .playback_task_active = task_status.playback_task_active,
+        .last_error           = last_error,
+    };
+    return ESP_OK;
 }
 
 static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len)
@@ -995,7 +1041,7 @@ static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len)
 esp_err_t voice_service_cancel(void)
 {
     portENTER_CRITICAL(&s_session_lock);
-    const bool initialized = s_ctx.initialized;
+    const bool initialized = s_ctx.state != VOICE_SERVICE_STATE_UNINITIALIZED;
     portEXIT_CRITICAL(&s_session_lock);
     if (!initialized || s_session_events == NULL)
     {

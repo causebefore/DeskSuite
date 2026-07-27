@@ -5,7 +5,7 @@
 ## 1. 定位
 
 - 层级：Service。
-- 触发方：App 按键、唤醒和测试流程。
+- 触发方：`app_voice` 的按键语音流程。
 - 主要输出：语音回合状态事件、服务端文本事实和 TTS 播放结果。
 
 ## 2. 职责边界
@@ -34,6 +34,13 @@ chat 请求
     → DONE / CANCELLED / ERROR 终态
 ```
 
+```text
+init → 创建事件组、播放 StreamBuffer 等长期资源 → STOPPED
+start → RUNNING，开放 chat 入口
+stop → 仅在会话和一次性 Task 都空闲时关闭入口 → STOPPED
+deinit → 仅从 STOPPED 释放长期资源
+```
+
 ## 4. 依赖关系
 
 | 方向 | 组件 | 用途 |
@@ -50,26 +57,28 @@ chat 请求
 
 `voice_service_chat()` 在返回前复制后端上下文并异步提交会话；实际完成结果由语音状态通知
 返回。
-`voice_service_deinit()` 会拒绝新会话、取消当前会话并有界等待其退出，然后释放组件资源；
-它不初始化或释放所依赖的 Audio Service。
+`voice_service_stop()` 不取消活动会话；会话忙时返回 `ESP_ERR_INVALID_STATE` 并保持
+`RUNNING`。`voice_service_deinit()` 仅从 `STOPPED` 释放组件长期资源，不初始化或释放所
+依赖的 Audio Service。
 
 ## 6. 状态、生命周期与并发
 
-- 生命周期：`UNINITIALIZED → IDLE → BUSY → IDLE → deinit`。
+- Runtime：`UNINITIALIZED → STOPPED ↔ RUNNING → STOPPED → deinit`。
+- 会话：仅在 `RUNNING` 中执行 `IDLE → BUSY → IDLE`。
 - 状态所有者：会话 context 和事件组。
 - Task：`voice_chat` 拥有会话；`voice_play` 串行播放 PCM。两个一次性 Task 的栈均从 PSRAM
-  分配，避免 WebSocket 会话建立后的内部堆峰值阻止播放 Task 启动。
+  分配，避免 WebSocket 会话建立后的内部堆峰值阻止播放 Task 启动。Task 入口、句柄和删除
+  逻辑集中在 `src/voice_service_task.c`。
 - 栈统计：两个一次性 Task 都在退出前向串口输出历史最小剩余字节数。
-- 停止：`cancel` 只请求协作取消，由会话 Task 完成资源回收。
-- 反初始化：先关闭新会话入口，再取消并等待活动会话；超时则保留资源和停止状态，禁止在
-  Task 尚未退出时释放依赖。
+- 取消：`cancel` 只请求协作取消，由会话 Task 完成资源回收。
+- 终态顺序：清理录音/播放资源 → 关闭输入输出 → 发布终态 → 标记会话空闲 → 通知停止等待方。
+- Runtime 停止：关闭新会话入口时不调用 `cancel()`；活动 Task 尚未退出时保持 `RUNNING`。
 
 ## 7. 故障与恢复
 
 无法联网、后端上下文无效、任务创建失败或协议错误均收敛为明确终态。空 Token 允许连接服务端
-局域网开发模式。deinit 等待超时返回
-`ESP_ERR_TIMEOUT`，可再次调用以继续收敛。是否展示错误、重试或禁用语音由 Application
-决定。
+局域网开发模式。生命周期停止不能证明会话 Task 已退出时返回 `ESP_ERR_INVALID_STATE`，
+不会释放其依赖。是否展示错误、重试或禁用语音由 Application 决定。
 
 ## 8. 配置与文件
 

@@ -11,6 +11,25 @@ extern "C"
 {
 #endif
 
+    /** @brief 音频 Service 可逆运行状态。 */
+    typedef enum
+    {
+        AUDIO_SERVICE_STATE_UNINITIALIZED = 0, /*!< 尚未初始化 */
+        AUDIO_SERVICE_STATE_STOPPED,           /*!< 资源保留，拒绝开启输入输出 */
+        AUDIO_SERVICE_STATE_RUNNING,           /*!< 允许调用方按需开启输入输出 */
+        AUDIO_SERVICE_STATE_STOPPING,          /*!< 正在关闭输入输出 */
+        AUDIO_SERVICE_STATE_CLEANUP_FAILED,    /*!< 关闭不完整，只允许继续 stop 收敛 */
+    } audio_service_state_t;
+
+    /** @brief 音频 Service 只读状态快照。 */
+    typedef struct
+    {
+        audio_service_state_t state;          /*!< 生命周期状态 */
+        bool                  input_active;   /*!< 麦克风输入链路是否开启 */
+        bool                  output_active;  /*!< 扬声器输出链路是否开启 */
+        esp_err_t             last_error;     /*!< 最近一次生命周期错误 */
+    } audio_service_status_t;
+
     /**
      * @brief 初始化音频服务自己的状态与互斥资源
      *
@@ -21,7 +40,14 @@ extern "C"
     esp_err_t audio_service_init(void);
 
     /**
-     * @brief 停止输入输出并释放音频服务自己的互斥资源
+     * @brief 可逆启动音频 Service，开放输入输出控制但不启动硬件链路
+     *
+     * @return ESP_OK 已进入 RUNNING；ESP_ERR_INVALID_STATE 生命周期不允许
+     */
+    esp_err_t audio_service_start(void);
+
+    /**
+     * @brief 从 STOPPED 释放音频服务自己的互斥资源
      *
      * 本函数不释放 device_audio，其生命周期由 Composition Root 管理。
      *
@@ -48,6 +74,14 @@ extern "C"
      * @return ESP_OK 成功；或输入/输出停止错误
      */
     esp_err_t audio_service_stop(void);
+
+    /**
+     * @brief 复制音频 Service 完整状态
+     *
+     * @param[out] out_status 状态输出
+     * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
+     */
+    esp_err_t audio_service_get_status_copy(audio_service_status_t *out_status);
 
     /**
      * @brief 同步播放 16-bit PCM 单声道样本
@@ -96,9 +130,9 @@ extern "C"
     int audio_service_get_volume(void);
 
     /**
-     * @brief 查询音频服务是否运行中
+     * @brief 查询输入或输出硬件链路是否活跃
      *
-     * @return true 运行中，false 已停止
+     * @return true 输入或输出已开启，false 两者均关闭
      */
     bool audio_service_is_running(void);
 
