@@ -8,6 +8,7 @@
 #include "app_network.h"
 #include "app_ota.h"
 #include "app_page.h"
+#include "app_pomodoro.h"
 #include "app_power.h"
 #include "app_settings.h"
 #include "app_voice.h"
@@ -31,6 +32,7 @@
 #include "mail.h"
 #include "mail_presenter.h"
 #include "ota_presenter.h"
+#include "pomodoro_presenter.h"
 #include "quota.h"
 #include "quota_presenter.h"
 #include "rtc_service.h"
@@ -51,6 +53,7 @@
 #define APP_ENVIRONMENT_STOP_TIMEOUT_MS 1000
 #define APP_POWER_STOP_TIMEOUT_MS       1000
 #define APP_VOICE_LIFECYCLE_TIMEOUT_MS  3000
+#define APP_POMODORO_STOP_TIMEOUT_MS     1000
 
 static const char *TAG = "app_main";
 
@@ -81,6 +84,15 @@ static esp_err_t app_main_ui_user_intent_callback(const ui_user_intent_t *intent
             return app_web_file_request_start();
         case UI_USER_INTENT_SETTINGS_STOP_WEB_FILE:
             return app_web_file_request_stop();
+        case UI_USER_INTENT_POMODORO_SETTINGS_SAVE: {
+            const app_pomodoro_settings_t settings = {
+                .focus_minutes       = intent->pomodoro_settings.focus_minutes,
+                .short_break_minutes = intent->pomodoro_settings.short_break_minutes,
+                .long_break_minutes  = intent->pomodoro_settings.long_break_minutes,
+                .long_break_interval = intent->pomodoro_settings.long_break_interval,
+            };
+            return app_pomodoro_request_update_settings_copy(&settings);
+        }
         default:
             return ESP_ERR_NOT_SUPPORTED;
     }
@@ -151,6 +163,16 @@ static void rollback_voice_runtime(void)
         {
             ESP_LOGE(TAG, "回滚停止语音 Runtime 失败: %s", esp_err_to_name(error));
         }
+    }
+}
+
+/** @brief 启动失败时尽力把番茄钟 Task 收敛回停止态 */
+static void rollback_pomodoro_runtime(void)
+{
+    const esp_err_t error = app_pomodoro_stop(APP_POMODORO_STOP_TIMEOUT_MS);
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGE(TAG, "回滚停止番茄钟 Task 失败: %s", esp_err_to_name(error));
     }
 }
 
@@ -389,6 +411,7 @@ static esp_err_t init_presenters(void)
     ESP_RETURN_ON_ERROR(voice_presenter_init(), TAG, "语音页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(ota_presenter_init(), TAG, "OTA Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(web_file_presenter_init(), TAG, "网页文件 Presenter 初始化失败");
+    ESP_RETURN_ON_ERROR(pomodoro_presenter_init(), TAG, "番茄钟 Presenter 初始化失败");
     return ESP_OK;
 }
 
@@ -401,6 +424,7 @@ static esp_err_t init_applications(void)
     ESP_RETURN_ON_ERROR(app_ota_init(), TAG, "OTA Application 初始化失败");
     ESP_RETURN_ON_ERROR(app_key_init(), TAG, "按键策略初始化失败");
     ESP_RETURN_ON_ERROR(app_web_file_init(), TAG, "网页文件 Application 初始化失败");
+    ESP_RETURN_ON_ERROR(app_pomodoro_init(), TAG, "番茄钟 Application 初始化失败");
     return ESP_OK;
 }
 
@@ -418,6 +442,7 @@ esp_err_t app_main_init(void)
 
     bool environment_initialized = false;
     bool ui_initialized          = false;
+    bool pomodoro_initialized    = false;
 
     error                        = app_network_init();
     if (error != ESP_OK)
@@ -437,6 +462,7 @@ esp_err_t app_main_init(void)
         ESP_LOGE(TAG, "初始化 Application 失败: %s", esp_err_to_name(error));
         goto cleanup;
     }
+    pomodoro_initialized = true;
     error = app_environment_init();
     if (error != ESP_OK)
     {
@@ -495,6 +521,14 @@ cleanup:
             ESP_LOGE(TAG, "回滚环境 Task 失败: %s", esp_err_to_name(cleanup_error));
         }
     }
+    if (pomodoro_initialized)
+    {
+        const esp_err_t cleanup_error = app_pomodoro_deinit();
+        if (cleanup_error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "回滚番茄钟 Application 失败: %s", esp_err_to_name(cleanup_error));
+        }
+    }
     rollback_web_file_service_init();
     return error;
 }
@@ -508,11 +542,21 @@ esp_err_t app_main_start(void)
         return error;
     }
 
+    error = app_pomodoro_start();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "启动番茄钟 Task 失败: %s", esp_err_to_name(error));
+        rollback_pomodoro_runtime();
+        (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        return error;
+    }
+
     error = app_voice_start(APP_VOICE_LIFECYCLE_TIMEOUT_MS);
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "启动语音 Runtime 失败: %s", esp_err_to_name(error));
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        rollback_pomodoro_runtime();
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
@@ -524,6 +568,7 @@ esp_err_t app_main_start(void)
         ESP_LOGE(TAG, "UI Task 启动失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
         rollback_voice_runtime();
+        rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
@@ -536,6 +581,7 @@ esp_err_t app_main_start(void)
         ESP_LOGE(TAG, "派发首屏 UI 失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
         rollback_voice_runtime();
+        rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
@@ -548,6 +594,7 @@ esp_err_t app_main_start(void)
         ESP_LOGE(TAG, "启动轻睡眠 Application 失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
         rollback_voice_runtime();
+        rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
@@ -562,6 +609,7 @@ esp_err_t app_main_start(void)
         (void) app_power_deinit();
         rollback_ui_runtime();
         rollback_voice_runtime();
+        rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;

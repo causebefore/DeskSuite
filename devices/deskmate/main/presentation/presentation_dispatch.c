@@ -31,6 +31,11 @@ esp_err_t presentation_dispatch_status_update(void)
     return esp_event_post(PRESENTATION_EVENT, PRESENTATION_EVENT_STATUS_UPDATE, NULL, 0, 0);
 }
 
+esp_err_t presentation_dispatch_pomodoro_update(void)
+{
+    return esp_event_post(PRESENTATION_EVENT, PRESENTATION_EVENT_POMODORO_UPDATE, NULL, 0, 0);
+}
+
 esp_err_t presentation_dispatch_ota_update(void)
 {
     return esp_event_post(PRESENTATION_EVENT, PRESENTATION_EVENT_OTA_UPDATE, NULL, 0, 0);

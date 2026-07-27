@@ -39,3 +39,10 @@ esp_err_t ui_router_switch_to(ui_page_id_t page, ui_nav_dir_t dir);
  * @return ESP_OK 刷新成功；ESP_ERR_INVALID_ARG 当前页面 ID 未知；其他值由当前页面 _update 返回
  */
 esp_err_t ui_router_refresh_current(void);
+
+/**
+ * @brief 获取当前已加载页面
+ *
+ * @return 当前页面；尚未加载时返回 PRESENTATION_PAGE_COUNT
+ */
+ui_page_id_t ui_router_get_current(void);

@@ -8,6 +8,7 @@
 #include "esp_check.h"
 #include "ui_common.h"
 #include "ui_platform_lvgl.h"
+#include "ui_pomodoro_banner.h"
 #include "ui_router.h"
 #include "ui_settings_page.h"
 #include "ui_status_bar.h"
@@ -61,6 +62,7 @@ esp_err_t ui_main_init(void)
     /* 持锁段内任何子模块初始化失败都必须跳到 cleanup 释放锁，避免死锁。
      * ESP_GOTO_ON_ERROR 复用本地变量 ret（见 esp_check.h），故函数内统一用 ret。 */
     ESP_GOTO_ON_ERROR(ui_status_bar_init(), cleanup, "ui_main", "状态栏初始化失败");
+    ESP_GOTO_ON_ERROR(ui_pomodoro_banner_init(), cleanup, "ui_main", "番茄钟完成提示初始化失败");
     ESP_GOTO_ON_ERROR(ui_router_init(), cleanup, "ui_main", "UI 路由初始化失败");
     ESP_GOTO_ON_ERROR(ui_platform_lvgl_request_refresh(), cleanup, "ui_main", "请求首帧失败");
     s_initialized = true;
@@ -77,6 +79,7 @@ cleanup:
 esp_err_t ui_main_deinit(void)
 {
     ui_router_deinit();
+    ui_pomodoro_banner_deinit();
     ui_status_bar_deinit();
     if (s_status_bar != NULL)
     {
@@ -102,7 +105,8 @@ esp_err_t ui_main_resync(const ui_msg_t *pending_page_switch)
                             "恢复最后页面失败");
     }
     ESP_RETURN_ON_ERROR(refresh_status_bar(), "ui_main", "恢复时刷新状态栏失败");
-    return ui_router_refresh_current();
+    ESP_RETURN_ON_ERROR(ui_router_refresh_current(), "ui_main", "恢复时刷新当前页面失败");
+    return ui_pomodoro_banner_sync(ui_router_get_current());
 }
 
 /**
@@ -116,6 +120,10 @@ esp_err_t ui_main_handle_message(const ui_msg_t *msg)
     {
         case UI_MSG_SWITCH_PAGE:
             err = ui_router_switch_to(msg->page, (ui_nav_dir_t) msg->param);
+            if (err == ESP_OK)
+            {
+                err = ui_pomodoro_banner_sync(ui_router_get_current());
+            }
             break;
         case UI_MSG_STATUS_BAR_UPDATE:
             err = refresh_status_bar();
@@ -125,6 +133,18 @@ esp_err_t ui_main_handle_message(const ui_msg_t *msg)
             if (err == ESP_OK)
             {
                 err = ui_router_refresh_current();
+            }
+            break;
+        }
+        case UI_MSG_POMODORO_UPDATE: {
+            err = refresh_status_bar();
+            if (err == ESP_OK && ui_router_get_current() == PRESENTATION_PAGE_POMODORO)
+            {
+                err = ui_router_refresh_current();
+            }
+            if (err == ESP_OK)
+            {
+                err = ui_pomodoro_banner_sync(ui_router_get_current());
             }
             break;
         }

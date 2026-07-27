@@ -12,6 +12,15 @@
 /** @brief 状态栏标题最大长度（含 '\0'） */
 #define STATUS_BAR_VIEW_TITLE_MAX 16
 
+/** @brief 状态栏番茄钟角标状态 */
+typedef enum
+{
+    STATUS_BAR_POMODORO_HIDDEN = 0, /**< IDLE，不显示角标 */
+    STATUS_BAR_POMODORO_RUNNING,    /**< 阶段正在运行 */
+    STATUS_BAR_POMODORO_PAUSED,     /**< 阶段已暂停 */
+    STATUS_BAR_POMODORO_DONE,       /**< 阶段已完成，等待确认 */
+} status_bar_pomodoro_state_t;
+
 /** @brief 状态栏 View Model */
 typedef struct
 {
@@ -24,6 +33,8 @@ typedef struct
     bool    battery_valid;                         /*!< 电池信息是否有效 */
     uint8_t battery_percent;                       /*!< 电池电量 (%) */
     bool    server_online;                         /*!< 服务器连接是否正常 */
+    status_bar_pomodoro_state_t pomodoro_state;   /*!< 番茄钟角标状态 */
+    uint16_t                     pomodoro_minutes; /*!< 向上取整的剩余分钟 */
 } status_bar_view_model_t;
 
 /**
@@ -61,3 +72,11 @@ bool status_bar_presenter_set_page(presentation_page_id_t page);
  * @param[in] online true 表示最近一次 Dashboard 同步成功
  */
 void status_bar_presenter_set_server_online(bool online);
+
+/**
+ * @brief 更新番茄钟状态栏角标事实
+ *
+ * @param[in] state HIDDEN/RUNNING/PAUSED/DONE 之一
+ * @param[in] remaining_minutes 向上取整的剩余分钟；非 RUNNING 状态可为 0
+ */
+void status_bar_presenter_set_pomodoro(status_bar_pomodoro_state_t state, uint16_t remaining_minutes);

@@ -6,6 +6,8 @@ idf_component_register(SRCS
                            "application/app_network_task.c"
                            "application/app_ota.c"
                            "application/app_page.c"
+                           "application/app_pomodoro.c"
+                           "application/app_pomodoro_task.c"
                            "application/app_power_task.c"
                            "application/app_settings.c"
                            "application/app_voice.c"
@@ -16,6 +18,7 @@ idf_component_register(SRCS
                            "presentation/mail_presenter.c"
                            "presentation/ota_presenter.c"
                            "presentation/presentation_dispatch.c"
+                           "presentation/pomodoro_presenter.c"
                            "presentation/quota_presenter.c"
                            "presentation/settings_presenter.c"
                            "presentation/status_bar_presenter.c"
@@ -28,6 +31,7 @@ idf_component_register(SRCS
                            "ui/core/ui_router.c"
                            "ui/widgets/ui_status_bar.c"
                            "ui/pages/ui_home_page.c"
+                           "ui/pages/ui_pomodoro_page.c"
                           "ui/pages/ui_weather_page.c"
                           "ui/pages/ui_voice_page.c"
                           "ui/pages/ui_mail_page.c"
@@ -42,6 +46,7 @@ idf_component_register(SRCS
                           "ui/pages/ui_system_page.c"
                           "ui/overlays/ui_toast.c"
                           "ui/overlays/ui_loading.c"
+                          "ui/overlays/ui_pomodoro_banner.c"
                        PRIV_REQUIRES
                            esp_common
                            esp_event
@@ -80,6 +85,7 @@ idf_component_register(SRCS
                            mail
                            quota
                            dashboard_store
+                           pomodoro_store
                        INCLUDE_DIRS
                            "."
                            "application"

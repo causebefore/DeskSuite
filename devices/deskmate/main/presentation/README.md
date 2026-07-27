@@ -50,6 +50,11 @@ Application 或下层不可变事实
 
 ## 5. 命名与文件
 
+`pomodoro_presenter` 接收 Application 按值推送的完整番茄钟事实，生成阶段、倒计时、今日计数、
+预计结束、轮次和按键提示文本，并同步更新状态栏角标事实。它不读取 Application、NVS 或系统
+时钟；运行/暂停/完成三态只映射到本地静态图标。`completion_latched` 与非零
+`completion_generation` 保留在 View Model 中，供 UI Runtime 恢复时补画一次全局完成提示。
+
 - Presenter：`<feature>_presenter.[ch]`
 - View Model 类型：`<feature>_view_model_t`
 - 公共 View Model：[`presentation_view_model.h`](presentation_view_model.h)

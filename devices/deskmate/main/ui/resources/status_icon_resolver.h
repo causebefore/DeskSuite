@@ -24,6 +24,9 @@ typedef enum
     STATUS_ICON_BATTERY_50,      /*!< 电量 26~50% */
     STATUS_ICON_BATTERY_75,      /*!< 电量 51~75% */
     STATUS_ICON_BATTERY_100,     /*!< 电量 76~100% */
+    STATUS_ICON_POMODORO_RUNNING,/*!< 番茄钟运行中 */
+    STATUS_ICON_POMODORO_PAUSED, /*!< 番茄钟已暂停 */
+    STATUS_ICON_POMODORO_DONE,   /*!< 番茄钟已完成 */
 } status_icon_id_t;
 
 /**
@@ -33,3 +36,11 @@ typedef enum
  * @return const lv_image_dsc_t* 对应图片描述符；ID 越界时返回 NULL
  */
 const lv_image_dsc_t *status_icon_resolver_get(status_icon_id_t icon);
+
+/**
+ * @brief 按图标 ID 查询 16×16 状态栏静态图片
+ *
+ * @param[in] icon 图标 ID
+ * @return 对应 small 图片描述符；ID 越界或资源缺失时返回 NULL
+ */
+const lv_image_dsc_t *status_icon_resolver_get_small(status_icon_id_t icon);

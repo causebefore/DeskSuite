@@ -65,6 +65,7 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | --- | --- |
 | `app_key` | 把稳定按键事实转换为产品输入 |
 | `app_page` | 维护顶层环形页面、Screen 切换门控和 500 ms 完成事件兜底 |
+| `app_pomodoro` | 拥有本地番茄钟状态机、单调 deadline、日期归一化、NVS 计数和睡眠唤醒补算 |
 | `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页文件明确停止后清理会话 |
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
 | `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
@@ -72,6 +73,22 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_power` | 拥有 60 秒活动窗口、语音/UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
 | `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
+
+番茄钟数据流为：
+
+```text
+按键或 UI 设置意图
+  → app_pomodoro 命令队列
+  → app_pomodoro_task 串行推进状态
+  → pomodoro_store 保存设置/完成计数
+  → pomodoro_presenter_apply()
+  → 专用 Presentation 刷新事件
+```
+
+运行阶段只使用 `esp_timer_get_time()` 计算 deadline 和剩余时间，不依赖 RTC、SNTP 或网络。
+可信系统时间只用于把完成数归入本地日期、安排午夜 one-shot Timer，以及生成预计结束时间。
+阶段状态、暂停剩余和当前轮次不写 NVS，设备重启固定回到 `IDLE`。Power Application 的同步
+补算命令返回前已经更新状态和 Presenter，因此睡眠后恢复 UI 的首帧可直接显示 `DONE`。
 
 `app_network` 不直接操作 Wi‑Fi Driver、Portal HTTP/DNS 或底层重连状态机；这些技术能力属于
 Communication 的 `network_manager` 和 `connect`。Network Manager 一轮内部重试结束后，

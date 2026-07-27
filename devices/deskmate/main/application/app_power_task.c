@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "app_network.h"
+#include "app_pomodoro.h"
 #include "app_voice.h"
 #include "button_service.h"
 #include "device_power.h"
@@ -26,6 +27,7 @@
 #define APP_POWER_UI_LIFECYCLE_TIMEOUT_MS       5000U
 #define APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS  5000U
 #define APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS 5000U
+#define APP_POWER_POMODORO_RECONCILE_TIMEOUT_MS 1000U
 
 static const char *TAG                  = "app_power";
 
@@ -438,32 +440,50 @@ static bool network_maintenance_is_due(void)
     return (int64_t) clock.utc_timestamp >= next_sync_at_utc;
 }
 
+typedef enum
+{
+    APP_POWER_TIMER_REASON_SCREEN = 0,
+    APP_POWER_TIMER_REASON_DASHBOARD,
+    APP_POWER_TIMER_REASON_POMODORO,
+} app_power_timer_reason_t;
+
 /**
- * @brief 取屏幕维护间隔与当前 Dashboard 同步截止中更近的内部 Timer 间隔
+ * @brief 取屏幕维护、Dashboard 同步截止和番茄钟截止中更近的内部 Timer 间隔
  *
+ * @param[out] out_reason 可选的本轮间隔来源
  * @return 下一次 Light-sleep Timer 间隔，单位毫秒，至少为 1
  */
-static uint32_t next_light_sleep_interval_ms(void)
+static uint32_t next_light_sleep_interval_ms(app_power_timer_reason_t *out_reason)
 {
+    uint32_t                 interval_ms = s_config.refresh_interval_ms;
+    app_power_timer_reason_t reason = APP_POWER_TIMER_REASON_SCREEN;
+
     int64_t next_sync_at_utc = 0;
-    if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) != ESP_OK)
-    {
-        return s_config.refresh_interval_ms;
-    }
-
     system_clock_snapshot_t clock = { 0 };
-    if (system_clock_get_snapshot_copy(&clock) != ESP_OK || !clock.valid)
+    if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) == ESP_OK
+        && system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid)
     {
-        return s_config.refresh_interval_ms;
+        const int64_t remaining_seconds = next_sync_at_utc - (int64_t) clock.utc_timestamp;
+        const uint64_t remaining_ms =
+            remaining_seconds <= 0 ? 1ULL : (uint64_t) remaining_seconds * 1000ULL;
+        if (remaining_ms < interval_ms)
+        {
+            interval_ms = (uint32_t) remaining_ms;
+            reason      = APP_POWER_TIMER_REASON_DASHBOARD;
+        }
     }
 
-    const int64_t remaining_seconds = next_sync_at_utc - (int64_t) clock.utc_timestamp;
-    if (remaining_seconds <= 0)
+    uint32_t pomodoro_ms = 0U;
+    if (app_pomodoro_get_next_wakeup_interval_ms(&pomodoro_ms) == ESP_OK && pomodoro_ms <= interval_ms)
     {
-        return 1U;
+        interval_ms = pomodoro_ms;
+        reason      = APP_POWER_TIMER_REASON_POMODORO;
     }
-    const uint64_t remaining_ms = (uint64_t) remaining_seconds * 1000ULL;
-    return remaining_ms < s_config.refresh_interval_ms ? (uint32_t) remaining_ms : s_config.refresh_interval_ms;
+    if (out_reason != NULL)
+    {
+        *out_reason = reason;
+    }
+    return interval_ms == 0U ? 1U : interval_ms;
 }
 
 /**
@@ -472,9 +492,14 @@ static uint32_t next_light_sleep_interval_ms(void)
  * 按键可能早于计划 Timer 唤醒；系统时间不可信时只输出相对等待时长。
  *
  * @param[in] interval_ms 本轮内部 Timer 间隔，单位毫秒
+ * @param[in] reason 本轮间隔来源
  */
-static void log_next_wakeup(uint32_t interval_ms)
+static void log_next_wakeup(uint32_t interval_ms, app_power_timer_reason_t reason)
 {
+    const char *reason_text = reason == APP_POWER_TIMER_REASON_POMODORO
+                                  ? "番茄钟阶段截止"
+                                  : (reason == APP_POWER_TIMER_REASON_DASHBOARD ? "Dashboard 同步截止"
+                                                                               : "屏幕维护周期");
     system_clock_snapshot_t clock = { 0 };
     if (system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid)
     {
@@ -493,14 +518,15 @@ static void log_next_wakeup(uint32_t interval_ms)
                      planned_local.tm_sec,
                      (long long) planned_utc,
                      (unsigned long) interval_ms,
-                     interval_ms < s_config.refresh_interval_ms ? "Dashboard 同步截止" : "屏幕维护周期");
+                     reason_text);
             return;
         }
     }
 
     ESP_LOGI(TAG,
-             "准备进入轻睡眠，Timer 计划在 %lu ms 后唤醒（系统时间不可信）；按键可提前唤醒",
-             (unsigned long) interval_ms);
+             "准备进入轻睡眠，Timer 计划在 %lu ms 后唤醒（系统时间不可信），原因=%s；按键可提前唤醒",
+             (unsigned long) interval_ms,
+             reason_text);
 }
 
 /**
@@ -602,8 +628,9 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
 
         set_state_step(APP_POWER_STATE_SLEEPING, APP_POWER_STEP_DEVICE_SLEEP);
         device_power_wakeup_info_t wakeup             = { 0 };
-        const uint32_t             wakeup_interval_ms = next_light_sleep_interval_ms();
-        log_next_wakeup(wakeup_interval_ms);
+        app_power_timer_reason_t   timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
+        const uint32_t             wakeup_interval_ms = next_light_sleep_interval_ms(&timer_reason);
+        log_next_wakeup(wakeup_interval_ms, timer_reason);
         const esp_err_t sleep_error = device_power_enter_light_sleep(wakeup_interval_ms, &wakeup);
 
         taskENTER_CRITICAL(&s_lock);
@@ -627,6 +654,26 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             keep_primary_error(ESP_ERR_INVALID_RESPONSE);
             result = ESP_ERR_INVALID_RESPONSE;
             goto restore_awake;
+        }
+
+        app_pomodoro_wakeup_result_t pomodoro_result = APP_POMODORO_WAKEUP_NO_CHANGE;
+        result = app_pomodoro_reconcile_after_wakeup(APP_POWER_POMODORO_RECONCILE_TIMEOUT_MS, &pomodoro_result);
+        if (result != ESP_OK)
+        {
+            keep_primary_error(result);
+            ESP_LOGE(TAG, "睡眠唤醒后补算番茄钟失败: %s", esp_err_to_name(result));
+            goto restore_awake;
+        }
+        if (pomodoro_result == APP_POMODORO_WAKEUP_PHASE_COMPLETED)
+        {
+            const esp_err_t activity_error = app_power_notify_activity();
+            if (activity_error != ESP_OK)
+            {
+                keep_primary_error(activity_error);
+                result = activity_error;
+                goto restore_awake;
+            }
+            ESP_LOGI(TAG, "睡眠期间番茄钟阶段已完成，恢复 60 秒正常清醒窗口");
         }
 
         if (wakeup_is_button(wakeup_source))

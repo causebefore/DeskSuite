@@ -37,6 +37,7 @@ set(EXTRA_COMPONENT_DIRS
     components/data/weather
     components/data/calendar
     components/data/dashboard_store
+    components/data/pomodoro_store
     components/data/mail
     components/data/quota
 )

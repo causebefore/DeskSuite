@@ -9,11 +9,20 @@
 
 const lv_image_dsc_t *status_icon_resolver_get(status_icon_id_t icon)
 {
-    if (icon < STATUS_ICON_WIFI_ONLINE || icon > STATUS_ICON_BATTERY_100)
+    if (icon < STATUS_ICON_WIFI_ONLINE || icon > STATUS_ICON_POMODORO_DONE)
     {
         return NULL;
     }
     return ui_platform_image_find(ui_platform_image_status_catalog(),
                                   (uint32_t) icon,
                                   UI_PLATFORM_IMAGE_VARIANT_DEFAULT);
+}
+
+const lv_image_dsc_t *status_icon_resolver_get_small(status_icon_id_t icon)
+{
+    if (icon < STATUS_ICON_WIFI_ONLINE || icon > STATUS_ICON_POMODORO_DONE)
+    {
+        return NULL;
+    }
+    return ui_platform_image_find(ui_platform_image_status_catalog(), (uint32_t) icon, UI_PLATFORM_IMAGE_VARIANT_SMALL);
 }

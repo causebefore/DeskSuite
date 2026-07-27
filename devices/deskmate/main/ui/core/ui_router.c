@@ -12,6 +12,7 @@
 #include "ui_calendar_page.h"
 #include "ui_home_page.h"
 #include "ui_mail_page.h"
+#include "ui_pomodoro_page.h"
 #include "ui_quota_page.h"
 #include "ui_runtime.h"
 #include "ui_settings_page.h"
@@ -129,6 +130,9 @@ static void reset_page(ui_page_id_t page)
         case PRESENTATION_PAGE_HOME:
             ui_home_page_deinit();
             break;
+        case PRESENTATION_PAGE_POMODORO:
+            ui_pomodoro_page_deinit();
+            break;
         case PRESENTATION_PAGE_WEATHER:
             ui_weather_page_deinit();
             break;
@@ -147,6 +151,8 @@ static esp_err_t show_page(ui_page_id_t page, lv_obj_t *container)
     {
         case PRESENTATION_PAGE_HOME:
             return ui_home_page_show(container);
+        case PRESENTATION_PAGE_POMODORO:
+            return ui_pomodoro_page_show(container);
         case PRESENTATION_PAGE_WEATHER:
             return ui_weather_page_show(container);
         case PRESENTATION_PAGE_VOICE:
@@ -173,6 +179,8 @@ static esp_err_t update_page(ui_page_id_t page, lv_obj_t *container)
     {
         case PRESENTATION_PAGE_HOME:
             return ui_home_page_update(container);
+        case PRESENTATION_PAGE_POMODORO:
+            return ui_pomodoro_page_update(container);
         case PRESENTATION_PAGE_WEATHER:
             return ui_weather_page_update(container);
         case PRESENTATION_PAGE_VOICE:
@@ -245,6 +253,7 @@ static esp_err_t create_screen(lv_obj_t **out_screen, lv_obj_t **out_container)
 esp_err_t ui_router_init(void)
 {
     ESP_RETURN_ON_ERROR(ui_home_page_init(), TAG, "主页初始化失败");
+    ESP_RETURN_ON_ERROR(ui_pomodoro_page_init(), TAG, "番茄钟页初始化失败");
     ESP_RETURN_ON_ERROR(ui_weather_page_init(), TAG, "天气页初始化失败");
     ESP_RETURN_ON_ERROR(ui_calendar_page_init(), TAG, "日历页初始化失败");
     ESP_RETURN_ON_ERROR(ui_voice_page_init(), TAG, "语音页初始化失败");
@@ -264,6 +273,7 @@ void ui_router_deinit(void)
     cancel_page_enter_animation();
     lv_anim_delete_all();
     ui_home_page_deinit();
+    ui_pomodoro_page_deinit();
     ui_weather_page_deinit();
     ui_settings_page_deinit();
     s_current_page         = PRESENTATION_PAGE_COUNT;
@@ -321,4 +331,9 @@ esp_err_t ui_router_refresh_current(void)
         return ESP_ERR_INVALID_STATE;
     }
     return update_page(s_current_page, s_current_container);
+}
+
+ui_page_id_t ui_router_get_current(void)
+{
+    return s_current_page;
 }

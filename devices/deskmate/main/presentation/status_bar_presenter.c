@@ -58,6 +58,8 @@ static const char *page_id_to_title(presentation_page_id_t page)
     {
         case PRESENTATION_PAGE_HOME:
             return "首页";
+        case PRESENTATION_PAGE_POMODORO:
+            return "番茄钟";
         case PRESENTATION_PAGE_WEATHER:
             return "天气";
         case PRESENTATION_PAGE_VOICE:
@@ -191,6 +193,19 @@ static bool update_server_view_locked(bool online)
     return true;
 }
 
+/** @brief 在状态栏锁内更新番茄钟角标事实 */
+static bool update_pomodoro_view_locked(status_bar_pomodoro_state_t state, uint16_t remaining_minutes)
+{
+    const uint16_t minutes = state == STATUS_BAR_POMODORO_RUNNING ? remaining_minutes : 0U;
+    if (s_status_bar_view.pomodoro_state == state && s_status_bar_view.pomodoro_minutes == minutes)
+    {
+        return false;
+    }
+    s_status_bar_view.pomodoro_state   = state;
+    s_status_bar_view.pomodoro_minutes = minutes;
+    return true;
+}
+
 static void on_battery_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void) arg;
@@ -285,4 +300,20 @@ void status_bar_presenter_set_server_online(bool online)
     const bool changed = update_server_view_locked(online);
     taskEXIT_CRITICAL(&s_status_bar_lock);
     notify_if_changed(changed);
+}
+
+void status_bar_presenter_set_pomodoro(status_bar_pomodoro_state_t state, uint16_t remaining_minutes)
+{
+    if ((unsigned) state > STATUS_BAR_POMODORO_DONE)
+    {
+        return;
+    }
+    taskENTER_CRITICAL(&s_status_bar_lock);
+    const bool changed = update_pomodoro_view_locked(state, remaining_minutes);
+    taskEXIT_CRITICAL(&s_status_bar_lock);
+    /*
+     * 番茄钟 Application 会在同一串行路径发布专用刷新事件。此处不重复投递，避免
+     * 每秒产生两条状态栏消息；其他状态栏事实仍沿用 notify_if_changed()。
+     */
+    (void) changed;
 }

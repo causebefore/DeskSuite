@@ -159,6 +159,8 @@ static const char *message_name(ui_msg_type_t type)
             return "STATUS_BAR_UPDATE";
         case UI_MSG_STATUS_UPDATE:
             return "STATUS_UPDATE";
+        case UI_MSG_POMODORO_UPDATE:
+            return "POMODORO_UPDATE";
         case UI_MSG_SHOW_TOAST:
             return "SHOW_TOAST";
         case UI_MSG_SHOW_LOADING:
@@ -217,6 +219,9 @@ static void on_presentation_event(void *arg, esp_event_base_t base, int32_t id, 
             }
             return;
         }
+        case PRESENTATION_EVENT_POMODORO_UPDATE:
+            message.type = UI_MSG_POMODORO_UPDATE;
+            break;
         case PRESENTATION_EVENT_OTA_UPDATE:
             message.type = UI_MSG_OTA_UPDATE;
             break;

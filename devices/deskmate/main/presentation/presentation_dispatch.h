@@ -15,6 +15,7 @@ typedef enum
     PRESENTATION_EVENT_PAGE_SWITCH = 0,   /*!< 页面切换 */
     PRESENTATION_EVENT_STATUS_BAR_UPDATE, /*!< 仅状态栏 View Model 变化 */
     PRESENTATION_EVENT_STATUS_UPDATE,     /*!< 当前页面或状态栏 View Model 变化 */
+    PRESENTATION_EVENT_POMODORO_UPDATE,   /*!< 番茄钟页或状态栏 View Model 变化 */
     PRESENTATION_EVENT_OTA_UPDATE,        /*!< OTA View Model 变化 */
     PRESENTATION_EVENT_SETTINGS_ACTION,   /*!< 设置菜单物理按键动作 */
 } presentation_event_id_t;
@@ -67,6 +68,13 @@ esp_err_t presentation_dispatch_status_bar_update(void);
  * @return ESP_OK 已发布；其他值表示事件队列错误
  */
 esp_err_t presentation_dispatch_status_update(void);
+
+/**
+ * @brief 发布番茄钟页面或状态栏 View Model 变化事件
+ *
+ * @return ESP_OK 已发布；其他值表示事件队列错误
+ */
+esp_err_t presentation_dispatch_pomodoro_update(void);
 
 /**
  * @brief 发布 OTA View Model 变化事件

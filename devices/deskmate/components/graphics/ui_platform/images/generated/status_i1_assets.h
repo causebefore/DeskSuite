@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include "ui_platform_image.h"
 
-#define STATUS_I1_ENTRY_COUNT 9U
+#define STATUS_I1_ENTRY_COUNT 12U
 
 extern const ui_platform_image_entry_t status_i1_entries[];
 extern const size_t                    status_i1_entry_count;

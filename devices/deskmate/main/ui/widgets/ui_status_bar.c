@@ -15,6 +15,7 @@
 #include "status_icon_resolver.h"
 #include "ui_common.h"
 #include "ui_main.h"
+#include "ui_platform_font.h"
 
 #include <stdio.h>
 
@@ -28,6 +29,8 @@ static const char *TAG = "ui_status_bar";
 /* ── 控件句柄 ── */
 static lv_obj_t               *s_page_label;
 static lv_obj_t               *s_time_label;
+static lv_obj_t               *s_pomodoro_icon;
+static lv_obj_t               *s_pomodoro_text;
 static lv_obj_t               *s_wifi_icon;
 static lv_obj_t               *s_server_icon;
 static lv_obj_t               *s_batt_pct;
@@ -136,6 +139,17 @@ static void create_controls(lv_obj_t *parent)
     lv_label_set_long_mode(s_time_label, LV_LABEL_LONG_CLIP);
     lv_label_set_text(s_time_label, "--:--");
 
+    /* 页面名与系统时间之间的 72px 空隙：16px 图标 + 最多 36px 文本。 */
+    s_pomodoro_icon = lv_image_create(parent);
+    lv_obj_set_size(s_pomodoro_icon, 16, 16);
+    lv_obj_set_pos(s_pomodoro_icon, 100, 6);
+    lv_obj_add_flag(s_pomodoro_icon, LV_OBJ_FLAG_HIDDEN);
+    s_pomodoro_text = ui_common_new_text16_regular(parent);
+    lv_obj_set_pos(s_pomodoro_text, 120, 7);
+    lv_obj_set_size(s_pomodoro_text, 36, 18);
+    lv_label_set_long_mode(s_pomodoro_text, LV_LABEL_LONG_CLIP);
+    lv_obj_add_flag(s_pomodoro_text, LV_OBJ_FLAG_HIDDEN);
+
     /* ── 右侧：WiFi 图标 ── */
     s_wifi_icon = lv_image_create(parent);
     lv_image_set_src(s_wifi_icon, status_icon_resolver_get(STATUS_ICON_WIFI_OFFLINE));
@@ -201,6 +215,8 @@ void ui_status_bar_deinit(void)
     }
     s_page_label    = NULL;
     s_time_label    = NULL;
+    s_pomodoro_icon = NULL;
+    s_pomodoro_text = NULL;
     s_wifi_icon     = NULL;
     s_server_icon   = NULL;
     s_batt_pct      = NULL;
@@ -245,6 +261,51 @@ esp_err_t ui_status_bar_update(const status_bar_view_model_t *status)
     if (!s_status_cached || strcmp(s_last_status.page_title, status->page_title) != 0)
     {
         lv_label_set_text(s_page_label, status->page_title);
+    }
+
+    if (!s_status_cached || s_last_status.pomodoro_state != status->pomodoro_state
+        || s_last_status.pomodoro_minutes != status->pomodoro_minutes)
+    {
+        status_icon_id_t icon_id = STATUS_ICON_POMODORO_RUNNING;
+        if (status->pomodoro_state == STATUS_BAR_POMODORO_PAUSED)
+        {
+            icon_id = STATUS_ICON_POMODORO_PAUSED;
+        }
+        else if (status->pomodoro_state == STATUS_BAR_POMODORO_DONE)
+        {
+            icon_id = STATUS_ICON_POMODORO_DONE;
+        }
+        const lv_image_dsc_t *icon =
+            status->pomodoro_state == STATUS_BAR_POMODORO_HIDDEN ? NULL : status_icon_resolver_get_small(icon_id);
+        if (icon == NULL)
+        {
+            lv_obj_add_flag(s_pomodoro_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_image_set_src(s_pomodoro_icon, icon);
+            lv_obj_clear_flag(s_pomodoro_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        if (status->pomodoro_state == STATUS_BAR_POMODORO_RUNNING)
+        {
+            char minutes[8];
+            (void) snprintf(minutes, sizeof(minutes), "%um", (unsigned) status->pomodoro_minutes);
+            const lv_font_t *font = ui_platform_font_get(16);
+            if (font != NULL && ui_platform_font_measure_text(font, minutes) <= 36U)
+            {
+                lv_label_set_text(s_pomodoro_text, minutes);
+                lv_obj_clear_flag(s_pomodoro_text, LV_OBJ_FLAG_HIDDEN);
+            }
+            else
+            {
+                lv_obj_add_flag(s_pomodoro_text, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+        else
+        {
+            lv_obj_add_flag(s_pomodoro_text, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     if (!s_status_cached || s_last_status.battery_valid != status->battery_valid

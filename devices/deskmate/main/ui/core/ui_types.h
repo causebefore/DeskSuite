@@ -22,6 +22,7 @@ typedef enum
     UI_MSG_SWITCH_PAGE,       /*!< 切换页面 */
     UI_MSG_STATUS_BAR_UPDATE, /*!< 更新状态栏布局 */
     UI_MSG_STATUS_UPDATE,     /*!< 刷新状态栏数据（WiFi、电池、时间等） */
+    UI_MSG_POMODORO_UPDATE,   /*!< 刷新番茄钟状态栏角标和当前番茄钟页 */
     UI_MSG_SHOW_TOAST,        /*!< 显示 Toast 轻提示 */
     UI_MSG_SHOW_LOADING,      /*!< 显示 Loading 状态 */
     UI_MSG_HIDE_LOADING,      /*!< 隐藏 Loading 状态 */

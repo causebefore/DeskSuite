@@ -208,15 +208,85 @@ static const lv_image_dsc_t status_battery_100_default = {
   .reserved = NULL,
 };
 
-const ui_platform_image_entry_t status_i1_entries[] = {
-    { 0U, (ui_platform_image_variant_t) 0, &status_wifi_online_default    },
-    { 1U, (ui_platform_image_variant_t) 0, &status_wifi_offline_default   },
-    { 2U, (ui_platform_image_variant_t) 0, &status_server_online_default  },
-    { 3U, (ui_platform_image_variant_t) 0, &status_server_offline_default },
-    { 4U, (ui_platform_image_variant_t) 0, &status_battery_0_default      },
-    { 5U, (ui_platform_image_variant_t) 0, &status_battery_25_default     },
-    { 6U, (ui_platform_image_variant_t) 0, &status_battery_50_default     },
-    { 7U, (ui_platform_image_variant_t) 0, &status_battery_75_default     },
-    { 8U, (ui_platform_image_variant_t) 0, &status_battery_100_default    },
+static const uint8_t status_pomodoro_running_small_map[] = {
+    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0xc0, 0x00, 0x00, 0x30, 0xc0, 0x00, 0x00,
+    0x10, 0x80, 0x00, 0x00, 0x19, 0x80, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x19, 0x80,
+    0x00, 0x00, 0x10, 0x80, 0x00, 0x00, 0x30, 0xc0, 0x00, 0x00, 0x3f, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
-const size_t status_i1_entry_count = sizeof(status_i1_entries) / sizeof(status_i1_entries[0]);
+
+static const lv_image_dsc_t status_pomodoro_running_small = {
+  .header = {
+    .magic = LV_IMAGE_HEADER_MAGIC,
+    .cf = LV_COLOR_FORMAT_I1,
+    .flags = 0,
+    .w = 16,
+    .h = 16,
+    .stride = 4,
+    .reserved_2 = 0,
+  },
+  .data_size = 72,
+  .data = status_pomodoro_running_small_map,
+  .reserved = NULL,
+};
+
+static const uint8_t status_pomodoro_paused_small_map[] = {
+    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x80, 0x00, 0x00, 0x39, 0xc0, 0x00, 0x00,
+    0x39, 0xc0, 0x00, 0x00, 0x39, 0xc0, 0x00, 0x00, 0x39, 0xc0, 0x00, 0x00, 0x39, 0xc0, 0x00, 0x00, 0x39, 0xc0,
+    0x00, 0x00, 0x39, 0xc0, 0x00, 0x00, 0x39, 0xc0, 0x00, 0x00, 0x10, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const lv_image_dsc_t status_pomodoro_paused_small = {
+  .header = {
+    .magic = LV_IMAGE_HEADER_MAGIC,
+    .cf = LV_COLOR_FORMAT_I1,
+    .flags = 0,
+    .w = 16,
+    .h = 16,
+    .stride = 4,
+    .reserved_2 = 0,
+  },
+  .data_size = 72,
+  .data = status_pomodoro_paused_small_map,
+  .reserved = NULL,
+};
+
+static const uint8_t status_pomodoro_done_small_map[] = {
+    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00,
+    0x00, 0xc0, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x01, 0x80, 0x00, 0x00, 0x63, 0x00, 0x00, 0x00, 0x36, 0x00,
+    0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const lv_image_dsc_t status_pomodoro_done_small = {
+  .header = {
+    .magic = LV_IMAGE_HEADER_MAGIC,
+    .cf = LV_COLOR_FORMAT_I1,
+    .flags = 0,
+    .w = 16,
+    .h = 16,
+    .stride = 4,
+    .reserved_2 = 0,
+  },
+  .data_size = 72,
+  .data = status_pomodoro_done_small_map,
+  .reserved = NULL,
+};
+
+const ui_platform_image_entry_t status_i1_entries[] = {
+    { 0U, (ui_platform_image_variant_t)0, &status_wifi_online_default },
+    { 1U, (ui_platform_image_variant_t)0, &status_wifi_offline_default },
+    { 2U, (ui_platform_image_variant_t)0, &status_server_online_default },
+    { 3U, (ui_platform_image_variant_t)0, &status_server_offline_default },
+    { 4U, (ui_platform_image_variant_t)0, &status_battery_0_default },
+    { 5U, (ui_platform_image_variant_t)0, &status_battery_25_default },
+    { 6U, (ui_platform_image_variant_t)0, &status_battery_50_default },
+    { 7U, (ui_platform_image_variant_t)0, &status_battery_75_default },
+    { 8U, (ui_platform_image_variant_t)0, &status_battery_100_default },
+    { 9U, (ui_platform_image_variant_t)1, &status_pomodoro_running_small },
+    { 10U, (ui_platform_image_variant_t)1, &status_pomodoro_paused_small },
+    { 11U, (ui_platform_image_variant_t)1, &status_pomodoro_done_small },
+};
+const size_t status_i1_entry_count =
+    sizeof(status_i1_entries) / sizeof(status_i1_entries[0]);

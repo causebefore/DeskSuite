@@ -19,6 +19,7 @@ typedef enum
 typedef enum
 {
     PRESENTATION_PAGE_HOME = 0, /*!< 首页 */
+    PRESENTATION_PAGE_POMODORO, /*!< 番茄钟页 */
     PRESENTATION_PAGE_WEATHER,  /*!< 天气页 */
     PRESENTATION_PAGE_VOICE,    /*!< 语音交互页 */
     PRESENTATION_PAGE_CALENDAR, /*!< 日历页 */

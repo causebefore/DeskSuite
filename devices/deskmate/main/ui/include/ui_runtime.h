@@ -30,14 +30,25 @@ typedef enum
     UI_USER_INTENT_SETTINGS_OTA_DISCARD,    /*!< 用户放弃并清除待安装目标 */
     UI_USER_INTENT_SETTINGS_START_WEB_FILE, /*!< 用户进入子页并请求启动网页文件管理 */
     UI_USER_INTENT_SETTINGS_STOP_WEB_FILE,  /*!< 用户离开子页并请求停止网页文件管理 */
+    UI_USER_INTENT_POMODORO_SETTINGS_SAVE,  /*!< 用户提交完整番茄钟设置副本 */
     UI_USER_INTENT_COUNT,                   /*!< 意图数量（哨兵值） */
 } ui_user_intent_id_t;
+
+/** @brief UI 提交的完整番茄钟设置副本 */
+typedef struct
+{
+    uint8_t focus_minutes;       /*!< 专注时长 */
+    uint8_t short_break_minutes; /*!< 短休时长 */
+    uint8_t long_break_minutes;  /*!< 长休时长 */
+    uint8_t long_break_interval; /*!< 长休间隔 */
+} ui_pomodoro_settings_intent_t;
 
 /** @brief UI 用户意图的按值载荷 */
 typedef struct
 {
-    ui_user_intent_id_t    id;   /*!< 意图类型 */
-    presentation_page_id_t page; /*!< Screen 生命周期意图对应的页面 */
+    ui_user_intent_id_t            id;                /*!< 意图类型 */
+    presentation_page_id_t         page;              /*!< Screen 生命周期意图对应的页面 */
+    ui_pomodoro_settings_intent_t  pomodoro_settings; /*!< 番茄钟设置意图副本 */
 } ui_user_intent_t;
 
 /**

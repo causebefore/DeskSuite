@@ -4,6 +4,7 @@
 #include "app_page.h"
 
 #include "app_ota.h"
+#include "app_pomodoro.h"
 #include "app_settings.h"
 #include "app_voice.h"
 #include "status_bar_presenter.h"
@@ -144,6 +145,12 @@ bool app_page_consume_input(device_button_event_t key_event)
     /* 交互页优先处理，消费了就不走默认导航 */
     switch (app_page_get_current())
     {
+        case PRESENTATION_PAGE_POMODORO:
+            if (app_pomodoro_consume_input(key_event))
+            {
+                return true;
+            }
+            break;
         case PRESENTATION_PAGE_VOICE:
             if (app_voice_consume_input(key_event))
             {
