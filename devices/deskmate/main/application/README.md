@@ -67,9 +67,9 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_page` | 维护顶层环形页面、Screen 切换门控和 500 ms 完成事件兜底 |
 | `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页文件明确停止后清理会话 |
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
-| `app_voice` | 语音会话、唤醒仲裁和网络租约 |
+| `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
 | `app_web_file` | SD/在线前置检查、Web 文件租约、网页文件 Service 启停与安全回滚 |
-| `app_power` | 拥有 60 秒活动窗口、产品阻止条件、UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
+| `app_power` | 拥有 60 秒活动窗口、语音/UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
 | `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
 
@@ -107,8 +107,10 @@ Weather → Calendar → Mail → Quota 刷新顺序由 `app_network` 拥有。4
 后按当前服务地址和稳定设备 ID
 启动产品标识为 `2` 的远端日志上传，并在停止 Network Manager 前同步停止上传 Task，不额外延长
 在线窗口或增加轻睡眠唤醒就绪事件。远端日志只在网络上线且服务地址有效时才以 8 条队列、4 条批次
-的低内存配置初始化，日志突发可丢弃但不得影响轻睡眠等核心产品 Task。音频采集、处理和语音事务仍由 Service 链拥有；
-`app_voice` 只解释用户意图并申请实时语音租约。
+的低内存配置初始化，日志突发可丢弃但不得影响轻睡眠等核心产品 Task。音频采集、处理和语音
+事务仍由 Service 链拥有；`app_voice` 串行编排整条 Service 链的 `start/stop`，只在
+`RUNNING` 且当前为语音页面时解释右键长按，并为一次会话申请实时语音租约。当前不启用
+运行时唤醒词设置。
 
 `app_network` 同一时刻只授予一个带类型和代次的互斥网络产品租约，当前类型为实时语音和
 Web 文件管理。两类租约都阻止 Dashboard 手动/自动同步、OTA 检查与安装、显式或无配置自动
@@ -214,25 +216,29 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 `UINT64_MAX` 只分配一次，耗尽后停止与后续启动都拒绝，避免回绕后吞掉清理重试。Task 退出前
 清空私有句柄并输出最终栈高水位。
 
-当前低功耗阶段同时使用 UI Runtime 与网络链路的可逆 `stop/start`。睡前先关闭 UI 业务
-入口、停止 LVGL timer、等待显示 DMA 静止，再由 `app_network` 停止 Dashboard 截止、
+当前低功耗阶段同时使用语音、UI Runtime 与网络链路的可逆 `stop/start`。睡前先关闭语音
+新会话入口，确认 AFE Task 停泊且输入输出关闭；再关闭 UI 业务入口、停止 LVGL timer、
+等待显示 DMA 静止，最后由 `app_network` 停止 Dashboard 截止、
 失败退避及其他产品 Timer、远端日志、
 Network Manager 和 Wi-Fi Driver。ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止
 时间更近则缩短本轮间隔以对齐计划整点；普通周期保持停网；
 可信 UTC 到达 Dashboard 返回的 `next_refresh_at_utc` 后，电源 Task 恢复网络、同步等待
 Dashboard 完成、保存新截止时间并再次停网，随后 UI 从 Presenter 重同步并等待完整显示传输。
-同步失败保留旧截止时间，下个 Timer 周期重试。左右键唤醒则按以下链路恢复产品按键事实：
+同步失败保留旧截止时间，下个 Timer 周期重试。Timer 维护窗口不启动语音 Runtime；左右键
+唤醒则按以下链路恢复产品按键事实：
 
 ```text
-EXT1 左右键掩码 → app_power 恢复网络与 UI
+EXT1 左右键掩码 → app_power 按网络 → 语音 → UI 恢复
     → button_service_request_light_sleep_wakeup_copy()
     → 原按键状态机或快速释放短按重放
 ```
 
 Button Service 保持 RUNNING，不增加睡前 `stop()` 或醒后 `start()`；提交失败属于恢复错误
-并进入 BLOCKED。环境、按键扫描、音频和 RTC Service 尚未增加独立低功耗生命周期，电源流程
-不访问 SD 卡。Dashboard 同步失败是可重试的数据错误；网络或 UI 无法证明已安全停止/恢复才
-进入 BLOCKED。
+并进入 BLOCKED。活动录音、上传、播放、AFE drain、音频输入输出或语音租约是暂时睡眠阻止
+条件，不会在睡前取消会话；会话结束后按 10 秒配置重试。语音 Runtime 的 Light-sleep
+`stop()` 保留 Codec、AFE、模型、缓冲和已创建 Task，`deinit()` 不进入每轮睡眠路径。
+Dashboard 同步失败是可重试的数据错误；语音、网络或 UI 无法证明已安全停止/恢复才进入
+`BLOCKED`。
 
 `app_environment` 的同一 Application Task 继续分别拥有 2000 ms 电池采样截止时间和
 30000 ms 温湿度采样截止时间。OTA Timer、Firmware OTA 初始化/启动和 Network Task 生命周期
@@ -244,8 +250,9 @@ Button Service 保持 RUNNING，不增加睡前 `stop()` 或醒后 `start()`；�
 - 静态核对所有 Task 文件和入口均以 `_task` 结尾。
 - 按键按需扫描和 Light Sleep 桥接执行
   `.\tools\tests\check_button_event_driven.ps1`。
-- 本轮合并未运行测试、网页生成器、固件编译或实机流程；后续编译必须通过仓库统一命令
-  `& .\ds.ps1 build deskmate` 执行。
+- 语音生命周期和低功耗顺序执行
+  `.\tools\tests\check_voice_power_lifecycle.ps1`。
+- 固件编译必须通过仓库统一命令 `& .\ds.ps1 build deskmate` 执行。
 
 相关规范：
 

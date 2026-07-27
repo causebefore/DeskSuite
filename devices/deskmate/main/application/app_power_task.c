@@ -8,7 +8,7 @@
 #include <time.h>
 
 #include "app_network.h"
-#include "audio_service.h"
+#include "app_voice.h"
 #include "button_service.h"
 #include "device_power.h"
 #include "esp_log.h"
@@ -19,10 +19,10 @@
 #include "system_clock.h"
 #include "task_stack_stats.h"
 #include "ui_runtime.h"
-#include "voice_service.h"
 
 #define APP_POWER_TASK_STACK_SIZE               6144U
 #define APP_POWER_TASK_PRIORITY                 3U
+#define APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS    3000U
 #define APP_POWER_UI_LIFECYCLE_TIMEOUT_MS       5000U
 #define APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS  5000U
 #define APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS 5000U
@@ -152,13 +152,23 @@ static bool wakeup_is_button(app_power_wakeup_source_t source)
 static uint32_t collect_runtime_blockers(void)
 {
     uint32_t blockers = APP_POWER_BLOCKER_NONE;
-    if (voice_service_is_busy())
+    app_voice_status_t voice = { 0 };
+    if (app_voice_get_status_copy(&voice) != ESP_OK || voice.state == APP_VOICE_STATE_FAILED
+        || voice.session_busy)
     {
         blockers |= APP_POWER_BLOCKER_VOICE;
     }
-    if (audio_service_is_running())
+    if (voice.input_active || voice.output_active)
     {
         blockers |= APP_POWER_BLOCKER_AUDIO;
+    }
+    if (!voice.processor_idle)
+    {
+        blockers |= APP_POWER_BLOCKER_AUDIO_PROCESSOR;
+    }
+    if (voice.network_lease_held)
+    {
+        blockers |= APP_POWER_BLOCKER_NETWORK_LEASE;
     }
     if (app_network_is_ota_busy())
     {
@@ -252,6 +262,44 @@ static void enter_blocked(esp_err_t primary_error, esp_err_t recovery_error)
 }
 
 /**
+ * @brief 在活动代次未变化时停止语音 Runtime
+ *
+ * 活动会话、AFE drain、音频输入输出或未释放租约会由 app_voice 拒绝停止；本函数不取消会话。
+ *
+ * @param[in] expected_generation 计划入睡时锁存的活动代次
+ * @return ESP_OK 语音链已静默；ESP_ERR_INVALID_STATE 本轮准备被取消或语音仍忙；
+ *         其他值表示语音停止或回滚失败
+ */
+static esp_err_t stop_voice_for_sleep(uint32_t expected_generation)
+{
+    if (preparation_was_interrupted(expected_generation))
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    set_state_step(APP_POWER_STATE_PREPARING, APP_POWER_STEP_VOICE_STOP);
+    const esp_err_t error = app_voice_stop(APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS);
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE)
+    {
+        keep_primary_error(error);
+    }
+    return error;
+}
+
+/**
+ * @brief 恢复语音 Runtime 和按键语音入口
+ *
+ * @return ESP_OK 语音链已恢复；其他值表示恢复失败
+ */
+static esp_err_t resume_voice_runtime(void)
+{
+    set_state_step(APP_POWER_STATE_RESUMING, APP_POWER_STEP_VOICE_START);
+    const esp_err_t error = app_voice_start(APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS);
+    keep_recovery_error(error);
+    return error;
+}
+
+/**
  * @brief 恢复已经成功停止的 UI，并保留恢复阶段首个错误
  *
  * 返回 ESP_OK 时，UI Runtime 已把 Presenter 最新状态同步到控件树并完成一次显示传输。
@@ -324,13 +372,14 @@ static esp_err_t resume_network_runtime(void)
 }
 
 /**
- * @brief 尽力恢复当前仍处于停止态的网络与 UI
+ * @brief 按网络、语音、UI 的固定顺序恢复已停止的 Runtime
  *
  * @param[in,out] network_suspended 网络暂停状态；成功恢复后写 false
+ * @param[in,out] voice_stopped 语音停止状态；成功恢复后写 false
  * @param[in,out] ui_stopped UI 停止状态；成功恢复后写 false
- * @return ESP_OK 两者均已恢复；其他值为首个恢复错误
+ * @return ESP_OK 三者均已恢复；其他值为首个恢复错误
  */
-static esp_err_t restore_awake_runtime(bool *network_suspended, bool *ui_stopped)
+static esp_err_t restore_awake_runtime(bool *network_suspended, bool *voice_stopped, bool *ui_stopped)
 {
     esp_err_t first_error = ESP_OK;
     if (*network_suspended)
@@ -341,6 +390,18 @@ static esp_err_t restore_awake_runtime(bool *network_suspended, bool *ui_stopped
             *network_suspended = false;
         }
         else
+        {
+            first_error = error;
+        }
+    }
+    if (*voice_stopped)
+    {
+        const esp_err_t error = resume_voice_runtime();
+        if (error == ESP_OK)
+        {
+            *voice_stopped = false;
+        }
+        else if (first_error == ESP_OK)
         {
             first_error = error;
         }
@@ -496,9 +557,9 @@ static esp_err_t run_network_maintenance(uint32_t expected_generation, bool *net
 /**
  * @brief 执行一次睡眠会话，Timer 到期时联网维护并刷新屏幕后继续睡眠
  *
- * 首次入睡前依次停止 UI 和网络。按键唤醒恢复网络与 UI 后结束睡眠会话；Timer 唤醒仅在
+ * 首次入睡前依次停止语音、UI 和网络。按键唤醒按网络、语音、UI 的顺序恢复后结束睡眠会话；Timer 唤醒仅在
  * 服务端截止时间到达时恢复网络并同步 Dashboard，随后再次停网、恢复 UI 完成一次画面刷新，
- * 确认没有新活动和产品阻止条件后再次停止 UI 并进入下一轮睡眠。
+ * 期间语音保持停止；确认没有新活动和产品阻止条件后再次停止 UI 并进入下一轮睡眠。
  *
  * @param[in] initial_generation 首次开始准备时锁存的活动代次
  * @return ESP_OK 已返回正常清醒流程；ESP_ERR_INVALID_STATE 准备被活动取消或按键未释放；
@@ -507,12 +568,20 @@ static esp_err_t run_network_maintenance(uint32_t expected_generation, bool *net
 static esp_err_t run_sleep_session(uint32_t initial_generation)
 {
     uint32_t  expected_generation = initial_generation;
+    bool      voice_stopped       = false;
     bool      ui_stopped          = false;
     bool      network_suspended   = false;
-    esp_err_t result              = stop_ui_for_sleep(expected_generation);
+    esp_err_t result              = stop_voice_for_sleep(expected_generation);
     if (result != ESP_OK)
     {
         return result;
+    }
+    voice_stopped = true;
+
+    result = stop_ui_for_sleep(expected_generation);
+    if (result != ESP_OK)
+    {
+        goto restore_awake;
     }
     ui_stopped = true;
 
@@ -569,12 +638,19 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             }
             network_suspended = false;
 
-            result            = resume_ui_runtime();
+            result = resume_voice_runtime();
             if (result != ESP_OK)
             {
                 goto restore_awake;
             }
-            ui_stopped                                       = false;
+            voice_stopped = false;
+
+            result = resume_ui_runtime();
+            if (result != ESP_OK)
+            {
+                goto restore_awake;
+            }
+            ui_stopped = false;
 
             const button_service_wakeup_info_t button_wakeup = {
                 .left_button  = wakeup.left_button,
@@ -631,7 +707,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
 
         if (preparation_was_interrupted(expected_generation))
         {
-            result = restore_awake_runtime(&network_suspended, &ui_stopped);
+            result = restore_awake_runtime(&network_suspended, &voice_stopped, &ui_stopped);
             if (result != ESP_OK)
             {
                 return result;
@@ -644,7 +720,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         set_blockers(blockers);
         if (blockers != APP_POWER_BLOCKER_NONE)
         {
-            result = restore_awake_runtime(&network_suspended, &ui_stopped);
+            result = restore_awake_runtime(&network_suspended, &voice_stopped, &ui_stopped);
             if (result != ESP_OK)
             {
                 return result;
@@ -657,13 +733,14 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         result              = stop_ui_for_sleep(expected_generation);
         if (result != ESP_OK)
         {
-            return result;
+            goto restore_awake;
         }
         ui_stopped = true;
     }
 
 restore_awake: {
-    const esp_err_t recovery_error = restore_awake_runtime(&network_suspended, &ui_stopped);
+    const esp_err_t recovery_error =
+        restore_awake_runtime(&network_suspended, &voice_stopped, &ui_stopped);
     if (recovery_error != ESP_OK)
     {
         return result == ESP_OK ? recovery_error : result;

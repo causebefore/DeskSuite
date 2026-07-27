@@ -19,7 +19,7 @@ extern "C"
     {
         APP_POWER_STATE_STOPPED = 0, /*!< 尚未启动或已经停止 */
         APP_POWER_STATE_AWAKE,       /*!< 等待无活动窗口或产品阻止条件解除 */
-        APP_POWER_STATE_PREPARING,   /*!< 检查活动代次并可逆停止 UI */
+        APP_POWER_STATE_PREPARING,   /*!< 检查活动代次并可逆停止语音、UI 与网络 */
         APP_POWER_STATE_SLEEPING,    /*!< 当前 Task 阻塞在 Light-sleep 入口 */
         APP_POWER_STATE_RESUMING,    /*!< 已唤醒并恢复、刷新 UI */
         APP_POWER_STATE_BLOCKED,     /*!< 睡眠或恢复状态不可靠，禁止再次自动睡眠 */
@@ -30,11 +30,13 @@ extern "C"
     {
         APP_POWER_STEP_NONE = 0,       /*!< 当前没有准备或恢复步骤 */
         APP_POWER_STEP_CHECK_BLOCKERS, /*!< 检查只读产品阻止条件 */
+        APP_POWER_STEP_VOICE_STOP,     /*!< 停止语音 Runtime 并关闭业务入口 */
         APP_POWER_STEP_UI_STOP,        /*!< 可逆停止 UI Runtime 和显示传输 */
         APP_POWER_STEP_NETWORK_STOP,   /*!< 可逆停止网络策略与 Wi-Fi Driver */
         APP_POWER_STEP_DEVICE_SLEEP,   /*!< 执行 Device 按键与 Timer 睡眠事务 */
         APP_POWER_STEP_DEVICE_WAKE,    /*!< 锁存本轮 Light-sleep 唤醒事实 */
         APP_POWER_STEP_NETWORK_START,  /*!< 恢复网络连接策略 */
+        APP_POWER_STEP_VOICE_START,    /*!< 恢复语音 Runtime 和按键语音入口 */
         APP_POWER_STEP_NETWORK_SYNC,   /*!< 等待联网并同步 Dashboard 维护数据 */
         APP_POWER_STEP_UI_START,       /*!< 恢复 UI Runtime 并同步完成画面刷新 */
     } app_power_step_t;
@@ -58,6 +60,7 @@ extern "C"
         APP_POWER_BLOCKER_AUDIO         = 1U << 1,
         APP_POWER_BLOCKER_OTA           = 1U << 2,
         APP_POWER_BLOCKER_NETWORK_LEASE = 1U << 3,
+        APP_POWER_BLOCKER_AUDIO_PROCESSOR = 1U << 4,
     } app_power_blocker_t;
 
     /** @brief 电源 Application 初始化配置 */
@@ -101,7 +104,7 @@ extern "C"
      *
      * 无活动窗口结束后，Task 可逆停止 UI 与网络并进入轻睡眠。Timer 唤醒只在服务端截止
      * 时间到达时恢复网络、同步 Dashboard，再停网并刷新一次屏幕后继续睡眠；左右按键唤醒
-     * 则恢复网络、UI 和正常交互窗口。
+     * 则按网络、语音、UI 的顺序恢复正常交互窗口。
      *
      * @return ESP_OK 已启动；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_NO_MEM 创建失败
      */
