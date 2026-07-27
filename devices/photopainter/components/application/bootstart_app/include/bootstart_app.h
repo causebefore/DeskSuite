@@ -88,15 +88,17 @@ extern "C"
     esp_err_t bootstart_app_run_provisioning(const bootstart_app_wakeup_context_t *wakeup_context);
 
     /**
- * @brief 初始化本地集合、页面呈现、按键播放和可选内容刷新链路
+ * @brief 初始化本地集合、页面呈现、按键播放和内容刷新链路
  *
  * 本函数会启动照片播放 App，但只初始化内容刷新 App；首轮内容刷新必须等待电源管理完成回调
- * 订阅后再由 `bootstart_app_start_content_refresh()` 启动。
+ * 订阅后再由 `bootstart_app_start_content_refresh()` 启动。统一后端上下文或内容刷新初始化失败
+ * 均作为本轮致命启动错误返回，不保留缺少网络收敛和休眠所有者的半运行模式。
+ * 照片播放启动后返回错误时，调用方必须立即调用 `bootstart_app_handle_fatal_error()`；函数会
+ * 暂时保留已运行组件，由统一停机事务按依赖顺序收敛，调用方不得继续启动或自行交错清理。
  *
- * @param[out] out_refresh_ready true 表示内容刷新 App 已初始化并等待启动
- * @return ESP_OK 本地播放已启动；ESP_ERR_INVALID_ARG 参数为空；或关键显示链路错误码
+ * @return ESP_OK 照片播放已启动且内容刷新已初始化；或显示、后端上下文和内容刷新错误码
  */
-    esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready);
+    esp_err_t bootstart_app_start_photo_pipeline(void);
 
     /**
  * @brief 尽力初始化 LED 与蜂鸣器反馈能力
@@ -106,29 +108,33 @@ extern "C"
     void bootstart_app_init_feedback_devices(void);
 
     /**
- * @brief 启动手动与周期深睡协调 Application
+ * @brief 启动周期深睡协调 Application
  *
- * @param[in] automatic_sleep_enabled 是否启用自动深睡流程
  * @return ESP_OK 已启动；或初始化、启动错误码
  */
-    esp_err_t bootstart_app_start_power_management(bool automatic_sleep_enabled);
+    esp_err_t bootstart_app_start_power_management(void);
 
     /**
  * @brief 在电源管理完成事件订阅后启动首轮内容刷新
  *
- * `refresh_ready=false` 时直接返回；启动失败时会回滚内容刷新资源并向电源管理提交退避休眠
- * 事实，所有错误均在函数内记录。
+ * 启动失败时先回滚内容刷新资源，再向电源管理提交退避休眠事实。事实提交成功视为错误已经交给
+ * 电源 Task 收敛；回滚或事实提交失败则向顶层返回错误，由统一致命错误入口接管。
  *
- * @param[in] refresh_ready 内容刷新 App 是否已经初始化
+ * @return ESP_OK 首轮刷新已启动，或失败事实已提交；其他值表示启动失败尚未安全收敛
  */
-    void bootstart_app_start_content_refresh(bool refresh_ready);
+    esp_err_t bootstart_app_start_content_refresh(void);
 
     /**
- * @brief 在启动阶段致命故障发生于待验证镜像时请求 OTA 回滚并重启
+ * @brief 收敛启动阶段致命错误，成功时进入 OTA 回滚重启或退避深睡
  *
- * @param[in] startup_error 启动阶段错误；ESP_OK 时不执行操作
+ * 本函数先拒绝待验证 OTA 镜像；正常镜像则同步停止已经启动的电源管理与其他运行期组件，并按
+ * 1/5/15 分钟失败退避进入深睡。若安全深睡仍无法完成，延迟后重启，绝不把控制权交还给
+ * `app_main()`。
+ *
+ * @param[in] startup_error 启动阶段错误；ESP_OK 会规范化为 ESP_FAIL
+ * @return 不返回
  */
-    void bootstart_app_reject_pending_image_on_fatal_error(esp_err_t startup_error);
+    void bootstart_app_handle_fatal_error(esp_err_t startup_error) __attribute__((noreturn));
 
 #ifdef __cplusplus
 }

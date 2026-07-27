@@ -14,14 +14,13 @@ void app_main(void)
     if (startup_error != ESP_OK)
     {
         ESP_LOGE("main", "读取启动唤醒上下文失败: %s", esp_err_to_name(startup_error));
-        return;
+        bootstart_app_handle_fatal_error(startup_error);
     }
 
     startup_error = bootstart_app_init_system_services();
     if (startup_error != ESP_OK)
     {
-        bootstart_app_reject_pending_image_on_fatal_error(startup_error);
-        return;
+        bootstart_app_handle_fatal_error(startup_error);
     }
 
     (void) bootstart_app_init_rtc();
@@ -40,22 +39,30 @@ void app_main(void)
     startup_error = bootstart_app_init_local_communication();
     if (startup_error != ESP_OK)
     {
-        bootstart_app_reject_pending_image_on_fatal_error(startup_error);
-        return;
+        bootstart_app_handle_fatal_error(startup_error);
     }
-    if (bootstart_app_run_provisioning(&wakeup_context) != ESP_OK)
+    startup_error = bootstart_app_run_provisioning(&wakeup_context);
+    if (startup_error != ESP_OK)
     {
-        return;
+        bootstart_app_handle_fatal_error(startup_error);
     }
 
     ESP_LOGI("main", "网络准备完成，开始装配照片同步与显示链路");
-    bool refresh_ready = false;
-    if (bootstart_app_start_photo_pipeline(&refresh_ready) != ESP_OK)
+    startup_error = bootstart_app_start_photo_pipeline();
+    if (startup_error != ESP_OK)
     {
-        return;
+        bootstart_app_handle_fatal_error(startup_error);
     }
 
     bootstart_app_init_feedback_devices();
-    (void) bootstart_app_start_power_management(refresh_ready);
-    bootstart_app_start_content_refresh(refresh_ready);
+    startup_error = bootstart_app_start_power_management();
+    if (startup_error != ESP_OK)
+    {
+        bootstart_app_handle_fatal_error(startup_error);
+    }
+    startup_error = bootstart_app_start_content_refresh();
+    if (startup_error != ESP_OK)
+    {
+        bootstart_app_handle_fatal_error(startup_error);
+    }
 }

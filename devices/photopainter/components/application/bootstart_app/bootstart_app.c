@@ -25,8 +25,11 @@
 #include "environment_service.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "firmware_ota_build.h"
 #include "firmware_ota.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "network_manager.h"
 #include "photo_playback_app.h"
 #include "power_management_app.h"
@@ -48,6 +51,8 @@ static const char *TAG = "bootstart_app";
 #define BOOTSTART_APP_FIRMWARE_OTA_DOWNLOAD_TIMEOUT_MS 180000
 /** @brief 按键唤醒或冷启动后的无活动保持时长 */
 #define BOOTSTART_APP_INTERACTIVE_AWAKE_MS             180000U
+/** @brief 安全深睡仍失败时，重启前保留日志输出的等待时间 */
+#define BOOTSTART_APP_FATAL_RESTART_DELAY_MS            1000U
 /** @brief 星期日志名称，索引与 RTC 的 0=星期日 约定一致 */
 static const char *s_bootstart_app_weekday_names[] = {
     "星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六",
@@ -196,21 +201,58 @@ static bool bootstart_app_should_restore_ota_display(void)
     return pending;
 }
 
-/** @brief 启动阶段致命故障发生在待验证镜像上时立即触发回滚 */
-void bootstart_app_reject_pending_image_on_fatal_error(esp_err_t startup_error)
+void bootstart_app_handle_fatal_error(esp_err_t startup_error)
 {
     if (startup_error == ESP_OK)
     {
-        return;
+        startup_error = ESP_FAIL;
     }
+    ESP_LOGE(TAG, "启动阶段发生致命错误，开始统一收敛: %s", esp_err_to_name(startup_error));
+
     const esp_err_t rollback_error = firmware_ota_reject_running_image_and_reboot();
     if (rollback_error != ESP_OK)
     {
         ESP_LOGE(TAG,
-                 "启动失败且无法处理待验证镜像: startup=%s, rollback=%s",
+                 "启动失败且无法处理待验证镜像状态，继续尝试安全深睡: startup=%s, rollback=%s",
                  esp_err_to_name(startup_error),
                  esp_err_to_name(rollback_error));
     }
+
+    power_management_app_status_t power_status;
+    const esp_err_t power_status_error =
+        power_management_app_get_status_copy(&power_status);
+    if (power_status_error == ESP_OK)
+    {
+        const esp_err_t stop_error = power_management_app_stop();
+        if (stop_error == ESP_OK)
+        {
+            const esp_err_t deinit_error = power_management_app_deinit();
+            if (deinit_error != ESP_OK)
+            {
+                ESP_LOGE(TAG, "致命错误收敛时释放电源管理资源失败: %s",
+                         esp_err_to_name(deinit_error));
+            }
+        }
+        else
+        {
+            ESP_LOGE(TAG, "致命错误收敛时停止电源管理 Task 失败: %s",
+                     esp_err_to_name(stop_error));
+        }
+    }
+    else if (power_status_error != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGE(TAG, "致命错误收敛时读取电源管理状态失败: %s",
+                 esp_err_to_name(power_status_error));
+    }
+
+    const esp_err_t sleep_error = power_management_app_enter_startup_sleep(
+        POWER_MANAGEMENT_APP_STARTUP_SLEEP_FAILURE_BACKOFF, startup_error);
+    ESP_LOGE(TAG,
+             "启动错误无法安全收敛到退避深睡，将重启设备: startup=%s, sleep=%s",
+             esp_err_to_name(startup_error),
+             esp_err_to_name(sleep_error));
+    vTaskDelay(pdMS_TO_TICKS(BOOTSTART_APP_FATAL_RESTART_DELAY_MS));
+    esp_restart();
 }
 
 esp_err_t bootstart_app_get_wakeup_context_copy(bootstart_app_wakeup_context_t *out_context)
@@ -542,19 +584,15 @@ cleanup:
 }
 
 /**
- * @brief 装配本地显示链路，并按一次性 OTA 标记决定是否恢复正常页面
+ * @brief 装配本地显示与内容刷新链路，并按一次性 OTA 标记决定是否恢复正常页面
  *
- * @param[out] out_refresh_ready true 表示内容刷新 App 已初始化，等待事件订阅后启动
- * @return ESP_OK 本地播放已启动；或关键显示链路错误码
+ * 照片播放启动后的后端上下文或内容刷新错误保留已运行组件，交由顶层统一致命错误入口按整机
+ * 依赖顺序停止，避免局部清理与深睡清理竞争。
+ *
+ * @return ESP_OK 本地播放已启动且内容刷新已初始化；或显示、后端和刷新链路错误码
  */
-esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready)
+esp_err_t bootstart_app_start_photo_pipeline(void)
 {
-    ESP_RETURN_ON_FALSE(out_refresh_ready != NULL,
-                        ESP_ERR_INVALID_ARG,
-                        TAG,
-                        "照片链路就绪状态输出指针为空");
-
-    *out_refresh_ready                                = false;
     bool       buttons_initialized                    = false;
     bool       collection_initialized                 = false;
     bool       present_initialized                    = false;
@@ -593,10 +631,10 @@ esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready)
     ret = bootstart_app_load_backend_context_copy(&backend);
     if (ret != ESP_OK)
     {
-        ESP_LOGW(TAG,
-                 "缺少内容刷新服务配置，本地照片与按键轮播继续运行: %s",
-                 esp_err_to_name(ret == ESP_OK ? ESP_ERR_NOT_FOUND : ret));
-        return ESP_OK;
+        ESP_LOGE(TAG,
+                 "统一后端上下文不可用，照片启动链路无法安全进入运行态: %s",
+                 esp_err_to_name(ret));
+        return ret;
     }
     const esp_err_t ota_config_error = firmware_ota_configure_copy(&backend);
     if (ota_config_error != ESP_OK)
@@ -612,16 +650,13 @@ esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready)
     ret = content_refresh_app_init(&refresh_config);
     if (ret != ESP_OK)
     {
-        ESP_LOGW(TAG, "后台内容刷新初始化失败，本地照片继续运行: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "后台内容刷新初始化失败，无法装配休眠闭环: %s", esp_err_to_name(ret));
+        return ret;
     }
-    else
-    {
-        *out_refresh_ready = true;
-        ESP_LOGI(TAG,
-                 "内容刷新链路初始化完成: device_id=%s, HTTP 超时=%d ms",
-                 backend.device_id,
-                 BOOTSTART_APP_CONTENT_REFRESH_TIMEOUT_MS);
-    }
+    ESP_LOGI(TAG,
+             "内容刷新链路初始化完成: device_id=%s, HTTP 超时=%d ms",
+             backend.device_id,
+             BOOTSTART_APP_CONTENT_REFRESH_TIMEOUT_MS);
     return ESP_OK;
 
 cleanup:
@@ -652,15 +687,14 @@ void bootstart_app_init_feedback_devices(void)
 }
 
 /**
- * @brief 启动手动与周期深睡协调 App，并在首轮刷新前完成回调订阅
+ * @brief 启动周期深睡协调 App，并在首轮刷新前完成回调订阅
  *
- * @param[in] automatic_sleep_enabled 是否启用自动深睡流程
  * @return ESP_OK 已启动；或初始化、启动错误码
  */
-esp_err_t bootstart_app_start_power_management(bool automatic_sleep_enabled)
+esp_err_t bootstart_app_start_power_management(void)
 {
     const power_management_app_config_t config = {
-        .automatic_sleep_enabled = automatic_sleep_enabled,
+        .automatic_sleep_enabled = true,
         .interactive_awake_ms    = BOOTSTART_APP_INTERACTIVE_AWAKE_MS,
     };
     bool      initialized = false;
@@ -669,8 +703,7 @@ esp_err_t bootstart_app_start_power_management(bool automatic_sleep_enabled)
     initialized = true;
     ESP_GOTO_ON_ERROR(power_management_app_start(), cleanup, TAG, "启动整机深睡协调失败");
     ESP_LOGI(TAG,
-             "整机深睡协调已启动: 自动深睡=%s, 无活动窗口=%lu 秒",
-             automatic_sleep_enabled ? "启用" : "关闭",
+             "整机深睡协调已启动: 自动深睡=启用, 无活动窗口=%lu 秒",
              (unsigned long) (BOOTSTART_APP_INTERACTIVE_AWAKE_MS / 1000U));
     return ESP_OK;
 
@@ -683,12 +716,8 @@ cleanup:
 }
 
 /** @brief 在电源管理 App 完成事件订阅后启动首轮刷新，启动失败时提交退避休眠事实 */
-void bootstart_app_start_content_refresh(bool refresh_ready)
+esp_err_t bootstart_app_start_content_refresh(void)
 {
-    if (!refresh_ready)
-    {
-        return;
-    }
     const esp_err_t error = content_refresh_app_start();
     if (error != ESP_OK)
     {
@@ -697,6 +726,7 @@ void bootstart_app_start_content_refresh(bool refresh_ready)
         if (deinit_error != ESP_OK)
         {
             ESP_LOGE(TAG, "回滚内容刷新初始化资源失败: %s", esp_err_to_name(deinit_error));
+            return deinit_error;
         }
         const esp_err_t report_error = power_management_app_report_refresh_start_failure(error);
         if (report_error != ESP_OK)
@@ -704,12 +734,12 @@ void bootstart_app_start_content_refresh(bool refresh_ready)
             ESP_LOGE(TAG,
                      "提交内容刷新启动失败事实失败，无法进入退避休眠: %s",
                      esp_err_to_name(report_error));
+            return report_error;
         }
+        return ESP_OK;
     }
-    else
-    {
-        ESP_LOGI(TAG, "首轮后台内容刷新已启动");
-    }
+    ESP_LOGI(TAG, "首轮后台内容刷新已启动");
+    return ESP_OK;
 }
 
 /**

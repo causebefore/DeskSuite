@@ -18,7 +18,9 @@ idf_component_register(
         display_collection_service
         display_present_service
         environment_service
+        esp_system
         firmware_ota
+        freertos
         log
         network_manager
         photo_playback_app

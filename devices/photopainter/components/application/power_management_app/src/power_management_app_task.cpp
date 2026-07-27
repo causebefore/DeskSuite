@@ -541,11 +541,13 @@ static esp_err_t power_management_rollback(PowerStoppedComponents *stopped)
  *
  * @param[in] timer_wakeup_seconds 定时唤醒间隔；0 表示本次仅由按键唤醒
  * @param[in] absolute_wakeup_at_utc 服务端绝对唤醒目标；0 表示相对退避或手动休眠
+ * @param[in] allow_missing_components true 表示启动失败收敛允许组件尚未初始化
  * @param[out] out_cleanup_failed true 表示失败后的运行期恢复也失败
  * @return 原始停机错误；成功进入深睡时不返回
  */
 static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_seconds,
                                                     int64_t absolute_wakeup_at_utc,
+                                                    bool allow_missing_components,
                                                     bool *out_cleanup_failed)
 {
     ESP_LOGI(TAG,
@@ -553,7 +555,8 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
              timer_wakeup_seconds > 0U ? "启用" : "关闭",
              (unsigned long) timer_wakeup_seconds);
     PowerStoppedComponents stopped;
-    bool stop_failed = false;
+    bool                   display_slept = false;
+    bool                   stop_failed   = false;
     esp_err_t error = power_management_stop_optional(
         "照片播放 App", photo_playback_app_stop, &stopped.photo_playback);
     if (error == ESP_OK)
@@ -580,7 +583,11 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
     {
         network_manager_status_t status;
         const esp_err_t status_error = network_manager_get_status_copy(&status);
-        if (status_error != ESP_OK)
+        if (status_error == ESP_ERR_INVALID_STATE && allow_missing_components)
+        {
+            ESP_LOGI(TAG, "网络管理器尚未初始化，启动失败收敛无需关闭网络");
+        }
+        else if (status_error != ESP_OK)
         {
             ESP_LOGE(TAG, "读取网络停机状态失败: %s", esp_err_to_name(status_error));
             error = status_error;
@@ -625,20 +632,32 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
     if (error == ESP_OK)
     {
         ESP_LOGI(TAG, "开始让墨水屏进入低功耗睡眠");
-        error = device_display_sleep();
-        if (error == ESP_OK)
+        const esp_err_t display_sleep_error = device_display_sleep();
+        if (display_sleep_error == ESP_ERR_INVALID_STATE && allow_missing_components)
         {
+            ESP_LOGI(TAG, "显示设备尚未初始化或已经休眠，启动失败收敛无需重复休眠");
+        }
+        else
+        {
+            error = display_sleep_error;
+        }
+        if (display_sleep_error == ESP_OK)
+        {
+            display_slept = true;
             ESP_LOGI(TAG, "墨水屏已进入低功耗睡眠");
         }
     }
     if (error == ESP_OK)
     {
-        const esp_err_t display_deinit_error = device_display_deinit();
-        if (display_deinit_error != ESP_OK)
+        if (display_slept)
         {
-            ESP_LOGW(TAG,
-                     "深睡前释放显示资源失败，继续进入整机深睡: %s",
-                     esp_err_to_name(display_deinit_error));
+            const esp_err_t display_deinit_error = device_display_deinit();
+            if (display_deinit_error != ESP_OK)
+            {
+                ESP_LOGW(TAG,
+                         "深睡前释放显示资源失败，继续进入整机深睡: %s",
+                         esp_err_to_name(display_deinit_error));
+            }
         }
         const esp_err_t sd_deinit_error = device_sd_deinit();
         if (sd_deinit_error != ESP_OK && sd_deinit_error != ESP_ERR_INVALID_STATE)
@@ -696,7 +715,7 @@ esp_err_t power_management_app_prepare_startup_sleep(
              wakeup_seconds > 0U ? "定时重试" : "仅按键唤醒",
              esp_err_to_name(reason));
     bool cleanup_failed = false;
-    return power_management_prepare_and_sleep(wakeup_seconds, 0, &cleanup_failed);
+    return power_management_prepare_and_sleep(wakeup_seconds, 0, true, &cleanup_failed);
 }
 
 /** @brief 播放一次短促 OTA 检查提示音，失败只记录诊断 */
@@ -1722,7 +1741,7 @@ static void power_management_task(void *context)
             power_management_app_publish(POWER_MANAGEMENT_APP_STATE_PREPARING_SLEEP, ESP_OK);
             bool cleanup_failed = false;
             const esp_err_t error = power_management_prepare_and_sleep(
-                sleep_wakeup_seconds, sleep_wakeup_at_utc, &cleanup_failed);
+                sleep_wakeup_seconds, sleep_wakeup_at_utc, false, &cleanup_failed);
             const esp_err_t resume_error = power_management_resume_content_after_failed_sleep(
                 &content_suspended_for_ota);
             if (resume_error != ESP_OK)
