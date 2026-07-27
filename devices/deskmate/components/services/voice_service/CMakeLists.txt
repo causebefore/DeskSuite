@@ -4,6 +4,7 @@ idf_component_register(
     REQUIRES
         esp_common
         esp_event
+        protocols
     PRIV_REQUIRES
         audio_processor_service
         audio_service
@@ -11,8 +12,6 @@ idf_component_register(
         freertos
         heap
         log
-        protocols
-        sys
         transport
         utils
 )

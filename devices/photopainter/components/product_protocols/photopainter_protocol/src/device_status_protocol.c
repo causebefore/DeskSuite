@@ -31,12 +31,11 @@ static bool device_status_protocol_values_are_valid(const device_status_protocol
                && status->humidity_percent >= 0.0F && status->humidity_percent <= 100.0F);
 }
 
-esp_err_t device_status_protocol_upload_borrow(const char *in_base_url, const char *in_token,
-                                               const char                            *in_device_id,
+esp_err_t device_status_protocol_upload_borrow(const protocol_backend_context_t      *in_backend,
                                                const device_status_protocol_upload_t *in_status,
                                                int                                    timeout_ms)
 {
-    ESP_RETURN_ON_FALSE(in_base_url != NULL && in_base_url[0] != '\0' && timeout_ms > 0
+    ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(in_backend) && timeout_ms > 0
                             && device_status_protocol_values_are_valid(in_status),
                         ESP_ERR_INVALID_ARG,
                         TAG,
@@ -67,7 +66,8 @@ esp_err_t device_status_protocol_upload_borrow(const char *in_base_url, const ch
     ESP_RETURN_ON_FALSE(body != NULL, ESP_ERR_NO_MEM, TAG, "序列化设备状态 JSON 失败");
 
     char      url[256];
-    esp_err_t error = protocol_url_build(url, sizeof(url), in_base_url, "/api/v1/device/status");
+    esp_err_t error =
+        protocol_url_build(url, sizeof(url), in_backend->base_url, "/api/v1/device/status");
     if (error != ESP_OK)
     {
         cJSON_free(body);
@@ -80,8 +80,8 @@ esp_err_t device_status_protocol_upload_borrow(const char *in_base_url, const ch
     char                    bearer[128]  = { 0 };
     protocol_identity_add_headers(headers,
                                   &header_count,
-                                  in_token,
-                                  in_device_id,
+                                  in_backend->token,
+                                  in_backend->device_id,
                                   bearer,
                                   sizeof(bearer));
     headers[header_count++] = (transport_http_header_t){

@@ -39,11 +39,9 @@ public:
     TaskHandle_t task = nullptr; /**< 刷新 Task */
     SemaphoreHandle_t task_stopped = nullptr; /**< Task 退出握手 */
     portMUX_TYPE state_lock = portMUX_INITIALIZER_UNLOCKED; /**< 状态与取消标记锁 */
-    char base_url[CONTENT_REFRESH_APP_BASE_URL_MAX] = {}; /**< 配置副本 */
-    char token[CONTENT_REFRESH_APP_TOKEN_MAX] = {}; /**< 配置副本 */
-    char device_id[CONTENT_REFRESH_APP_DEVICE_ID_MAX] = {}; /**< 配置副本 */
-    int timeout_ms = 0; /**< HTTP 请求超时 */
-    content_refresh_app_status_t status = {}; /**< 对外状态 */
+    protocol_backend_context_t   backend    = {};                    /**< 后端连接与身份配置副本 */
+    int                          timeout_ms = 0;                     /**< HTTP 请求超时 */
+    content_refresh_app_status_t status     = {};                    /**< 对外状态 */
     content_refresh_app_round_cb_t round_callback = nullptr; /**< 轮次完成回调 */
     void *round_callback_context = nullptr; /**< 轮次完成回调上下文 */
     esp_err_t stop_result = ESP_OK; /**< Task 清理结果 */

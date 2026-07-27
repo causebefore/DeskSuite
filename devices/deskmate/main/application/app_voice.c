@@ -58,8 +58,16 @@ static esp_err_t start_voice_chat(uint32_t duration_ms)
         return err;
     }
 
+    protocol_backend_context_t backend;
+    err = app_network_get_backend_context_copy(&backend);
+    if (err != ESP_OK)
+    {
+        (void) app_network_release_realtime_voice_lease(generation, APP_VOICE_LEASE_TIMEOUT_MS);
+        return err;
+    }
+
     s_network_lease_generation = generation;
-    err                        = voice_service_chat(duration_ms);
+    err                        = voice_service_chat(&backend, duration_ms);
     if (err != ESP_OK)
     {
         release_network_lease();

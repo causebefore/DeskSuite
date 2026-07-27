@@ -14,8 +14,8 @@
 
 - 独占一次语音回合的取消状态、录音缓冲、网络会话和播放队列。
 - 优先使用 WebSocket，连接失败时执行 HTTP 流式回退。
-- 会话启动时一次性复制服务地址、可选 Token 和稳定设备 ID；HTTP 与 WebSocket 复用
-  `protocol_identity` 生成同一身份契约。
+- 会话启动时一次性复制 App Voice 提供的完整 `protocol_backend_context_t`；HTTP 与
+  WebSocket 从同一值快照读取服务地址、Token 和稳定设备 ID。
 - 通过 `audio_processor_service` 收集降噪 PCM，通过 `audio_service` 播放 TTS。
 
 不负责：
@@ -41,15 +41,15 @@ chat 请求
 | 调用 | `audio_processor_service` | 降噪录音 |
 | 调用 | `audio_service` | 输入启停和 TTS 播放 |
 | 调用 | `transport` / `protocols` | 网络传输与帧协议 |
-| 调用 | `connect` / `sys` | 在线事实和设置快照 |
 | 调用 | `utils` | 输出会话与播放 Task 的最终历史最小剩余栈 |
-| 被调用 | App Voice | 产品触发、取消和结果解释 |
+| 被调用 | App Voice | 提供统一后端上下文、产品触发、取消和结果解释 |
 
 ## 5. 公共接口
 
 公共头文件：[`include/voice_service.h`](include/voice_service.h)
 
-`voice_service_chat()` 是异步提交接口；实际完成结果由语音状态通知返回。
+`voice_service_chat()` 在返回前复制后端上下文并异步提交会话；实际完成结果由语音状态通知
+返回。
 `voice_service_deinit()` 会拒绝新会话、取消当前会话并有界等待其退出，然后释放组件资源；
 它不初始化或释放所依赖的 Audio Service。
 
@@ -66,7 +66,7 @@ chat 请求
 
 ## 7. 故障与恢复
 
-无法联网、服务地址缺失、任务创建失败或协议错误均收敛为明确终态。空 Token 允许连接服务端
+无法联网、后端上下文无效、任务创建失败或协议错误均收敛为明确终态。空 Token 允许连接服务端
 局域网开发模式。deinit 等待超时返回
 `ESP_ERR_TIMEOUT`，可再次调用以继续收敛。是否展示错误、重试或禁用语音由 Application
 决定。

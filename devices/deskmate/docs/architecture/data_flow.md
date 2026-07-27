@@ -128,8 +128,9 @@ Application 采样时机
 Application 用户意图/产品时机
     → app_network 串行产品命令与租约
     → Communication network_manager 建立 Wi-Fi/Portal 会话
-    → DeskMate protocols 使用稳定设备身份拉取 Dashboard
-      或 firmware_ota 执行检查与安装事务
+    → app_network 构造统一后端上下文
+    → DeskMate protocols / firmware_ota / remote_log / voice
+      共同读取 URL、Token、稳定设备 ID、产品 ID 与固件目标
     → 不可变结果事实
     → app_network 更新 Data 快照并收敛产品状态
     → Presenter 生成 View Model / 呈现事件
@@ -140,6 +141,11 @@ Communication 不直接调用 Data、Presentation 或 UI，不决定是否保持
 页面状态由设备 Application 本地拥有，页面切换不产生网络请求。
 固件安装成功后的底层强制重启属于 `firmware_ota` 已声明的原子事务；是否发起检查或安装仍由
 Application 决定。
+
+后端上下文是无 Task、无持久化状态的按值快照。持久化字段由 Application 装配，稳定硬件设备
+ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保存第二套身份来源。网络诊断
+通过 `network_manager_get_diagnostics_copy()` 一次复制 Manager 会话事实，并实时补充 AP、
+信道、认证、RSSI、IPv4、掩码、网关和 DNS；底层查询错误保留在快照字段中，不覆盖其余事实。
 
 ### 轻睡眠
 

@@ -82,6 +82,22 @@ Task 文件命名是强制规则：
 - 普通定时器或回调没有创建 Task 时，不使用 `_task.c` 后缀。
 - Task 默认阻塞等待事件，不使用固定短周期轮询；默认不绑定 CPU 核，优先级和栈大小必须有测量依据。
 
+### 后端通信与网络事实
+
+```text
+Application 装配服务配置
+    → 共享 protocols 构造后端上下文
+    → OTA / 远端日志 / PhotoPainter 产品协议
+      共同读取 URL、Token、稳定设备 ID、产品 ID 与固件目标
+    → transport 执行有界网络事务
+```
+
+后端上下文是无 Task、无持久化状态的按值快照。稳定设备 ID 统一由 Wi-Fi Station 基础 MAC
+生成，产品协议不得使用 `"default"` 或维护第二套身份来源。Network Manager 的完整诊断 API
+一次复制本会话计数、最近断链原因，并实时补充 AP、信道、认证、RSSI、IPv4、网关和 DNS。
+系统校时通过共享 `time_sync` 取得单次 SNTP 网络样本；候选范围、二次确认、可信锚点和 RTC
+回写仍由 PhotoPainter `system_clock` 拥有。
+
 ## 4. 生命周期
 
 只有确实存在相应阶段的组件才提供完整生命周期：

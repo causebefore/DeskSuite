@@ -9,7 +9,6 @@
 #include "content_refresh_app_internal.hpp"
 #include "esp_check.h"
 #include "esp_log.h"
-#include "utils.h"
 
 /** @brief 日志标签 */
 static const char *TAG = "content_refresh_app";
@@ -17,31 +16,13 @@ static const char *TAG = "content_refresh_app";
 /** @brief 内容刷新 App 唯一 Runtime */
 ContentRefreshRuntime g_content_refresh_runtime;
 
-/**
- * @brief 检查输入字符串能否完整复制到固定容量配置
- */
-static bool content_refresh_string_fits(const char *text, size_t capacity, bool allow_empty)
-{
-    return text != nullptr && (allow_empty || text[0] != '\0') && std::strlen(text) < capacity;
-}
-
 esp_err_t content_refresh_app_init(const content_refresh_app_config_t *config)
 {
-    ESP_RETURN_ON_FALSE(
-        config != nullptr
-            && content_refresh_string_fits(config->base_url,
-                                           sizeof(g_content_refresh_runtime.base_url),
-                                           false)
-            && content_refresh_string_fits(config->token != nullptr ? config->token : "",
-                                           sizeof(g_content_refresh_runtime.token),
-                                           true)
-            && content_refresh_string_fits(config->device_id,
-                                           sizeof(g_content_refresh_runtime.device_id),
-                                           false)
-            && config->timeout_ms > 0,
-        ESP_ERR_INVALID_ARG,
-        TAG,
-        "内容刷新配置无效");
+    ESP_RETURN_ON_FALSE(config != nullptr && protocol_backend_context_is_valid(config->backend)
+                            && config->timeout_ms > 0,
+                        ESP_ERR_INVALID_ARG,
+                        TAG,
+                        "内容刷新配置无效");
     ESP_RETURN_ON_FALSE(!g_content_refresh_runtime.initialized,
                         ESP_ERR_INVALID_STATE,
                         TAG,
@@ -52,17 +33,9 @@ esp_err_t content_refresh_app_init(const content_refresh_app_config_t *config)
                         ESP_ERR_NO_MEM,
                         TAG,
                         "创建内容刷新停止信号量失败");
-    utils_copy_string(g_content_refresh_runtime.base_url,
-                      sizeof(g_content_refresh_runtime.base_url),
-                      config->base_url);
-    utils_copy_string(g_content_refresh_runtime.token,
-                      sizeof(g_content_refresh_runtime.token),
-                      config->token);
-    utils_copy_string(g_content_refresh_runtime.device_id,
-                      sizeof(g_content_refresh_runtime.device_id),
-                      config->device_id);
-    g_content_refresh_runtime.timeout_ms = config->timeout_ms;
-    g_content_refresh_runtime.status = {};
+    g_content_refresh_runtime.backend      = *config->backend;
+    g_content_refresh_runtime.timeout_ms   = config->timeout_ms;
+    g_content_refresh_runtime.status       = {};
     g_content_refresh_runtime.status.state = CONTENT_REFRESH_APP_STATE_STOPPED;
     g_content_refresh_runtime.initialized = true;
     return ESP_OK;
@@ -169,11 +142,9 @@ esp_err_t content_refresh_app_deinit(void)
     ESP_RETURN_ON_FALSE(stopped, ESP_ERR_INVALID_STATE, TAG, "内容刷新 App 尚未达到已停止状态");
     vSemaphoreDelete(g_content_refresh_runtime.task_stopped);
     g_content_refresh_runtime.task_stopped = nullptr;
-    g_content_refresh_runtime.base_url[0]  = '\0';
-    g_content_refresh_runtime.token[0]     = '\0';
-    g_content_refresh_runtime.device_id[0] = '\0';
-    g_content_refresh_runtime.timeout_ms   = 0;
-    g_content_refresh_runtime.round_callback = nullptr;
+    g_content_refresh_runtime.backend                 = {};
+    g_content_refresh_runtime.timeout_ms              = 0;
+    g_content_refresh_runtime.round_callback          = nullptr;
     g_content_refresh_runtime.round_callback_context = nullptr;
     g_content_refresh_runtime.status       = {};
     g_content_refresh_runtime.initialized  = false;

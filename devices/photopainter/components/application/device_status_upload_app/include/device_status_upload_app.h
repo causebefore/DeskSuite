@@ -5,6 +5,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include "protocol_backend_context.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -14,10 +15,8 @@ extern "C"
     /** @brief 单次设备状态上传配置 */
     typedef struct
     {
-        const char *base_url;   /**< 服务端基础地址，调用期间借用 */
-        const char *token;      /**< 可为空的设备共享令牌，调用期间借用 */
-        const char *device_id;  /**< 可为空的设备 ID，调用期间借用 */
-        int         timeout_ms; /**< HTTP 请求超时，单位 ms */
+        const protocol_backend_context_t *backend;    /**< 完整后端上下文，调用期间借用 */
+        int                               timeout_ms; /**< HTTP 请求超时，单位 ms */
     } device_status_upload_app_config_t;
 
     /**

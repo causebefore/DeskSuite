@@ -60,10 +60,12 @@ Service 只依赖稳定的 Device API，不得感知 GPIO、总线或芯片型�
 
 这些组件提供稳定的技术或设备能力，不负责产品级时机和致命/降级决策：
 
-- Communication：位于 DeskSuite `shared/` 的链路、传输与通用协议事实；显示集合、PPF 帧和
-  设备状态等产品协议保留在本设备 `components/product_protocols/`。
+- Communication：位于 DeskSuite `shared/` 的链路、完整网络诊断、传输、稳定硬件身份、统一
+  后端上下文、SNTP 网络取样与通用协议事实；显示集合、PPF 帧和设备状态等产品协议保留在
+  本设备 `components/product_protocols/`。
 - Storage：NVS、文件、分区和可移动介质等通用持久化机制，不定义业务数据结构。
-- System：系统时间、复位、身份、看门狗等系统级能力；当前实际目录名为 `components/sys`。
+- System：可信时间、复位、看门狗等系统级能力；当前实际目录名为 `components/sys`。
+  SNTP 的单次网络取样属于 Communication，候选接受、可信锚点与 RTC 回写仍属于 System。
 - Device：外设能力、设备状态和设备资源所有权。
 
 同级组件默认互不依赖。确有稳定的提供者—使用者关系时可以直接依赖，但必须单向、无环且在 CMake 中明确声明。包含产品判断或跨多个同级组件的流程应上移到 Application 或 Service。

@@ -14,7 +14,7 @@ static const char *TAG = "status_upload_app";
 
 esp_err_t device_status_upload_app_upload(const device_status_upload_app_config_t *config)
 {
-    ESP_RETURN_ON_FALSE(config != NULL && config->base_url != NULL && config->base_url[0] != '\0'
+    ESP_RETURN_ON_FALSE(config != NULL && protocol_backend_context_is_valid(config->backend)
                             && config->timeout_ms > 0,
                         ESP_ERR_INVALID_ARG,
                         TAG,
@@ -70,11 +70,8 @@ esp_err_t device_status_upload_app_upload(const device_status_upload_app_config_
                  (unsigned int) upload.battery_voltage_mv);
     }
 
-    const esp_err_t error = device_status_protocol_upload_borrow(config->base_url,
-                                                                 config->token,
-                                                                 config->device_id,
-                                                                 &upload,
-                                                                 config->timeout_ms);
+    const esp_err_t error =
+        device_status_protocol_upload_borrow(config->backend, &upload, config->timeout_ms);
     if (error == ESP_OK)
     {
         ESP_LOGI(TAG, "设备状态上传完成");

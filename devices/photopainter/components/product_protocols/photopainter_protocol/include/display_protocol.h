@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "protocol_backend_context.h"
 #include "transport.h"
 
 #ifdef __cplusplus
@@ -62,17 +63,14 @@ extern "C"
  * 本函数仅在同步请求期间借用所有输入字符串，返回后不会保存这些指针。
  * 完整 Manifest 会复制到 @p out_manifest，且仅在返回 ESP_OK 时有效。
  *
- * @param[in] in_base_url 服务端基础地址
- * @param[in] in_token 可为空的设备共享令牌
- * @param[in] in_device_id 设备 ID
+ * @param[in] in_backend 后端连接、鉴权与设备身份上下文
  * @param[in] in_current_version 当前集合版本，可为空
  * @param[in] in_current_next_refresh_at_utc 当前集合刷新目标；与版本共同构造 ETag
  * @param[in] timeout_ms 请求超时
  * @param[out] out_manifest Manifest
  * @return ESP_OK 成功，或网络、HTTP、JSON 校验错误码
  */
-    esp_err_t display_protocol_get_manifest_copy(const char *in_base_url, const char *in_token,
-                                                 const char *in_device_id,
+    esp_err_t display_protocol_get_manifest_copy(const protocol_backend_context_t *in_backend,
                                                  const char *in_current_version,
                                                  int64_t in_current_next_refresh_at_utc,
                                                  int timeout_ms,
@@ -81,13 +79,11 @@ extern "C"
     /**
  * @brief 同步流式下载 Manifest 指定的 PPF 文件
  *
- * 本函数仅在同步请求期间借用 URL、令牌、设备 ID、帧地址、回调和上下文，
+ * 本函数仅在同步请求期间借用后端上下文、帧地址、回调和回调上下文，
  * 返回后不会保存或转交这些指针。下载回调在本函数返回前执行；下载结果仅在
  * 返回 ESP_OK 时有效。
  *
- * @param[in] in_base_url 服务端基础地址
- * @param[in] in_token 可为空的设备共享令牌
- * @param[in] in_device_id 设备 ID
+ * @param[in] in_backend 后端连接、鉴权与设备身份上下文
  * @param[in] in_frame_url Manifest 中的同源相对地址
  * @param[in] timeout_ms 请求超时
  * @param[in] in_callback 响应数据回调
@@ -95,8 +91,7 @@ extern "C"
  * @param[out] out_result 下载结果
  * @return ESP_OK 成功，或 URL、HTTP、回调错误码
  */
-    esp_err_t display_protocol_download_frame_borrow(const char *in_base_url, const char *in_token,
-                                                     const char *in_device_id,
+    esp_err_t display_protocol_download_frame_borrow(const protocol_backend_context_t *in_backend,
                                                      const char *in_frame_url, int timeout_ms,
                                                      transport_http_data_cb_t          in_callback,
                                                      void                             *in_context,

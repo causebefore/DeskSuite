@@ -53,7 +53,8 @@
 ## P2：后续增强
 
 - [ ] 完成麦克风硬件与驱动适配；在确定具体产品功能前，不提前接入 Application 层业务。
-- [ ] 多设备场景下，将硬编码的 `device_id="default"` 改为芯片 UID、注册 ID 或服务端绑定 ID。
+- [x] 多设备场景使用 Wi-Fi Station 基础 MAC 生成稳定 `esp32-xxxxxxxxxxxx` 设备 ID，并由
+  统一后端上下文供 OTA、远端日志和产品协议复用。
 - [ ] 非可信局域网部署时，为设备 API 和 OTA 增加 TLS、服务端身份校验与固件签名校验。
 - [ ] 清理空的 `bootstart_app`、`ota_service` 等已废弃目录和残留构建入口。
 - [ ] 根据实机测量结果调整 Task 栈、网络超时、显示超时和电源策略。

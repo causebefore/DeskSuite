@@ -5,6 +5,7 @@
 
 #include "cJSON.h"
 #include "esp_check.h"
+#include "protocol_identity.h"
 #include "protocol_url.h"
 #include "transport.h"
 
@@ -21,19 +22,22 @@ static void copy_session(const char *json, char *out, size_t out_len)
     cJSON_Delete(root);
 }
 
-static esp_err_t post_json(const char *base_url, const char *path, int timeout_ms, const char *body,
-                           transport_http_response_t *response)
+static esp_err_t post_json(const protocol_backend_context_t *backend, const char *path, int timeout_ms,
+                           const char *body, transport_http_response_t *response)
 {
-    char url[192] = { 0 };
-    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), base_url, path), TAG, "构造日志上传 URL 失败");
-    const transport_http_header_t headers[] = {
+    char url[256] = { 0 };
+    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), backend->base_url, path), TAG, "构造日志上传 URL 失败");
+    transport_http_header_t headers[3] = {
         { .name = "Content-Type", .value = "application/json" },
     };
+    size_t header_count                                           = 1U;
+    char   bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")] = { 0 };
+    protocol_identity_add_headers(headers, &header_count, backend->token, backend->device_id, bearer, sizeof(bearer));
     const transport_http_request_t request = {
         .url                = url,
         .method             = TRANSPORT_HTTP_POST,
         .headers            = headers,
-        .header_count       = 1,
+        .header_count       = header_count,
         .body               = body,
         .body_len           = strlen(body),
         .timeout_ms         = timeout_ms,
@@ -47,19 +51,20 @@ static esp_err_t post_json(const char *base_url, const char *path, int timeout_m
     return err;
 }
 
-esp_err_t log_upload_start(const char *base_url, int timeout_ms, const log_upload_boot_t *boot, char *session_id,
-                           size_t session_id_len)
+esp_err_t log_upload_start(const protocol_backend_context_t *backend, int timeout_ms, const log_upload_boot_t *boot,
+                           char *session_id, size_t session_id_len)
 {
-    ESP_RETURN_ON_FALSE(base_url != NULL && boot != NULL && boot->product_id > 0U && session_id != NULL
-                            && session_id_len > 0,
+    ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(backend) && boot != NULL && boot->firmware_version != NULL
+                            && boot->firmware_version[0] != '\0' && boot->reset_reason != NULL
+                            && boot->reset_reason[0] != '\0' && session_id != NULL && session_id_len > 0,
                         ESP_ERR_INVALID_ARG,
                         TAG,
                         "日志启动参数无效");
     session_id[0] = '\0';
     cJSON *root   = cJSON_CreateObject();
     ESP_RETURN_ON_FALSE(root != NULL, ESP_ERR_NO_MEM, TAG, "创建日志启动 JSON 失败");
-    cJSON_AddNumberToObject(root, "product_id", (double) boot->product_id);
-    cJSON_AddStringToObject(root, "device_id", boot->device_id);
+    cJSON_AddNumberToObject(root, "product_id", (double) backend->product_id);
+    cJSON_AddStringToObject(root, "device_id", backend->device_id);
     cJSON_AddStringToObject(root, "firmware_version", boot->firmware_version);
     cJSON_AddStringToObject(root, "reset_reason", boot->reset_reason);
     cJSON_AddStringToObject(root, "ip", boot->ip != NULL ? boot->ip : "");
@@ -67,7 +72,7 @@ esp_err_t log_upload_start(const char *base_url, int timeout_ms, const log_uploa
     cJSON_Delete(root);
     ESP_RETURN_ON_FALSE(body != NULL, ESP_ERR_NO_MEM, TAG, "序列化日志启动 JSON 失败");
     transport_http_response_t response = { 0 };
-    esp_err_t                 err      = post_json(base_url, "api/v1/logs/boot", timeout_ms, body, &response);
+    esp_err_t                 err      = post_json(backend, "api/v1/logs/boot", timeout_ms, body, &response);
     cJSON_free(body);
     if (err == ESP_OK)
     {
@@ -81,11 +86,11 @@ esp_err_t log_upload_start(const char *base_url, int timeout_ms, const log_uploa
     return err;
 }
 
-esp_err_t log_upload_batch(const char *base_url, int timeout_ms, uint32_t product_id, const char *device_id,
-                           const char *session_id, const log_upload_line_t *lines, size_t count, char *next_session_id,
+esp_err_t log_upload_batch(const protocol_backend_context_t *backend, int timeout_ms, const char *session_id,
+                           const log_upload_line_t *lines, size_t count, char *next_session_id,
                            size_t next_session_id_len)
 {
-    ESP_RETURN_ON_FALSE(base_url != NULL && product_id > 0U && device_id != NULL && lines != NULL,
+    ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(backend) && lines != NULL,
                         ESP_ERR_INVALID_ARG,
                         TAG,
                         "日志批次参数无效");
@@ -99,8 +104,8 @@ esp_err_t log_upload_batch(const char *base_url, int timeout_ms, uint32_t produc
     {
         cJSON_AddNullToObject(root, "session_id");
     }
-    cJSON_AddNumberToObject(root, "product_id", (double) product_id);
-    cJSON_AddStringToObject(root, "device_id", device_id);
+    cJSON_AddNumberToObject(root, "product_id", (double) backend->product_id);
+    cJSON_AddStringToObject(root, "device_id", backend->device_id);
     cJSON *array = cJSON_AddArrayToObject(root, "lines");
     for (size_t i = 0; array != NULL && i < count; ++i)
     {
@@ -117,7 +122,7 @@ esp_err_t log_upload_batch(const char *base_url, int timeout_ms, uint32_t produc
     cJSON_Delete(root);
     ESP_RETURN_ON_FALSE(body != NULL, ESP_ERR_NO_MEM, TAG, "序列化日志批次 JSON 失败");
     transport_http_response_t response = { 0 };
-    esp_err_t                 err      = post_json(base_url, "api/v1/logs/batch", timeout_ms, body, &response);
+    esp_err_t                 err      = post_json(backend, "api/v1/logs/batch", timeout_ms, body, &response);
     cJSON_free(body);
     if (err == ESP_OK && next_session_id != NULL && next_session_id_len > 0)
     {

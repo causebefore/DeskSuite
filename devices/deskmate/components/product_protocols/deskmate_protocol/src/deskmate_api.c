@@ -30,15 +30,14 @@ static void json_copy_string(const cJSON *object, const char *name, char *out, s
 static esp_err_t perform_json_get(const deskmate_api_client_t *client, const char *path, size_t max_response_bytes,
                                   transport_http_response_t *response)
 {
-    ESP_RETURN_ON_FALSE(client != NULL && client->base_url != NULL && client->base_url[0] != '\0'
-                            && client->device_id != NULL && client->device_id[0] != '\0' && path != NULL
+    ESP_RETURN_ON_FALSE(client != NULL && protocol_backend_context_is_valid(client->backend) && path != NULL
                             && response != NULL && max_response_bytes > 0U,
                         ESP_ERR_INVALID_ARG,
                         TAG,
                         "DeskMate API 请求参数无效");
 
     char url[224] = { 0 };
-    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), client->base_url, path),
+    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), client->backend->base_url, path),
                         TAG,
                         "构造 DeskMate API 地址失败");
 
@@ -49,8 +48,8 @@ static esp_err_t perform_json_get(const deskmate_api_client_t *client, const cha
     size_t header_count = 1U;
     protocol_identity_add_headers(headers,
                                   &header_count,
-                                  client->device_token,
-                                  client->device_id,
+                                  client->backend->token,
+                                  client->backend->device_id,
                                   authorization,
                                   sizeof(authorization));
 
@@ -112,9 +111,9 @@ esp_err_t deskmate_api_get_dashboard(const deskmate_api_client_t *client, size_t
             json_copy_string(root, "device_id", out->device_id, sizeof(out->device_id));
             json_copy_string(root, "generated_at", out->generated_at, sizeof(out->generated_at));
             out->next_refresh_at_utc = next_refresh_valid ? (int64_t) next_refresh->valuedouble : 0;
-            out->valid               = schema_valid && client != NULL && client->device_id != NULL
-                                       && strcmp(out->device_id, client->device_id) == 0 && out->generated_at[0] != '\0'
-                                       && next_refresh_valid;
+            out->valid = schema_valid && client != NULL && client->backend != NULL
+                         && strcmp(out->device_id, client->backend->device_id) == 0 && out->generated_at[0] != '\0'
+                         && next_refresh_valid;
             cJSON_Delete(root);
             if (!out->valid)
             {

@@ -23,6 +23,7 @@ idf_component_register(
         network_manager
         photo_playback_app
         power_management_app
+        protocols
         provisioning_app
         remote_log
         sd_card_service

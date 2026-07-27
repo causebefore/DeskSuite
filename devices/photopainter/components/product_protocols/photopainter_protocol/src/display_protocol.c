@@ -257,15 +257,13 @@ static esp_err_t display_protocol_parse_manifest(const char *body, display_proto
 /**
  * @brief 同步查询并复制设备当前显示 Manifest
  */
-esp_err_t display_protocol_get_manifest_copy(const char *in_base_url, const char *in_token,
-                                             const char *in_device_id,
-                                             const char *in_current_version,
+esp_err_t display_protocol_get_manifest_copy(const protocol_backend_context_t *in_backend,
+                                             const char                       *in_current_version,
                                              int64_t in_current_next_refresh_at_utc,
                                              int timeout_ms,
                                              display_protocol_manifest_t *out_manifest)
 {
-    ESP_RETURN_ON_FALSE(in_base_url != NULL && in_base_url[0] != '\0' && in_device_id != NULL
-                            && in_device_id[0] != '\0' && out_manifest != NULL,
+    ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(in_backend) && out_manifest != NULL,
                         ESP_ERR_INVALID_ARG,
                         TAG,
                         "显示 Manifest 参数无效");
@@ -273,7 +271,7 @@ esp_err_t display_protocol_get_manifest_copy(const char *in_base_url, const char
 
     char url[256];
     ESP_RETURN_ON_ERROR(
-        protocol_url_build(url, sizeof(url), in_base_url, "/api/v2/display/manifest"),
+        protocol_url_build(url, sizeof(url), in_backend->base_url, "/api/v2/display/manifest"),
         TAG,
         "构造显示 Manifest URL 失败");
     transport_http_header_t headers[4];
@@ -281,11 +279,11 @@ esp_err_t display_protocol_get_manifest_copy(const char *in_base_url, const char
     char                    bearer[128]  = { 0 };
     char                    etag[64]     = { 0 };
     protocol_identity_add_headers(headers,
-                                          &header_count,
-                                          in_token,
-                                          in_device_id,
-                                          bearer,
-                                          sizeof(bearer));
+                                  &header_count,
+                                  in_backend->token,
+                                  in_backend->device_id,
+                                  bearer,
+                                  sizeof(bearer));
     headers[header_count++] = (transport_http_header_t){
         .name  = "Accept",
         .value = "application/json",
@@ -361,33 +359,32 @@ esp_err_t display_protocol_get_manifest_copy(const char *in_base_url, const char
 /**
  * @brief 同步借用请求参数并流式下载 Manifest 指定的 PPF 文件
  */
-esp_err_t display_protocol_download_frame_borrow(const char *in_base_url, const char *in_token,
-                                                 const char *in_device_id, const char *in_frame_url,
-                                                 int                               timeout_ms,
+esp_err_t display_protocol_download_frame_borrow(const protocol_backend_context_t *in_backend,
+                                                 const char *in_frame_url, int timeout_ms,
                                                  transport_http_data_cb_t          in_callback,
                                                  void                             *in_context,
                                                  transport_http_download_result_t *out_result)
 {
-    ESP_RETURN_ON_FALSE(
-        in_base_url != NULL && in_base_url[0] != '\0' && in_device_id != NULL
-            && in_frame_url != NULL && in_frame_url[0] == '/' && strstr(in_frame_url, "://") == NULL
-            && strstr(in_frame_url, "..") == NULL && in_callback != NULL && out_result != NULL,
-        ESP_ERR_INVALID_ARG,
-        TAG,
-        "显示帧下载参数无效");
+    ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(in_backend) && in_frame_url != NULL
+                            && in_frame_url[0] == '/' && strstr(in_frame_url, "://") == NULL
+                            && strstr(in_frame_url, "..") == NULL && in_callback != NULL
+                            && out_result != NULL,
+                        ESP_ERR_INVALID_ARG,
+                        TAG,
+                        "显示帧下载参数无效");
     char url[320];
-    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), in_base_url, in_frame_url),
+    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), in_backend->base_url, in_frame_url),
                         TAG,
                         "构造显示帧 URL 失败");
     transport_http_header_t headers[3];
     size_t                  header_count = 0;
     char                    bearer[128]  = { 0 };
     protocol_identity_add_headers(headers,
-                                          &header_count,
-                                          in_token,
-                                          in_device_id,
-                                          bearer,
-                                          sizeof(bearer));
+                                  &header_count,
+                                  in_backend->token,
+                                  in_backend->device_id,
+                                  bearer,
+                                  sizeof(bearer));
     headers[header_count++] = (transport_http_header_t){
         .name  = "Accept",
         .value = "application/octet-stream",

@@ -5,7 +5,6 @@
 #pragma once
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -35,13 +34,6 @@ extern "C"
      * @param[out] out_snapshot 快照输出，仅在 ESP_OK 时有效
      */
     esp_err_t system_info_get_snapshot_copy(system_info_snapshot_t *out_snapshot);
-
-    /**
-     * @brief 基于 Wi-Fi Station MAC 生成稳定设备 ID
-     * @param[out] out 设备 ID 输出缓冲区
-     * @param[in] out_len 输出缓冲区容量
-     */
-    esp_err_t system_info_get_device_id(char *out, size_t out_len);
 
     /** @brief 借用当前固件版本只读字符串，生命周期覆盖整个进程 */
     const char *system_info_get_firmware_version_borrow(void);

@@ -9,7 +9,6 @@
 
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
-#include "esp_mac.h"
 #include "esp_private/esp_clk.h"
 #include "esp_psram.h"
 #include "esp_system.h"
@@ -56,23 +55,6 @@ esp_err_t system_info_get_snapshot_copy(system_info_snapshot_t *out)
     }
     out->cpu_mhz = (uint16_t) (esp_clk_cpu_freq() / 1000000U);
     out->valid   = true;
-    return ESP_OK;
-}
-
-esp_err_t system_info_get_device_id(char *out, size_t out_len)
-{
-    if (out == NULL || out_len == 0)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-    uint8_t         mac[6] = { 0 };
-    const esp_err_t error  = esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    if (error != ESP_OK)
-    {
-        snprintf(out, out_len, "esp32-unknown");
-        return error;
-    }
-    snprintf(out, out_len, "esp32-%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     return ESP_OK;
 }
 

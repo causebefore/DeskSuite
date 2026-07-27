@@ -16,8 +16,9 @@ ESP32 网络日志上报接口。
 - 会话自动过期清理（默认保留最近 30 个会话）
 """
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
+from app.api.dependencies import require_device_token
 from app.schemas.logs import (
     LogBatchRequest,
     LogBatchResponse,
@@ -41,7 +42,11 @@ def get_log_store(request: Request) -> LogStore:
     return request.app.state.log_store
 
 
-@router.post("/boot", response_model=LogBootResponse)
+@router.post(
+    "/boot",
+    response_model=LogBootResponse,
+    dependencies=[Depends(require_device_token)],
+)
 def boot_logs(payload: LogBootRequest, request: Request) -> LogBootResponse:
     """
     设备启动日志上报。
@@ -68,7 +73,11 @@ def boot_logs(payload: LogBootRequest, request: Request) -> LogBootResponse:
     return LogBootResponse(accepted=True, session_id=session["session_id"])
 
 
-@router.post("/batch", response_model=LogBatchResponse)
+@router.post(
+    "/batch",
+    response_model=LogBatchResponse,
+    dependencies=[Depends(require_device_token)],
+)
 def append_batch(payload: LogBatchRequest, request: Request) -> LogBatchResponse:
     """
     批量上报运行期日志行。
@@ -101,7 +110,11 @@ def append_batch(payload: LogBatchRequest, request: Request) -> LogBatchResponse
     return LogBatchResponse(**result)
 
 
-@router.post("/errors", response_model=LogErrorsResponse)
+@router.post(
+    "/errors",
+    response_model=LogErrorsResponse,
+    dependencies=[Depends(require_device_token)],
+)
 def append_errors(payload: LogErrorsRequest, request: Request) -> LogErrorsResponse:
     """
     上报持久化错误。

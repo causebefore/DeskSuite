@@ -113,15 +113,19 @@ def test_logs_api_supports_product_device_and_session_queries(tmp_path):
     """上报接口携带 product_id，查询接口能逐层定位会话事件。"""
     app = create_app()
     app.state.log_store = LogStore(tmp_path)
+    app.state.server_settings.device_api_token = "logs-test-token"
     client = TestClient(app)
+    device_headers = {"Authorization": "Bearer logs-test-token"}
 
     photo_boot = client.post(
         "/api/v1/logs/boot",
         json={"product_id": 1, "device_id": "photo-api", "firmware_version": "1.0.0"},
+        headers=device_headers,
     )
     desk_boot = client.post(
         "/api/v1/logs/boot",
         json={"product_id": 2, "device_id": "desk-api", "firmware_version": "1.0.0"},
+        headers=device_headers,
     )
     assert photo_boot.status_code == 200
     assert desk_boot.status_code == 200
@@ -135,6 +139,7 @@ def test_logs_api_supports_product_device_and_session_queries(tmp_path):
             "device_id": "photo-api",
             "lines": [{"seq": 1, "tag": "main", "message": "网络日志 API 测试"}],
         },
+        headers=device_headers,
     )
     errors = client.post(
         "/api/v1/logs/errors",
@@ -144,6 +149,7 @@ def test_logs_api_supports_product_device_and_session_queries(tmp_path):
             "device_id": "photo-api",
             "errors": [{"error_id": 9, "tag": "panic", "message": "模拟错误"}],
         },
+        headers=device_headers,
     )
     products = client.get("/api/v1/logs/products")
     devices = client.get("/api/v1/logs/products/1/devices")
@@ -164,16 +170,69 @@ def test_logs_api_supports_product_device_and_session_queries(tmp_path):
         "网络日志 API 测试",
         "模拟错误",
     ]
-    assert client.post("/api/v1/logs/boot", json={"product_id": 0}).status_code == 422
+    assert (
+        client.post(
+            "/api/v1/logs/boot",
+            json={"product_id": 0},
+            headers=device_headers,
+        ).status_code
+        == 422
+    )
+
+
+def test_log_upload_requires_configured_device_token(tmp_path):
+    """配置共享 Token 后，三个设备日志写入口都拒绝匿名和错误 Bearer。"""
+    app = create_app()
+    app.state.log_store = LogStore(tmp_path)
+    app.state.server_settings.device_api_token = "logs-secret"
+    client = TestClient(app)
+    boot = {"product_id": 1, "device_id": "photo-auth", "firmware_version": "1.0.0"}
+
+    assert client.post("/api/v1/logs/boot", json=boot).status_code == 401
+    assert (
+        client.post(
+            "/api/v1/logs/boot",
+            json=boot,
+            headers={"Authorization": "Bearer wrong"},
+        ).status_code
+        == 401
+    )
+
+    authorized = {"Authorization": "Bearer logs-secret"}
+    boot_response = client.post("/api/v1/logs/boot", json=boot, headers=authorized)
+    assert boot_response.status_code == 200
+    session_id = boot_response.json()["session_id"]
+
+    batch = {
+        "product_id": 1,
+        "session_id": session_id,
+        "device_id": "photo-auth",
+        "lines": [{"seq": 1, "message": "鉴权批次"}],
+    }
+    errors = {
+        "product_id": 1,
+        "session_id": session_id,
+        "device_id": "photo-auth",
+        "errors": [{"error_id": 1, "message": "鉴权错误"}],
+    }
+    assert client.post("/api/v1/logs/batch", json=batch).status_code == 401
+    assert client.post("/api/v1/logs/errors", json=errors).status_code == 401
+    assert client.post("/api/v1/logs/batch", json=batch, headers=authorized).status_code == 200
+    assert client.post("/api/v1/logs/errors", json=errors, headers=authorized).status_code == 200
 
 
 def test_log_request_requires_product_id(tmp_path):
     """共享日志入口不根据旧设备或路由隐式推断产品。"""
     app = create_app()
     app.state.log_store = LogStore(tmp_path)
+    app.state.server_settings.device_api_token = "logs-test-token"
     client = TestClient(app)
 
-    response = client.post("/api/v1/logs/boot", json={"device_id": "legacy-photo"})
+    response = client.post(
+        "/api/v1/logs/boot",
+        json={"device_id": "legacy-photo"},
+        headers={"Authorization": "Bearer logs-test-token"},
+    )
 
     assert response.status_code == 422
     assert not (tmp_path / "products").exists()

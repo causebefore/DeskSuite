@@ -20,6 +20,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mbedtls/md.h"
+#include "protocol_identity.h"
 #include "protocol_url.h"
 #include "sdkconfig.h"
 #if CONFIG_COMMUNICATION_TASK_STACK_STATS
@@ -28,12 +29,6 @@
 #include "transport_http.h"
 #include "utils.h"
 
-#define FIRMWARE_OTA_BASE_URL_MAX          128U
-#define FIRMWARE_OTA_TOKEN_MAX             96U
-/** @brief 设备 ID 字符容量，对齐服务端 ID 编码长度并保留结尾空字符 */
-#define FIRMWARE_OTA_DEVICE_ID_MAX         81U
-/** @brief 固件兼容目标容量，对齐服务端最大长度并保留结尾空字符 */
-#define FIRMWARE_OTA_TARGET_MAX            65U
 #define FIRMWARE_OTA_URL_MAX               384U
 #define FIRMWARE_OTA_RESPONSE_MAX          4096U
 #define FIRMWARE_OTA_TASK_STACK_SIZE       10240U
@@ -42,7 +37,8 @@
 #define FIRMWARE_OTA_STOP_GRACE_MS         30000U
 #define FIRMWARE_OTA_DOWNLOAD_BUFFER_BYTES 4096U
 #define FIRMWARE_OTA_SHA256_BYTES          32U
-/** @brief 2^53-1；cJSON 以 double 存储数值，超过该值会丢失精度，用于约束 ota_version 上限 */
+/** @brief 2^53-1；cJSON 以 double 存储数值，超过该值会丢失精度，用于约束
+ * ota_version 上限 */
 #define FIRMWARE_OTA_JSON_INTEGER_MAX      9007199254740991.0
 #define FIRMWARE_OTA_CHECK_PATH            "/api/v1/ota/check"
 
@@ -65,8 +61,10 @@ typedef struct
 {
     char     version[FIRMWARE_OTA_VERSION_MAX];          /**< 目标诊断版本字符串 */
     uint64_t ota_version;                                /**< 目标单调 OTA 版本 */
-    char     artifact_id[FIRMWARE_OTA_ARTIFACT_ID_SIZE]; /**< 目标镜像 Validation SHA-256（十六进制） */
-    char     file_sha256[FIRMWARE_OTA_ARTIFACT_ID_SIZE]; /**< 目标固件文件 SHA-256（十六进制） */
+    char     artifact_id[FIRMWARE_OTA_ARTIFACT_ID_SIZE]; /**< 目标镜像 Validation
+                                                      SHA-256（十六进制） */
+    char     file_sha256[FIRMWARE_OTA_ARTIFACT_ID_SIZE]; /**< 目标固件文件
+                                                      SHA-256（十六进制） */
     char     url[FIRMWARE_OTA_URL_MAX];                  /**< 相对服务端根的下载路径，以 '/' 开头 */
     size_t   size;                                       /**< 目标固件字节数 */
 } firmware_ota_target_t;
@@ -76,37 +74,34 @@ typedef struct
  *
  * 汇总生命周期标志、Task 与同步原语、服务连接配置、完成回调和待安装目标。
  * 除 OTA Task 内部外，所有共享字段访问都应通过 mutex 保护；task_stopped 仅供
- * 同步 stop 等待 Task 退出。检查与安装结果通过 OTA Task 上下文的完成回调异步返回。
+ * 同步 stop 等待 Task 退出。检查与安装结果通过 OTA Task
+ * 上下文的完成回调异步返回。
  */
 typedef struct
 {
-    bool                    initialized;                           /**< 已 init 且未 deinit */
-    bool                    started;                               /**< Task 已启动且尚未停止 */
-    bool                    stopping;                              /**< STOP 已提交，拒绝新的控制请求 */
-    bool                    configured;                            /**< 已配置有效的服务连接信息 */
-    firmware_ota_state_t    state;                                 /**< Task 当前状态机阶段 */
-    QueueHandle_t           commands;                              /**< 投递检查、安装和停止命令的队列 */
-    SemaphoreHandle_t       mutex;                                 /**< 保护本结构体共享字段的互斥量 */
-    SemaphoreHandle_t       task_stopped;                          /**< Task 自删除完成时释放的二值信号量 */
-    TaskHandle_t            task;                                  /**< OTA Task 句柄，停止后置空 */
-    char                    base_url[FIRMWARE_OTA_BASE_URL_MAX];   /**< 服务端基础地址 */
-    char                    token[FIRMWARE_OTA_TOKEN_MAX];         /**< 共享设备 Token，空串表示匿名访问 */
-    uint32_t                product_id;                            /**< 产品标识 */
-    char                    firmware_target[FIRMWARE_OTA_TARGET_MAX]; /**< 固件兼容目标 */
-    char                    device_id[FIRMWARE_OTA_DEVICE_ID_MAX]; /**< 设备 ID */
-    int                     check_timeout_ms;                      /**< 检查接口 HTTP 超时（毫秒） */
-    int                     download_timeout_ms;                   /**< 固件下载 HTTP 超时（毫秒） */
-    firmware_ota_event_cb_t event_callback;                        /**< 事务完成回调，长期借用至替换或 deinit */
-    void                   *event_context;                         /**< 事务完成回调借用上下文 */
-    bool                    event_callback_running;                /**< OTA Task 正在执行完成回调 */
-    firmware_ota_target_t   pending_target;                        /**< 检查成功后缓存的不可变安装目标 */
+    bool                       initialized;            /**< 已 init 且未 deinit */
+    bool                       started;                /**< Task 已启动且尚未停止 */
+    bool                       stopping;               /**< STOP 已提交，拒绝新的控制请求 */
+    bool                       configured;             /**< 已配置有效的服务连接信息 */
+    firmware_ota_state_t       state;                  /**< Task 当前状态机阶段 */
+    QueueHandle_t              commands;               /**< 投递检查、安装和停止命令的队列 */
+    SemaphoreHandle_t          mutex;                  /**< 保护本结构体共享字段的互斥量 */
+    SemaphoreHandle_t          task_stopped;           /**< Task 自删除完成时释放的二值信号量 */
+    TaskHandle_t               task;                   /**< OTA Task 句柄，停止后置空 */
+    protocol_backend_context_t backend;                /**< 后端连接与身份上下文 */
+    int                        check_timeout_ms;       /**< 检查接口 HTTP 超时（毫秒） */
+    int                        download_timeout_ms;    /**< 固件下载 HTTP 超时（毫秒） */
+    firmware_ota_event_cb_t    event_callback;         /**< 事务完成回调，长期借用至替换或 deinit */
+    void                      *event_context;          /**< 事务完成回调借用上下文 */
+    bool                       event_callback_running; /**< OTA Task 正在执行完成回调 */
+    firmware_ota_target_t      pending_target;         /**< 检查成功后缓存的不可变安装目标 */
 } firmware_ota_runtime_t;
 
 /**
  * @brief 单次下载事务的累积上下文
  *
- * 在 transport_http 下载回调与主事务之间共享：回调据此把数据写入 OTA 分区并更新摘要，
- * 主事务在下载结束后用 received_bytes 与摘要完成最终校验。
+ * 在 transport_http 下载回调与主事务之间共享：回调据此把数据写入 OTA
+ * 分区并更新摘要， 主事务在下载结束后用 received_bytes 与摘要完成最终校验。
  */
 typedef struct
 {
@@ -117,38 +112,6 @@ typedef struct
 } firmware_ota_download_context_t;
 
 static firmware_ota_runtime_t s_runtime;
-
-/** @brief 校验字符串非空且长度可安全复制到指定容量的缓冲区 */
-static bool firmware_ota_string_fits(const char *value, size_t capacity, bool allow_empty)
-{
-    return value != NULL && (allow_empty || value[0] != '\0') && strlen(value) < capacity;
-}
-
-/**
- * @brief 校验固件目标与 Hub 清单文件名约束一致
- *
- * @param[in] value 固件目标
- * @return true 为小写字母开头且其余仅含小写字母、数字或下划线
- */
-static bool firmware_ota_target_is_valid(const char *value)
-{
-    if (!firmware_ota_string_fits(value, FIRMWARE_OTA_TARGET_MAX, false) ||
-        value[0] < 'a' ||
-        value[0] > 'z')
-    {
-        return false;
-    }
-    for (const char *cursor = value + 1; *cursor != '\0'; ++cursor)
-    {
-        const bool lower = *cursor >= 'a' && *cursor <= 'z';
-        const bool digit = *cursor >= '0' && *cursor <= '9';
-        if (!lower && !digit && *cursor != '_')
-        {
-            return false;
-        }
-    }
-    return true;
-}
 
 /** @brief 占用运行时互斥量，阻塞等待直到获取成功 */
 static void firmware_ota_lock(void)
@@ -246,7 +209,8 @@ esp_err_t firmware_ota_get_identity_copy(firmware_ota_identity_t *out_identity)
  * @brief 构造 OTA 检查请求的 JSON 请求体
  *
  * @param[in] identity 当前固件身份快照
- * @param[out] out_body 成功时输出 cJSON 分配的字符串，调用方需用 cJSON_free 释放
+ * @param[out] out_body 成功时输出 cJSON 分配的字符串，调用方需用 cJSON_free
+ * 释放
  * @return ESP_OK 成功；ESP_ERR_NO_MEM 内存分配失败
  */
 static esp_err_t firmware_ota_make_request_body(const firmware_ota_identity_t *identity, char **out_body)
@@ -262,9 +226,9 @@ static esp_err_t firmware_ota_make_request_body(const firmware_ota_identity_t *i
         return ESP_ERR_NO_MEM;
     }
     cJSON_AddNumberToObject(root, "protocol_version", 2);
-    cJSON_AddNumberToObject(root, "product_id", (double) s_runtime.product_id);
-    cJSON_AddStringToObject(root, "firmware_target", s_runtime.firmware_target);
-    cJSON_AddStringToObject(root, "device_id", s_runtime.device_id);
+    cJSON_AddNumberToObject(root, "product_id", (double) s_runtime.backend.product_id);
+    cJSON_AddStringToObject(root, "firmware_target", s_runtime.backend.firmware_target);
+    cJSON_AddStringToObject(root, "device_id", s_runtime.backend.device_id);
     cJSON_AddStringToObject(app, "current_version", identity->current_version);
     cJSON_AddNumberToObject(app, "ota_version", (double) identity->current_ota_version);
     cJSON_AddStringToObject(app, "current_artifact_id", identity->current_artifact_id);
@@ -310,11 +274,11 @@ static esp_err_t firmware_ota_copy_json_string(const cJSON *object, const char *
  * @brief 解析并严格校验 OTA 检查响应中的目标固件
  *
  * 校验规则：protocol_version 必须为 2、updates 必须为对象；app 子对象存在时，
- * size 与 ota_version 必须是合法正数（ota_version 还需落在 double 精度安全范围内，
- * 即不超过 FIRMWARE_OTA_JSON_INTEGER_MAX 且可无损转回 uint64_t），
- * version/artifact_id/file_sha256/url 必须为非空字符串且不溢出缓冲区，
- * artifact_id 与 file_sha256 必须是合法 SHA-256，url 必须以 '/' 开头。
- * 任何一项不满足都按非法响应处理。
+ * size 与 ota_version 必须是合法正数（ota_version 还需落在 double
+ * 精度安全范围内， 即不超过 FIRMWARE_OTA_JSON_INTEGER_MAX 且可无损转回
+ * uint64_t）， version/artifact_id/file_sha256/url
+ * 必须为非空字符串且不溢出缓冲区， artifact_id 与 file_sha256 必须是合法
+ * SHA-256，url 必须以 '/' 开头。 任何一项不满足都按非法响应处理。
  *
  * @param[in] body 响应体字符串
  * @param[out] out_target 解析成功时输出目标描述
@@ -383,7 +347,7 @@ static esp_err_t firmware_ota_parse_target(const char *body, firmware_ota_target
 /**
  * @brief 填充 HTTP 请求头数组
  *
- * 依序写入可选的 Content-Type 与 Bearer Token 鉴权头（Token 为空时省略鉴权）。
+ * 依序写入可选 Content-Type，以及统一后端上下文中的 Bearer Token 和稳定设备 ID。
  * bearer 缓冲区用于承载拼接后的 Authorization 值，其生命周期需覆盖后续 HTTP 请求。
  *
  * @param[out] headers 头数组输出
@@ -391,8 +355,9 @@ static esp_err_t firmware_ota_parse_target(const char *body, firmware_ota_target
  * @param[in] include_content_type 是否写入 Content-Type 头
  * @return 实际写入的头数量
  */
-static size_t firmware_ota_make_headers(transport_http_header_t headers[2], char bearer[FIRMWARE_OTA_TOKEN_MAX + 8U],
-                                        bool include_content_type)
+static size_t firmware_ota_make_headers(transport_http_header_t headers[3],
+                                        char                    bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")],
+                                        bool                    include_content_type)
 {
     size_t count = 0U;
     if (include_content_type)
@@ -402,14 +367,12 @@ static size_t firmware_ota_make_headers(transport_http_header_t headers[2], char
             .value = "application/json",
         };
     }
-    if (s_runtime.token[0] != '\0')
-    {
-        (void) snprintf(bearer, FIRMWARE_OTA_TOKEN_MAX + 8U, "Bearer %s", s_runtime.token);
-        headers[count++] = (transport_http_header_t) {
-            .name  = "Authorization",
-            .value = bearer,
-        };
-    }
+    protocol_identity_add_headers(headers,
+                                  &count,
+                                  s_runtime.backend.token,
+                                  s_runtime.backend.device_id,
+                                  bearer,
+                                  PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer "));
     return count;
 }
 
@@ -425,13 +388,13 @@ static esp_err_t firmware_ota_check_target(const firmware_ota_identity_t *identi
                                            bool *out_has_update)
 {
     char url[FIRMWARE_OTA_URL_MAX];
-    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), s_runtime.base_url, FIRMWARE_OTA_CHECK_PATH),
+    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), s_runtime.backend.base_url, FIRMWARE_OTA_CHECK_PATH),
                         TAG,
                         "构造 OTA 检查地址失败");
     char *body = NULL;
     ESP_RETURN_ON_ERROR(firmware_ota_make_request_body(identity, &body), TAG, "创建 OTA 检查请求失败");
-    transport_http_header_t        headers[2];
-    char                           bearer[FIRMWARE_OTA_TOKEN_MAX + 8U] = { 0 };
+    transport_http_header_t        headers[3];
+    char                           bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")] = { 0 };
     const size_t                   header_count = firmware_ota_make_headers(headers, bearer, true);
     const transport_http_request_t request      = {
         .url                  = url,
@@ -463,9 +426,10 @@ static esp_err_t firmware_ota_check_target(const firmware_ota_identity_t *identi
  *
  * @param[in] data 本次接收的数据
  * @param[in] length 数据长度
- * @param[in,out] context firmware_ota_download_context_t 指针，累积写入句柄与摘要
- * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_SIZE 超出清单大小；
- *         其他值表示 OTA 写入或摘要更新失败
+ * @param[in,out] context firmware_ota_download_context_t
+ * 指针，累积写入句柄与摘要
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_SIZE
+ * 超出清单大小； 其他值表示 OTA 写入或摘要更新失败
  */
 static esp_err_t firmware_ota_on_download_data(const uint8_t *data, size_t length, void *context)
 {
@@ -484,13 +448,14 @@ static esp_err_t firmware_ota_on_download_data(const uint8_t *data, size_t lengt
 /**
  * @brief 下载目标固件、校验并切换启动分区（不可取消写入事务）
  *
- * 流程：构造下载地址 -> 校验目标适配备用分区 -> 初始化 SHA-256 摘要与 esp_ota_begin ->
- * 流式下载写入 -> 校验已接收字节数与 Content-Length -> 计算并比对文件 SHA-256 ->
- * esp_ota_end -> 比对写入镜像 Validation SHA-256 -> esp_ota_set_boot_partition 切换启动分区。
+ * 流程：构造下载地址 -> 校验目标适配备用分区 -> 初始化 SHA-256 摘要与
+ * esp_ota_begin -> 流式下载写入 -> 校验已接收字节数与 Content-Length ->
+ * 计算并比对文件 SHA-256 -> esp_ota_end -> 比对写入镜像 Validation SHA-256 ->
+ * esp_ota_set_boot_partition 切换启动分区。
  *
- * 资源契约：失败路径必须调用 esp_ota_abort 释放未完成的写入句柄，并释放 mbedtls 摘要上下文。
- * file_sha256 校验的是下载字节流，artifact_id 校验的是写入分区后的镜像摘要，
- * 两者共同保证下载内容完整且写入正确。
+ * 资源契约：失败路径必须调用 esp_ota_abort 释放未完成的写入句柄，并释放 mbedtls
+ * 摘要上下文。 file_sha256 校验的是下载字节流，artifact_id
+ * 校验的是写入分区后的镜像摘要， 两者共同保证下载内容完整且写入正确。
  *
  * @param[in] target 已通过校验的目标固件描述
  * @return ESP_OK 已完成写入并切换启动分区；其他值表示地址、分区、下载或校验失败
@@ -498,7 +463,7 @@ static esp_err_t firmware_ota_on_download_data(const uint8_t *data, size_t lengt
 static esp_err_t firmware_ota_download_and_activate(const firmware_ota_target_t *target)
 {
     char url[FIRMWARE_OTA_URL_MAX];
-    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), s_runtime.base_url, target->url),
+    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), s_runtime.backend.base_url, target->url),
                         TAG,
                         "构造 OTA 下载地址失败");
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
@@ -523,8 +488,8 @@ static esp_err_t firmware_ota_download_and_activate(const firmware_ota_target_t 
     transport_http_download_result_t result = { 0 };
     if (error == ESP_OK)
     {
-        transport_http_header_t                 headers[2];
-        char                                    bearer[FIRMWARE_OTA_TOKEN_MAX + 8U] = { 0 };
+        transport_http_header_t                 headers[3];
+        char                                    bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")] = { 0 };
         const size_t                            header_count = firmware_ota_make_headers(headers, bearer, false);
         const transport_http_download_request_t request      = {
             .url               = url,
@@ -592,13 +557,14 @@ static esp_err_t firmware_ota_download_and_activate(const firmware_ota_target_t 
 /**
  * @brief 查询并校验一次 OTA 目标，但不开始下载
  *
- * 流程：读取当前身份 -> 检查目标 -> 版本回退判断 -> 去重判断 -> 输出完整目标与公开结果。
+ * 流程：读取当前身份 -> 检查目标 -> 版本回退判断 -> 去重判断 ->
+ * 输出完整目标与公开结果。
  * 服务端没有返回目标或目标版本不高于当前版本时按“无更新”成功返回。
  *
  * @param[out] out_result 公开检查结果
  * @param[out] out_target 可供后续安装的完整不可变目标
- * @return ESP_OK 有效响应；ESP_ERR_INVALID_STATE 目标镜像与当前或上次无效镜像重复；
- *         其他值表示身份读取、网络或响应错误
+ * @return ESP_OK 有效响应；ESP_ERR_INVALID_STATE
+ * 目标镜像与当前或上次无效镜像重复； 其他值表示身份读取、网络或响应错误
  */
 static esp_err_t firmware_ota_run_check(firmware_ota_check_result_t *out_result, firmware_ota_target_t *out_target)
 {
@@ -642,7 +608,8 @@ static esp_err_t firmware_ota_run_check(firmware_ota_check_result_t *out_result,
 static esp_err_t firmware_ota_run_install(const firmware_ota_target_t *target)
 {
     ESP_LOGI(TAG,
-             "开始下载应用固件: version=%s, ota_version=%llu, size=%lu, artifact_id=%s",
+             "开始下载应用固件: version=%s, ota_version=%llu, size=%lu, "
+             "artifact_id=%s",
              target->version,
              (unsigned long long) target->ota_version,
              (unsigned long) target->size,
@@ -653,9 +620,11 @@ static esp_err_t firmware_ota_run_install(const firmware_ota_target_t *target)
 /**
  * @brief OTA Task 主循环：从命令队列取指令并执行
  *
- * CHECK 只保存通过校验的目标并进入 UPDATE_AVAILABLE；INSTALL 消费该目标并执行不可取消写入，
- * 失败时清除目标回到 IDLE，成功时进入 AWAITING_RESTART 并立即强制重启。事务状态稳定后，
- * Task 在内部锁之外调用完成回调。STOP 清除待确认目标、释放 task_stopped 后自删除 Task。
+ * CHECK 只保存通过校验的目标并进入 UPDATE_AVAILABLE；INSTALL
+ * 消费该目标并执行不可取消写入， 失败时清除目标回到 IDLE，成功时进入
+ * AWAITING_RESTART 并立即强制重启。事务状态稳定后， Task
+ * 在内部锁之外调用完成回调。STOP 清除待确认目标、释放 task_stopped 后自删除
+ * Task。
  *
  * @param[in] context 未使用
  */
@@ -840,20 +809,13 @@ esp_err_t firmware_ota_set_event_callback_borrow(firmware_ota_event_cb_t callbac
  *
  * 实现要点：仅在 STOPPED 或 IDLE 状态允许写入，避免与进行中的检查事务竞争。
  */
-esp_err_t firmware_ota_configure_copy(const char *base_url,
-                                      const char *token,
-                                      uint32_t    product_id,
-                                      const char *firmware_target,
-                                      const char *device_id)
+esp_err_t firmware_ota_configure_copy(const protocol_backend_context_t *backend)
 {
-    ESP_RETURN_ON_FALSE(firmware_ota_string_fits(base_url, FIRMWARE_OTA_BASE_URL_MAX, false)
-                            && firmware_ota_string_fits(token != NULL ? token : "", FIRMWARE_OTA_TOKEN_MAX, true)
-                            && product_id > 0U
-                            && firmware_ota_target_is_valid(firmware_target)
-                            && firmware_ota_string_fits(device_id, FIRMWARE_OTA_DEVICE_ID_MAX, false),
+    ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(backend),
                         ESP_ERR_INVALID_ARG,
                         TAG,
                         "OTA 服务连接配置无效");
+    const protocol_backend_context_t backend_copy = *backend;
     ESP_RETURN_ON_FALSE(s_runtime.initialized, ESP_ERR_INVALID_STATE, TAG, "OTA 工具尚未初始化");
     firmware_ota_lock();
     const bool allowed =
@@ -861,11 +823,7 @@ esp_err_t firmware_ota_configure_copy(const char *base_url,
         && (s_runtime.state == FIRMWARE_OTA_STATE_STOPPED || s_runtime.state == FIRMWARE_OTA_STATE_IDLE);
     if (allowed)
     {
-        utils_copy_string(s_runtime.base_url, sizeof(s_runtime.base_url), base_url);
-        utils_copy_string(s_runtime.token, sizeof(s_runtime.token), token != NULL ? token : "");
-        s_runtime.product_id = product_id;
-        utils_copy_string(s_runtime.firmware_target, sizeof(s_runtime.firmware_target), firmware_target);
-        utils_copy_string(s_runtime.device_id, sizeof(s_runtime.device_id), device_id);
+        s_runtime.backend    = backend_copy;
         s_runtime.configured = true;
     }
     firmware_ota_unlock();
@@ -876,7 +834,8 @@ esp_err_t firmware_ota_configure_copy(const char *base_url,
 /**
  * @brief 启动独立 OTA Task
  *
- * 实现要点：先在锁内抢占 started 标志并置 IDLE，再创建 Task；创建失败时回滚状态。
+ * 实现要点：先在锁内抢占 started 标志并置 IDLE，再创建
+ * Task；创建失败时回滚状态。
  */
 esp_err_t firmware_ota_start(void)
 {
@@ -910,8 +869,8 @@ esp_err_t firmware_ota_start(void)
 /**
  * @brief 原子进入检查状态并异步投递 CHECK 命令
  *
- * 队列满时恢复 IDLE，返回值只描述命令是否成功提交。事务最终结果由 OTA Task 通过完成回调
- * 返回，有更新时 Task 缓存完整目标并保持 UPDATE_AVAILABLE。
+ * 队列满时恢复 IDLE，返回值只描述命令是否成功提交。事务最终结果由 OTA Task
+ * 通过完成回调 返回，有更新时 Task 缓存完整目标并保持 UPDATE_AVAILABLE。
  */
 esp_err_t firmware_ota_request_check(void)
 {
@@ -941,8 +900,9 @@ esp_err_t firmware_ota_request_check(void)
 /**
  * @brief 原子消费待确认目标并异步投递 INSTALL 命令
  *
- * 队列满时恢复 UPDATE_AVAILABLE。提交成功后写入事务不可取消，最终结果由 OTA Task 通过完成
- * 回调返回；失败时清除目标并回到 IDLE，成功时切换启动分区并立即重启。
+ * 队列满时恢复 UPDATE_AVAILABLE。提交成功后写入事务不可取消，最终结果由 OTA
+ * Task 通过完成 回调返回；失败时清除目标并回到
+ * IDLE，成功时切换启动分区并立即重启。
  */
 esp_err_t firmware_ota_request_install(void)
 {
@@ -989,7 +949,8 @@ esp_err_t firmware_ota_discard_pending_update(void)
 /**
  * @brief 同步停止 OTA Task
  *
- * 实现要点：投递 STOP 命令后等待 task_stopped；不发送取消信号，进行中的事务必须先自然结束。
+ * 实现要点：投递 STOP 命令后等待
+ * task_stopped；不发送取消信号，进行中的事务必须先自然结束。
  */
 esp_err_t firmware_ota_stop(void)
 {
@@ -1023,7 +984,8 @@ esp_err_t firmware_ota_stop(void)
 /**
  * @brief 释放 OTA 同步资源
  *
- * 实现要点：仅在已初始化、Task 已停止且状态为 STOPPED 时允许释放，避免悬空句柄。
+ * 实现要点：仅在已初始化、Task 已停止且状态为 STOPPED
+ * 时允许释放，避免悬空句柄。
  */
 esp_err_t firmware_ota_deinit(void)
 {

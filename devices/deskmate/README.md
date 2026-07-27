@@ -41,10 +41,10 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 | Presentation | [`main/presentation/`](main/presentation/) | 事实到 View Model 的转换、页面契约和呈现事件 |
 | UI | [`main/ui/`](main/ui/) | LVGL 页面、控件、UI Runtime Task 和视觉呈现 |
 | Service | [`components/services/`](components/services/) | 可选的持续执行、自动恢复、完整事务与资源协调 |
-| Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的 Wi‑Fi/Portal、传输、身份、OTA 和日志能力 |
+| Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的 Wi‑Fi/Portal、网络诊断、传输、身份、后端上下文、SNTP、OTA 和日志能力 |
 | Product Protocols | [`components/product_protocols/`](components/product_protocols/) | DeskMate Dashboard 产品协议 |
 | Data | [`components/data/`](components/data/) | 产品数据结构、缓存和持久化语义 |
-| System | [`components/sys/`](components/sys/) | 系统时间、存储基础、复位、身份和看门狗等系统级能力 |
+| System | [`components/sys/`](components/sys/) | 可信时间、存储基础、复位和看门狗等系统级能力 |
 | Device | [`components/device/`](components/device/) | 与型号无关的设备能力和设备级资源所有权 |
 | BSP / Drivers / Boards | [`components/bsp/`](components/bsp/)、[`components/drivers/`](components/drivers/)、[`components/boards/`](components/boards/) | 板级资源、芯片驱动和静态板型配置 |
 | Graphics | [`components/graphics/`](components/graphics/) | 图形运行时和 UI 平台适配 |

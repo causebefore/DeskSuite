@@ -28,8 +28,7 @@
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "protocol_identity.h"
-#include "settings_store.h"
-#include "system_info.h"
+#include "protocol_url.h"
 #include "task_stack_stats.h"
 #include "voice_protocol.h"
 
@@ -62,8 +61,7 @@ typedef struct
  */
 typedef struct
 {
-    device_settings_t settings;                                   /*!< 服务设置副本 */
-    char              device_id[PROTOCOL_IDENTITY_DEVICE_ID_MAX]; /*!< 本轮设备 ID */
+    protocol_backend_context_t backend; /*!< 本轮完整后端上下文 */
 } voice_session_config_t;
 
 static voice_service_ctx_t s_ctx;
@@ -520,10 +518,10 @@ static esp_err_t voice_http_on_data(const uint8_t *data, size_t len, void *arg)
 
 static esp_err_t voice_http_stream(const uint8_t *upload, size_t upload_len)
 {
-    char        url[160] = { 0 };
-    const char *sep =
-        s_chat_config.settings.service_url[strlen(s_chat_config.settings.service_url) - 1] == '/' ? "" : "/";
-    snprintf(url, sizeof(url), "%s%sapi/v1/voice/chat", s_chat_config.settings.service_url, sep);
+    char url[256] = { 0 };
+    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), s_chat_config.backend.base_url, "api/v1/voice/chat"),
+                        TAG,
+                        "构造 Voice HTTP 地址失败");
 
     char rate_header[16]  = { 0 };
     char auth_header[112] = { 0 };
@@ -535,8 +533,8 @@ static esp_err_t voice_http_stream(const uint8_t *upload, size_t upload_len)
     size_t header_count = 2U;
     protocol_identity_add_headers(headers,
                                   &header_count,
-                                  s_chat_config.settings.device_token,
-                                  s_chat_config.device_id,
+                                  s_chat_config.backend.token,
+                                  s_chat_config.backend.device_id,
                                   auth_header,
                                   sizeof(auth_header));
 
@@ -793,8 +791,9 @@ esp_err_t voice_service_deinit(void)
     return ESP_OK;
 }
 
-esp_err_t voice_service_chat(uint32_t duration_ms)
+esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t duration_ms)
 {
+    ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(backend), ESP_ERR_INVALID_ARG, TAG, "语音后端上下文无效");
     portENTER_CRITICAL(&s_session_lock);
     const bool available = s_ctx.initialized && !s_ctx.stopping;
     portEXIT_CRITICAL(&s_session_lock);
@@ -810,17 +809,10 @@ esp_err_t voice_service_chat(uint32_t duration_ms)
     {
         duration_ms = 10000;
     }
-    /* 预加载 server 配置到内部 RAM 局部变量：voice_chat_task 栈在 PSRAM，禁止执行 NVS/flash 读
-     * （cache 被 disable 时 PSRAM 栈不可访问，会触发 esp_task_stack_is_sane_cache_disabled 断言）。 */
-    voice_session_config_t session_config = { 0 };
-    if (settings_store_load_copy(&session_config.settings) != ESP_OK || session_config.settings.service_url[0] == '\0')
-    {
-        ESP_LOGE(TAG, "server 地址为空");
-        return ESP_ERR_INVALID_STATE;
-    }
-    ESP_RETURN_ON_ERROR(system_info_get_device_id(session_config.device_id, sizeof(session_config.device_id)),
-                        TAG,
-                        "生成语音会话设备 ID 失败");
+    /* 在进入 PSRAM 栈任务前把调用方上下文完整复制到内部 RAM。 */
+    const voice_session_config_t session_config = {
+        .backend = *backend,
+    };
 
     if (!session_try_activate())
     {
@@ -858,23 +850,23 @@ bool voice_service_is_busy(void)
 
 static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len)
 {
-    char        url[160] = { 0 };
-    const char *base     = s_chat_config.settings.service_url;
-    const char *scheme   = strncmp(base, "https://", 8) == 0 ? "wss://" : "ws://";
-    const char *host     = strstr(base, "://");
-    const int   url_len  = snprintf(url,
-                                    sizeof(url),
-                                    "%s%s%sapi/v1/voice/ws",
-                                    scheme,
-                                    host != NULL ? host + 3 : base,
-                                    base[strlen(base) - 1] == '/' ? "" : "/");
+    char        url[256] = { 0 };
+    const char *base     = s_chat_config.backend.base_url;
+    const char *scheme  = strncmp(base, "https://", 8) == 0 ? "wss://" : "ws://";
+    const char *host    = strstr(base, "://");
+    const int   url_len = snprintf(url,
+                                   sizeof(url),
+                                   "%s%s%sapi/v1/voice/ws",
+                                   scheme,
+                                   host != NULL ? host + 3 : base,
+                                   base[strlen(base) - 1] == '/' ? "" : "/");
     ESP_RETURN_ON_FALSE(url_len > 0 && url_len < (int) sizeof(url), ESP_ERR_INVALID_SIZE, TAG, "WebSocket URL 过长");
 
     char headers[192] = { 0 };
     ESP_RETURN_ON_ERROR(protocol_identity_format_websocket_headers(headers,
                                                                    sizeof(headers),
-                                                                   s_chat_config.settings.device_token,
-                                                                   s_chat_config.device_id),
+                                                                   s_chat_config.backend.token,
+                                                                   s_chat_config.backend.device_id),
                         TAG,
                         "WebSocket 身份头过长");
 

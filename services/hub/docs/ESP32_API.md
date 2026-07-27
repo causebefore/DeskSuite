@@ -9,14 +9,18 @@ Base URL 示例：`http://192.168.1.100:8765`。
 
 ## 2. 设备身份
 
-设备状态、显示与语音接口支持以下请求头：
+设备状态、显示、语音、OTA 与日志写入接口使用同一组请求头：
 
 ```http
 Authorization: Bearer <DEVICE_API_TOKEN>
-X-Device-Id: photopainter-001
+X-Device-Id: esp32-001122aabbcc
 ```
 
-当服务端 `.env` 中 `DEVICE_API_TOKEN` 为空时，开发期允许省略 Authorization。`X-Device-Id` 为空时使用 `config.toml [display.defaults].device_id`。
+固件使用 Wi-Fi Station 基础 MAC 生成稳定的 `esp32-xxxxxxxxxxxx` 设备 ID，并在所有协议中
+复用。仅显示类客户端省略 `X-Device-Id` 时，Hub 才使用
+`config.toml [display.defaults].device_id`。当服务端 `.env` 中 `DEVICE_API_TOKEN` 为空时，
+开发期允许省略 Authorization；一旦配置，所有设备写入和受保护读取都必须提供正确 Bearer
+Token。
 
 ## 3. 设备状态
 
@@ -208,6 +212,10 @@ Hub 先按 `firmware_target` 选择清单，再要求清单中的 `product_id` �
 
 产品内再以 `device_id` 区分设备。服务端存储路径为
 `runtime_logs/products/<product_id>/devices/<device_id>/`，每台设备独立保留 `latest`、错误汇总和最近会话，日志不会互相覆盖。
+
+三个日志写入接口均要求 `Authorization: Bearer <DEVICE_API_TOKEN>`，并携带与其他设备协议
+相同的 `X-Device-Id`。Hub 同时校验请求体中的 `device_id` 数据格式；日志查询接口不要求
+设备 Token。
 
 - `POST /api/v1/logs/boot`：创建启动日志会话。请求包含 `product_id`、`device_id`、`firmware_version`、`reset_reason`、`ip`。
 - `POST /api/v1/logs/batch`：批量上报运行日志。请求包含 `product_id`、`session_id`、`device_id`、`lines`。

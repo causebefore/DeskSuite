@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "protocol_backend_context.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -50,14 +51,17 @@ extern "C"
     typedef enum
     {
         FIRMWARE_OTA_EVENT_CHECK_COMPLETED = 0, /**< 检查事务已经完成 */
-        FIRMWARE_OTA_EVENT_INSTALL_COMPLETED,   /**< 安装事务已经完成；成功时设备将立即重启 */
+        FIRMWARE_OTA_EVENT_INSTALL_COMPLETED,   /**<
+                                             安装事务已经完成；成功时设备将立即重启
+                                           */
     } firmware_ota_event_type_t;
 
     /**
  * @brief OTA 异步事务完成事件
  *
  * `result` 是事务最终结果，`state` 是事件产生时的稳定状态。仅
- * `FIRMWARE_OTA_EVENT_CHECK_COMPLETED` 且 `result == ESP_OK` 时 `check_result` 有效。
+ * `FIRMWARE_OTA_EVENT_CHECK_COMPLETED` 且 `result == ESP_OK` 时 `check_result`
+ * 有效。
  */
     typedef struct
     {
@@ -70,9 +74,9 @@ extern "C"
     /**
  * @brief OTA 异步事务完成回调
  *
- * 回调在 OTA Task 上下文、组件内部锁之外执行，必须快速返回，不得重入 OTA 控制 API。
- * 命令入队后 OTA Task 可能立即抢占运行，因此回调不保证晚于 `request` API 返回。`event`
- * 仅在本次回调期间有效，调用方需要跨 Task 使用时必须按值复制。
+ * 回调在 OTA Task 上下文、组件内部锁之外执行，必须快速返回，不得重入 OTA 控制
+ * API。 命令入队后 OTA Task 可能立即抢占运行，因此回调不保证晚于 `request` API
+ * 返回。`event` 仅在本次回调期间有效，调用方需要跨 Task 使用时必须按值复制。
  *
  * @param[in] event 异步事务完成事件
  * @param[in] context 调用方上下文
@@ -93,16 +97,17 @@ extern "C"
  * @brief 初始化 OTA 运行资源，但不启动 Task 或启停 Wi-Fi
  *
  * @param[in] config 生命周期配置，仅在调用期间借用
- * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE 已初始化；
- *         ESP_ERR_NO_MEM 运行资源创建失败
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE
+ * 已初始化； ESP_ERR_NO_MEM 运行资源创建失败
  */
     esp_err_t firmware_ota_init(const firmware_ota_config_t *config);
 
     /**
  * @brief 设置或清除异步事务完成回调
  *
- * 仅允许在 `STOPPED`、`IDLE` 或 `UPDATE_AVAILABLE` 状态调用。组件长期借用回调与上下文，
- * 直到后续调用替换、传入 `NULL` 清除或 `deinit()` 成功。提交检查或安装前必须已经注册回调。
+ * 仅允许在 `STOPPED`、`IDLE` 或 `UPDATE_AVAILABLE`
+ * 状态调用。组件长期借用回调与上下文， 直到后续调用替换、传入 `NULL` 清除或
+ * `deinit()` 成功。提交检查或安装前必须已经注册回调。
  *
  * @param[in] callback 完成回调；`NULL` 表示清除
  * @param[in] context 回调上下文；callback 为 `NULL` 时必须同时为 `NULL`
@@ -112,27 +117,20 @@ extern "C"
     esp_err_t firmware_ota_set_event_callback_borrow(firmware_ota_event_cb_t callback, void *context);
 
     /**
- * @brief 复制当前服务端连接配置
+ * @brief 复制当前完整后端连接、鉴权与设备身份上下文
  *
  * 仅允许在 Task 停止或空闲时调用。工具不会启动、停止或等待 Wi-Fi。
  *
- * @param[in] base_url 服务端基础地址
- * @param[in] token 可为空的共享设备 Token
- * @param[in] product_id 大于 0 的产品标识
- * @param[in] firmware_target 小写字母开头、仅含小写字母/数字/下划线的固件兼容目标
- * @param[in] device_id 非空设备 ID
- * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 字符串无效或过长；
+ * @param[in] backend 完整后端上下文，仅在调用期间借用并按值复制
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 上下文不完整；
  *         ESP_ERR_INVALID_STATE 生命周期或状态不允许
  */
-    esp_err_t firmware_ota_configure_copy(const char *base_url,
-                                          const char *token,
-                                          uint32_t    product_id,
-                                          const char *firmware_target,
-                                          const char *device_id);
+    esp_err_t firmware_ota_configure_copy(const protocol_backend_context_t *backend);
 
     /**
  * @brief 启动独立 OTA Task
- * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_NO_MEM 创建失败
+ * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_NO_MEM
+ * 创建失败
  */
     esp_err_t firmware_ota_start(void);
 
@@ -143,17 +141,19 @@ extern "C"
  * 组件同一时刻只接受一个事务，队列满时拒绝本次提交。发现更新时，完整不可变目标缓存在
  * OTA Runtime，状态进入 `UPDATE_AVAILABLE`，后续只能安装或丢弃该目标。
  *
- * @return ESP_OK 命令已提交；ESP_ERR_INVALID_STATE 生命周期、配置、回调或状态不允许；
- *         ESP_ERR_TIMEOUT 命令队列已满
+ * @return ESP_OK 命令已提交；ESP_ERR_INVALID_STATE
+ * 生命周期、配置、回调或状态不允许； ESP_ERR_TIMEOUT 命令队列已满
  */
     esp_err_t firmware_ota_request_check(void);
 
     /**
  * @brief 异步提交已经缓存的待确认固件安装
  *
- * 仅接受 `UPDATE_AVAILABLE` 状态。本函数返回时只表示命令已经提交；命令一旦提交即不可取消。
- * 完成结果通过注册回调返回。成功切换启动分区后组件立即调用 `esp_restart()`；下载、校验或
- * 写入失败会清除待安装目标并回到 `IDLE`，调用方必须重新检查后才能重试。
+ * 仅接受 `UPDATE_AVAILABLE`
+ * 状态。本函数返回时只表示命令已经提交；命令一旦提交即不可取消。
+ * 完成结果通过注册回调返回。成功切换启动分区后组件立即调用
+ * `esp_restart()`；下载、校验或 写入失败会清除待安装目标并回到
+ * `IDLE`，调用方必须重新检查后才能重试。
  *
  * @return ESP_OK 命令已提交；ESP_ERR_INVALID_STATE 没有待安装目标或未注册回调；
  *         ESP_ERR_TIMEOUT 命令队列已满
@@ -163,8 +163,8 @@ extern "C"
     /**
  * @brief 丢弃已缓存但尚未开始安装的固件目标
  *
- * UPDATE_AVAILABLE 状态下清除目标并回到 IDLE；IDLE 状态幂等成功。检查、下载或等待重启
- * 阶段拒绝调用。
+ * UPDATE_AVAILABLE 状态下清除目标并回到 IDLE；IDLE
+ * 状态幂等成功。检查、下载或等待重启 阶段拒绝调用。
  *
  * @return ESP_OK 已清除或原本无目标；ESP_ERR_INVALID_STATE 生命周期或状态不允许
  */
@@ -190,7 +190,8 @@ extern "C"
     /**
  * @brief 复制 OTA Task 当前状态
  * @param[out] out_state 状态输出
- * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_STATE 尚未初始化
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_STATE
+ * 尚未初始化
  */
     esp_err_t firmware_ota_get_state_copy(firmware_ota_state_t *out_state);
 

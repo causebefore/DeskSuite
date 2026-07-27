@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "protocol_backend_context.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -23,10 +24,8 @@ extern "C"
     /** @brief DeskMate API 同步请求配置 */
     typedef struct
     {
-        const char *base_url;     /*!< 调用期间借用的服务基础地址 */
-        const char *device_token; /*!< 调用期间借用的设备令牌 */
-        const char *device_id;    /*!< 调用期间借用的稳定设备 ID */
-        int         timeout_ms;   /*!< 单次 HTTP 请求超时 */
+        const protocol_backend_context_t *backend;    /*!< 调用期间借用的完整后端上下文 */
+        int                               timeout_ms; /*!< 单次 HTTP 请求超时 */
     } deskmate_api_client_t;
 
     /** @brief Dashboard 响应及其原始 JSON 所有权 */

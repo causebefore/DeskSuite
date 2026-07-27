@@ -20,7 +20,9 @@ Copy-Item .env.example .env
 uv sync --extra memory
 ```
 
-密钥写入 `.env`，普通配置写入 `config.toml`。`DEVICE_API_TOKEN` 留空时允许局域网开发访问；配置后，语音、显示和 OTA 接口必须携带 `Authorization: Bearer <token>`。
+密钥写入 `.env`，普通配置写入 `config.toml`。`DEVICE_API_TOKEN` 留空时允许局域网开发访问；
+配置后，语音、显示、OTA 和三个日志写入接口必须携带
+`Authorization: Bearer <token>`。日志查询接口保持只读访问。
 
 RSS 订阅地址在 `config.toml [rss].feeds` 中配置，支持最多 8 个 RSS/Atom URL。服务端使用 `feedparser` 解析，按 `cache_seconds` 缓存；单个源失败不影响其他源，全部失败时优先回退到最近缓存。
 

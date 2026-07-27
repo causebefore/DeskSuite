@@ -186,9 +186,8 @@ esp_err_t display_collection_service_init(void)
 esp_err_t display_collection_service_sync(const display_collection_sync_request_t *request,
                                           display_collection_sync_result_t *out_result)
 {
-    if (request == nullptr || out_result == nullptr || request->base_url == nullptr
-        || request->base_url[0] == '\0' || request->device_id == nullptr
-        || request->device_id[0] == '\0' || request->timeout_ms <= 0)
+    if (request == nullptr || out_result == nullptr
+        || !protocol_backend_context_is_valid(request->backend) || request->timeout_ms <= 0)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -246,9 +245,7 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
     {
         ESP_LOGI(TAG, "开始请求服务端照片 Manifest");
         error = display_protocol_get_manifest_copy(
-            request->base_url,
-            request->token,
-            request->device_id,
+            request->backend,
             previous_snapshot.has_active ? previous_snapshot.active_collection : nullptr,
             previous_snapshot.has_active ? previous_snapshot.next_refresh_at_utc : 0,
             request->timeout_ms,
@@ -364,9 +361,7 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
             download.should_cancel  = request->should_cancel;
             download.cancel_context = request->cancel_context;
             transport_http_download_result_t download_result = {};
-            error = display_protocol_download_frame_borrow(request->base_url,
-                                                           request->token,
-                                                           request->device_id,
+            error = display_protocol_download_frame_borrow(request->backend,
                                                            manifest.pages[index].frame_url,
                                                            request->timeout_ms,
                                                            display_collection_on_download_data,

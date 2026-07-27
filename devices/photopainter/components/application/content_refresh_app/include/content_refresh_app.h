@@ -8,18 +8,12 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "protocol_backend_context.h"
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-
-/** @brief 内容刷新 App 基础 URL 最大容量 */
-#define CONTENT_REFRESH_APP_BASE_URL_MAX 128U
-/** @brief 内容刷新 App Token 最大容量 */
-#define CONTENT_REFRESH_APP_TOKEN_MAX    96U
-/** @brief 内容刷新 App 设备 ID 最大容量 */
-#define CONTENT_REFRESH_APP_DEVICE_ID_MAX 81U
 
 /** @brief 内容刷新 App 状态 */
 typedef enum
@@ -36,10 +30,8 @@ typedef enum
 /** @brief 内容刷新 App 初始化配置 */
 typedef struct
 {
-    const char *base_url;   /**< 服务端基础 URL，init 调用期间借用并复制 */
-    const char *token;      /**< 可为空的设备令牌，init 调用期间借用并复制 */
-    const char *device_id;  /**< 非空设备 ID，init 调用期间借用并复制 */
-    int         timeout_ms; /**< 单次 HTTP 请求超时 */
+    const protocol_backend_context_t *backend;    /**< 完整后端上下文，init 期间借用并复制 */
+    int                               timeout_ms; /**< 单次 HTTP 请求超时 */
 } content_refresh_app_config_t;
 
 /** @brief 内容刷新 App 状态快照 */

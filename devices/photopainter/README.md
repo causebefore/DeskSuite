@@ -79,10 +79,10 @@ ESP-IDF A/B 回滚。
 | Main | [`main/`](main/) | 在 `app_main()` 中保留顶层启动顺序和关键失败分支 |
 | Application | [`components/application/`](components/application/) | 产品策略、调度和降级决策；`bootstart_app` 承载各启动阶段的具体实现 |
 | Service | [`components/services/`](components/services/) | 可选的持续执行、自动恢复、完整事务与资源协调 |
-| Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的链路、传输、身份、日志和 OTA 实现 |
+| Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的链路、网络诊断、传输、身份、后端上下文、SNTP、日志和 OTA 实现 |
 | Product Protocols | [`components/product_protocols/`](components/product_protocols/) | PhotoPainter 显示帧、集合和设备状态契约 |
 | Storage | [`components/storage/`](components/storage/) | NVS、文件、分区等通用持久化机制，不定义业务数据结构 |
-| System | [`components/sys/`](components/sys/) | 系统时间、复位、身份和看门狗等系统级能力 |
+| System | [`components/sys/`](components/sys/) | 可信时间、复位和看门狗等系统级能力 |
 | Device | [`components/device/`](components/device/) | 外设能力和设备级资源所有权 |
 | Drivers / BSP / Boards | [`components/drivers/`](components/drivers/)、[`components/bsp/`](components/bsp/)、[`components/boards/`](components/boards/) | 芯片驱动、板级资源和板型配置 |
 | Utils | [`components/utils/`](components/utils/) | 无状态、无产品策略的通用算法；不是架构层 |

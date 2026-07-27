@@ -71,11 +71,17 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_web_file` | SD/在线前置检查、Web 文件租约、网页文件 Service 启停与安全回滚 |
 | `app_power` | 拥有 60 秒活动窗口、产品阻止条件、UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
-| `app_network` | Network Manager 会话退避、Dashboard 截止时间与同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
+| `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 截止时间与同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
 
 `app_network` 不直接操作 Wi‑Fi Driver、Portal HTTP/DNS 或底层重连状态机；这些技术能力属于
 Communication 的 `network_manager` 和 `connect`。Network Manager 一轮内部重试结束后，
 `app_network` 才根据产品策略决定是否延时建立新会话。
+
+`app_network_get_backend_context_copy()` 从持久化服务地址和 Token、编译期 `product_id` /
+`firmware_target` 及共享硬件设备 ID 构造一次完整值快照。Dashboard、OTA、远端日志和语音
+会话都复制该快照，不得各自读取设置或生成设备 ID。Network Manager 的完整诊断快照则统一
+报告本次会话计数、最近断链原因以及实时 AP、信道、认证、RSSI、IPv4、网关和 DNS 事实；
+Application 只消费这些事实，不把产品重试策略写回 Communication。
 
 设置菜单的数据流为：
 

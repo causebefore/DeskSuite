@@ -30,6 +30,7 @@
 #include "network_manager.h"
 #include "photo_playback_app.h"
 #include "power_management_app.h"
+#include "protocol_backend_context.h"
 #include "provisioning_app.h"
 #include "remote_log.h"
 #include "sd_card_service.h"
@@ -47,13 +48,39 @@ static const char *TAG = "bootstart_app";
 #define BOOTSTART_APP_FIRMWARE_OTA_DOWNLOAD_TIMEOUT_MS 180000
 /** @brief 按键唤醒或冷启动后的无活动保持时长 */
 #define BOOTSTART_APP_INTERACTIVE_AWAKE_MS             180000U
-/** @brief 服务端默认设备 ID，与服务端缺省配置一致 */
-#define BOOTSTART_APP_DEFAULT_DEVICE_ID                "default"
-
 /** @brief 星期日志名称，索引与 RTC 的 0=星期日 约定一致 */
 static const char *s_bootstart_app_weekday_names[] = {
     "星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六",
 };
+
+/**
+ * @brief 从已生效网络配置构造本机完整后端上下文
+ *
+ * 设备 ID 统一由共享 protocols 组件基于 Wi-Fi Station 基础 MAC 生成；本函数不保存上下文。
+ *
+ * @param[out] out_context 后端上下文副本
+ * @return ESP_OK 已构造；ESP_ERR_NOT_FOUND 服务地址为空；或存储、配置、硬件身份错误码
+ */
+static esp_err_t bootstart_app_load_backend_context_copy(protocol_backend_context_t *out_context)
+{
+    ESP_RETURN_ON_FALSE(out_context != NULL, ESP_ERR_INVALID_ARG, TAG, "后端上下文输出为空");
+    system_storage_network_config_t network_config;
+    ESP_RETURN_ON_ERROR(system_storage_get_network_config_copy(&network_config),
+                        TAG,
+                        "读取后端服务配置失败");
+    ESP_RETURN_ON_FALSE(network_config.service_url[0] != '\0',
+                        ESP_ERR_NOT_FOUND,
+                        TAG,
+                        "后端服务地址为空");
+    const protocol_backend_context_config_t config = {
+        .base_url        = network_config.service_url,
+        .token           = network_config.device_token,
+        .device_id       = NULL,
+        .product_id      = DESKSUITE_PRODUCT_ID,
+        .firmware_target = DESKSUITE_FIRMWARE_TARGET,
+    };
+    return protocol_backend_context_build_copy(&config, out_context);
+}
 
 /**
  * @brief 把持久化网络配置转换为 Network Manager 配置
@@ -451,9 +478,9 @@ cleanup:
 /** @brief 读取已生效的服务配置并尽力启动远端日志上传 */
 static void bootstart_app_start_remote_log(void)
 {
-    system_storage_network_config_t network_config;
-    esp_err_t                       error = system_storage_get_network_config_copy(&network_config);
-    if (error != ESP_OK || network_config.service_url[0] == '\0')
+    protocol_backend_context_t backend;
+    esp_err_t                  error = bootstart_app_load_backend_context_copy(&backend);
+    if (error != ESP_OK)
     {
         ESP_LOGW(TAG,
                  "缺少远端日志服务配置，本轮只保留串口日志: %s",
@@ -461,9 +488,7 @@ static void bootstart_app_start_remote_log(void)
         return;
     }
 
-    error = remote_log_configure_copy(network_config.service_url,
-                                      DESKSUITE_PRODUCT_ID,
-                                      BOOTSTART_APP_DEFAULT_DEVICE_ID);
+    error = remote_log_configure_copy(&backend);
     if (error == ESP_OK)
     {
         error = remote_log_start();
@@ -564,20 +589,16 @@ esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready)
 
     ESP_LOGI(TAG, "本地照片集合、呈现与按键播放链路已启动");
 
-    system_storage_network_config_t network_config;
-    ret = system_storage_get_network_config_copy(&network_config);
-    if (ret != ESP_OK || network_config.service_url[0] == '\0')
+    protocol_backend_context_t backend;
+    ret = bootstart_app_load_backend_context_copy(&backend);
+    if (ret != ESP_OK)
     {
         ESP_LOGW(TAG,
                  "缺少内容刷新服务配置，本地照片与按键轮播继续运行: %s",
                  esp_err_to_name(ret == ESP_OK ? ESP_ERR_NOT_FOUND : ret));
         return ESP_OK;
     }
-    const esp_err_t ota_config_error = firmware_ota_configure_copy(network_config.service_url,
-                                                                   network_config.device_token,
-                                                                   DESKSUITE_PRODUCT_ID,
-                                                                   DESKSUITE_FIRMWARE_TARGET,
-                                                                   BOOTSTART_APP_DEFAULT_DEVICE_ID);
+    const esp_err_t ota_config_error = firmware_ota_configure_copy(&backend);
     if (ota_config_error != ESP_OK)
     {
         ESP_LOGW(TAG,
@@ -585,9 +606,7 @@ esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready)
                  esp_err_to_name(ota_config_error));
     }
     const content_refresh_app_config_t refresh_config = {
-        .base_url   = network_config.service_url,
-        .token      = network_config.device_token,
-        .device_id  = BOOTSTART_APP_DEFAULT_DEVICE_ID,
+        .backend    = &backend,
         .timeout_ms = BOOTSTART_APP_CONTENT_REFRESH_TIMEOUT_MS,
     };
     ret = content_refresh_app_init(&refresh_config);
@@ -600,7 +619,7 @@ esp_err_t bootstart_app_start_photo_pipeline(bool *out_refresh_ready)
         *out_refresh_ready = true;
         ESP_LOGI(TAG,
                  "内容刷新链路初始化完成: device_id=%s, HTTP 超时=%d ms",
-                 BOOTSTART_APP_DEFAULT_DEVICE_ID,
+                 backend.device_id,
                  BOOTSTART_APP_CONTENT_REFRESH_TIMEOUT_MS);
     }
     return ESP_OK;

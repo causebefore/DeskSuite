@@ -46,9 +46,11 @@
 
 ## 4. 配置与所有权
 
-`init()` 将基础 URL、Token、设备 ID 复制到固定容量 Runtime，调用方字符串在返回后不再借用。
+`init()` 将完整 `protocol_backend_context_t` 按值复制到 Runtime；状态上传、显示 Manifest 和
+帧下载都借用这同一份 URL、Token、产品、固件目标与稳定设备身份。
 刷新目标只来自 Manifest v3 必填的 `next_refresh_at` UTC Unix 时间戳；缺失或非法响应按协议
-错误处理。SNTP 服务器和单样本超时由项目 Kconfig 配置。
+错误处理。SNTP 服务器和单样本超时由项目 Kconfig 配置，底层单次网络取样由共享
+`time_sync` 执行；候选可信度、二次确认和 RTC 回写仍由 `system_clock` 决定。
 
 ## 5. 依赖与验证
 

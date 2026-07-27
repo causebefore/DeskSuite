@@ -7,6 +7,33 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_mac.h"
+
+esp_err_t protocol_identity_get_hardware_device_id_copy(char *out_device_id, size_t capacity)
+{
+    if (out_device_id == NULL || capacity < sizeof("esp32-000000000000"))
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    out_device_id[0]       = '\0';
+    uint8_t         mac[6] = { 0 };
+    const esp_err_t error  = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    if (error != ESP_OK)
+    {
+        return error;
+    }
+    const int written = snprintf(out_device_id,
+                                 capacity,
+                                 "esp32-%02x%02x%02x%02x%02x%02x",
+                                 mac[0],
+                                 mac[1],
+                                 mac[2],
+                                 mac[3],
+                                 mac[4],
+                                 mac[5]);
+    return written == (int) (sizeof("esp32-000000000000") - 1U) ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
 void protocol_identity_add_headers(transport_http_header_t *headers, size_t *count, const char *token,
                                    const char *device_id, char *bearer, size_t bearer_capacity)
 {

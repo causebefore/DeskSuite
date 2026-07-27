@@ -18,7 +18,7 @@ A/B 状态提交、启动恢复和旧集合清理。不负责网络启动/停止
 
 ```text
 content_refresh_app Task
-    → display_protocol Manifest
+    → 借用统一后端上下文 → display_protocol Manifest
     → 逐页复用或下载到单个 96032 字节 PSRAM 缓冲区
     → display_frame_protocol 校验
     → SD 临时文件改名
@@ -48,7 +48,9 @@ content_refresh_app Task
 
 ## 6. 依赖
 
-调用 `protocols`、`device_sd`、`utils` 和 FreeRTOS 同步原语；不调用其他 Service 或 Application。
+调用产品 `photopainter_protocol`、共享 `protocols`、`device_sd`、`utils` 和 FreeRTOS
+同步原语；同步请求只借用一个完整 `protocol_backend_context_t`，不分别接收 URL、Token 和
+设备 ID。不调用其他 Service 或 Application。
 
 ## 7. 验证
 

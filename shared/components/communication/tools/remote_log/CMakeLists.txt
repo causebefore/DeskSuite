@@ -4,8 +4,8 @@ idf_component_register(
         "src/remote_log_task.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
-    REQUIRES esp_common
-    PRIV_REQUIRES esp_app_format esp_system freertos log network_manager protocols utils
+    REQUIRES esp_common protocols
+    PRIV_REQUIRES esp_app_format esp_system freertos log network_manager utils
 )
 
 if(NOT CONFIG_LOG_VERSION_2)

@@ -65,15 +65,13 @@ typedef struct
  */
 typedef bool (*display_collection_cancel_cb_t)(void *context);
 
-/** @brief 一次同步事务配置，仅在同步调用期间借用字符串与回调 */
+/** @brief 一次同步事务配置，仅在同步调用期间借用后端上下文与回调 */
 typedef struct
 {
-    const char                     *base_url;    /**< 服务端基础 URL */
-    const char                     *token;       /**< 可为空的设备令牌 */
-    const char                     *device_id;   /**< 设备 ID */
-    int                             timeout_ms;  /**< 单次 HTTP 请求超时 */
-    display_collection_cancel_cb_t  should_cancel; /**< 可为空的取消查询 */
-    void                           *cancel_context; /**< 取消查询上下文 */
+    const protocol_backend_context_t *backend;        /**< 完整后端上下文 */
+    int                               timeout_ms;     /**< 单次 HTTP 请求超时 */
+    display_collection_cancel_cb_t    should_cancel;  /**< 可为空的取消查询 */
+    void                             *cancel_context; /**< 取消查询上下文 */
 } display_collection_sync_request_t;
 
 /**

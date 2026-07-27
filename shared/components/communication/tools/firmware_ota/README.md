@@ -11,12 +11,10 @@
 
 ## OTA v2 身份
 
-`firmware_ota_configure_copy()` 要求装配层显式提供：
-
-- `base_url` 与可选设备 Token；
-- 大于零的 `product_id`；
-- 固件兼容目标 `firmware_target`；
-- 稳定的 `device_id`。
+`firmware_ota_configure_copy()` 复制共享 `protocol_backend_context_t`，从同一值对象取得
+`base_url`、可选设备 Token、`product_id`、`firmware_target` 与稳定 `device_id`。
+检查和制品下载请求都携带相同的可选 Bearer Token 与 `X-Device-Id`；检查 JSON 中的
+`device_id` 也来自该上下文。
 
 `product_id` 与 `firmware_target` 的唯一配置源是 DeskSuite 根 `products.toml`；统一构建工具
 把它们写入生成头，设备装配代码不再重复硬编码。

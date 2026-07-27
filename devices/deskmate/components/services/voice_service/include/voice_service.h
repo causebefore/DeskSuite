@@ -1,6 +1,6 @@
 /*
  * 文件职责：封装双麦降噪录音 + 流式播放的语音交互闭环。
- * 主要依赖：audio_service、audio_processor_service、transport、voice_protocol、settings_store。
+ * 主要依赖：audio_service、audio_processor_service、transport、voice_protocol、protocols。
  * 调用方：App 业务流程（按键触发、测试页触发）。
  *
  * 数据流：
@@ -15,6 +15,7 @@
 
 #include "esp_err.h"
 #include "esp_event.h"
+#include "protocol_backend_context.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -62,10 +63,11 @@ extern "C"
      * 调用方必须先确认网络在线，并持有覆盖本轮会话的产品网络租约；链路中途断开时，
      * Transport 错误会由后台任务收敛为 VOICE_SERVICE_EVENT_ERROR。
      *
+     * @param[in] backend 本轮完整后端上下文，函数返回前按值复制
      * @param[in] duration_ms 录音时长（毫秒），范围 1000~10000
      * @return ESP_OK 成功，其他值表示失败
      */
-    esp_err_t voice_service_chat(uint32_t duration_ms);
+    esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t duration_ms);
 
     /** @brief 取消正在进行的语音回合。幂等；由后台任务完成资源回收。 */
     esp_err_t voice_service_cancel(void);

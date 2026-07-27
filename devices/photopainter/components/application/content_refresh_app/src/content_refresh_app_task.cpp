@@ -316,9 +316,7 @@ static esp_err_t content_refresh_run_round(uint32_t round_number, bool *out_clea
     {
         ESP_LOGI(TAG, "开始上传温湿度与电池状态");
         device_status_upload_app_config_t upload = {};
-        upload.base_url   = g_content_refresh_runtime.base_url;
-        upload.token      = g_content_refresh_runtime.token;
-        upload.device_id  = g_content_refresh_runtime.device_id;
+        upload.backend    = &g_content_refresh_runtime.backend;
         upload.timeout_ms = g_content_refresh_runtime.timeout_ms;
         const esp_err_t upload_error = device_status_upload_app_upload(&upload);
         if (upload_error != ESP_OK)
@@ -329,9 +327,7 @@ static esp_err_t content_refresh_run_round(uint32_t round_number, bool *out_clea
 
         ESP_LOGI(TAG, "开始查询服务端照片集合并同步本地图片");
         display_collection_sync_request_t request = {};
-        request.base_url       = g_content_refresh_runtime.base_url;
-        request.token          = g_content_refresh_runtime.token;
-        request.device_id      = g_content_refresh_runtime.device_id;
+        request.backend        = &g_content_refresh_runtime.backend;
         request.timeout_ms     = g_content_refresh_runtime.timeout_ms;
         request.should_cancel  = content_refresh_collection_should_cancel;
         display_collection_sync_result_t result;

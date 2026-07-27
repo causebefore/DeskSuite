@@ -95,7 +95,8 @@ SD → 关键显示/网络/日志/OTA → 配网并启动日志上传 → 照片
 
 - 构建配置：无独立 Kconfig；HTTP、OTA 和清醒窗口参数当前为组件内产品常量。
 - 远端日志在 Network Manager 初始化后启用 Log V2 捕获；配网成功后读取已生效的
-  `service_url`，使用默认设备 ID `default` 启动上传。
+  `service_url` 与 Token，并通过共享 `protocol_backend_context_t` 组合构建产品 ID、固件目标
+  和基于 Wi-Fi Station MAC 的稳定设备 ID。内容刷新、远端日志和 OTA 复制同一上下文事实。
 - `bootstart_app.c`：全部启动阶段实现和私有回调适配。
 - `include/bootstart_app.h`：供 `main` 使用的分阶段 C ABI。
 - 持久化：网络配置通过本组件注入的适配回调映射到 `system_storage`；Network Manager 不直接

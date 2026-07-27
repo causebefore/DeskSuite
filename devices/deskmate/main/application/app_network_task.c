@@ -27,7 +27,6 @@
 #include "settings_store.h"
 #include "status_bar_presenter.h"
 #include "system_clock.h"
-#include "system_info.h"
 #include "task_stack_stats.h"
 #include "weather.h"
 
@@ -167,9 +166,9 @@ static esp_err_t initialize_remote_log_capture(void)
  */
 static void start_remote_log_upload(void)
 {
-    device_settings_t settings;
-    esp_err_t         error = settings_store_load_copy(&settings);
-    if (error != ESP_OK || settings.service_url[0] == '\0')
+    protocol_backend_context_t backend;
+    esp_err_t                  error = app_network_get_backend_context_copy(&backend);
+    if (error != ESP_OK)
     {
         ESP_LOGW(TAG,
                  "缺少远端日志服务配置，本轮只保留本地串口日志: %s",
@@ -177,18 +176,10 @@ static void start_remote_log_upload(void)
         return;
     }
 
-    char device_id[DESKMATE_API_DEVICE_ID_MAX] = { 0 };
-    error                                      = system_info_get_device_id(device_id, sizeof(device_id));
-    if (error != ESP_OK)
-    {
-        ESP_LOGW(TAG, "读取远端日志设备标识失败，本轮继续使用本地串口日志: %s", esp_err_to_name(error));
-        return;
-    }
-
     error = initialize_remote_log_capture();
     if (error == ESP_OK)
     {
-        error = remote_log_configure_copy(settings.service_url, DESKSUITE_PRODUCT_ID, device_id);
+        error = remote_log_configure_copy(&backend);
     }
     if (error == ESP_OK)
     {
@@ -202,7 +193,7 @@ static void start_remote_log_upload(void)
     ESP_LOGI(TAG,
              "远端日志上传 Task 已启动: product_id=%u, device_id=%s",
              (unsigned) DESKSUITE_PRODUCT_ID,
-             device_id);
+             backend.device_id);
 }
 
 /**
@@ -550,25 +541,34 @@ static void set_dashboard_online(bool online)
 }
 
 /**
- * @brief 从持久化设置和稳定设备 ID 构造 DeskMate API 客户端
+ * @brief 从持久化服务配置和编译期产品身份构造完整后端上下文
  *
- * @param[out] stored 本轮调用期借用的设置快照
- * @param[out] device_id 本轮调用期借用的设备 ID 缓冲区
- * @param[in] device_id_capacity 设备 ID 缓冲区容量
- * @param[out] client DeskMate API 客户端
- * @return ESP_OK 成功；其他值表示设置或设备身份读取失败
+ * @param[out] out_context 完整后端上下文副本
+ * @return ESP_OK 成功；其他值表示设置或稳定硬件身份读取失败
  */
-static esp_err_t make_deskmate_client(device_settings_t *stored, char *device_id, size_t device_id_capacity,
-                                      deskmate_api_client_t *client)
+esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_context)
 {
-    ESP_RETURN_ON_ERROR(settings_store_load_copy(stored), TAG, "读取服务配置失败");
-    ESP_RETURN_ON_FALSE(stored->service_url[0] != '\0', ESP_ERR_INVALID_STATE, TAG, "服务地址为空");
-    ESP_RETURN_ON_ERROR(system_info_get_device_id(device_id, device_id_capacity), TAG, "生成设备 ID 失败");
+    ESP_RETURN_ON_FALSE(out_context != NULL, ESP_ERR_INVALID_ARG, TAG, "后端上下文输出为空");
+    device_settings_t stored;
+    ESP_RETURN_ON_ERROR(settings_store_load_copy(&stored), TAG, "读取服务配置失败");
+    ESP_RETURN_ON_FALSE(stored.service_url[0] != '\0', ESP_ERR_INVALID_STATE, TAG, "服务地址为空");
+    const protocol_backend_context_config_t config = {
+        .base_url        = stored.service_url,
+        .token           = stored.device_token,
+        .device_id       = NULL,
+        .product_id      = DESKSUITE_PRODUCT_ID,
+        .firmware_target = DESKSUITE_FIRMWARE_TARGET,
+    };
+    return protocol_backend_context_build_copy(&config, out_context);
+}
+
+/** @brief 构造一次 Dashboard 请求客户端及其完整后端上下文 */
+static esp_err_t make_deskmate_client(protocol_backend_context_t *backend, deskmate_api_client_t *client)
+{
+    ESP_RETURN_ON_ERROR(app_network_get_backend_context_copy(backend), TAG, "构造 Dashboard 后端上下文失败");
     *client = (deskmate_api_client_t) {
-        .base_url     = stored->service_url,
-        .device_token = stored->device_token,
-        .device_id    = device_id,
-        .timeout_ms   = CONFIG_DESKMATE_API_HTTP_TIMEOUT_MS,
+        .backend    = backend,
+        .timeout_ms = CONFIG_DESKMATE_API_HTTP_TIMEOUT_MS,
     };
     return ESP_OK;
 }
@@ -576,12 +576,9 @@ static esp_err_t make_deskmate_client(device_settings_t *stored, char *device_id
 /** @brief 使用本地稳定身份拉取并存储 Dashboard */
 static esp_err_t fetch_dashboard(void)
 {
-    device_settings_t     stored;
-    char                  device_id[DESKMATE_API_DEVICE_ID_MAX] = { 0 };
-    deskmate_api_client_t client;
-    ESP_RETURN_ON_ERROR(make_deskmate_client(&stored, device_id, sizeof(device_id), &client),
-                        TAG,
-                        "创建 Dashboard 客户端失败");
+    protocol_backend_context_t backend;
+    deskmate_api_client_t      client;
+    ESP_RETURN_ON_ERROR(make_deskmate_client(&backend, &client), TAG, "创建 Dashboard 客户端失败");
 
     deskmate_api_dashboard_t dashboard   = { 0 };
     int                      http_status = 0;
@@ -1199,17 +1196,9 @@ static void handle_maintenance_sync_command(const network_command_t *command)
 /** @brief 从 DeskMate 设置复制 OTA 服务身份到独立固件 OTA 工具 */
 static esp_err_t configure_firmware_ota(void)
 {
-    device_settings_t settings;
-    ESP_RETURN_ON_ERROR(settings_store_load_copy(&settings), TAG, "读取 OTA 服务配置失败");
-    ESP_RETURN_ON_FALSE(settings.service_url[0] != '\0', ESP_ERR_INVALID_STATE, TAG, "OTA 服务地址为空");
-
-    char device_id[DESKMATE_API_DEVICE_ID_MAX] = { 0 };
-    ESP_RETURN_ON_ERROR(system_info_get_device_id(device_id, sizeof(device_id)), TAG, "生成 OTA 设备 ID 失败");
-    return firmware_ota_configure_copy(settings.service_url,
-                                       settings.device_token,
-                                       DESKSUITE_PRODUCT_ID,
-                                       DESKSUITE_FIRMWARE_TARGET,
-                                       device_id);
+    protocol_backend_context_t backend;
+    ESP_RETURN_ON_ERROR(app_network_get_backend_context_copy(&backend), TAG, "构造 OTA 后端上下文失败");
+    return firmware_ota_configure_copy(&backend);
 }
 
 /** @brief 将 OTA 请求提交失败转换为统一完成事实 */

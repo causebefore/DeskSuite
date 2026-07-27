@@ -49,7 +49,7 @@ remote_log_task
 | 调用 | `network_manager` | 读取 `NETWORK_STATE_ONLINE` 事实，不控制网络生命周期 |
 | 调用 | `protocols` | 使用 `log_upload_start()` 和 `log_upload_batch()` |
 | 私有依赖 | ESP-IDF `log` / `freertos` / `esp_app_format` / `esp_system` | Log V2 包装、Task/Queue、固件版本和复位原因 |
-| 被调用 | 目标组合根或 Application | 配置服务地址、设备 ID 并管理 Tool 生命周期 |
+| 被调用 | 目标组合根或 Application | 配置统一后端上下文并管理 Tool 生命周期 |
 
 虽然位于 Communication 内部，`remote_log` 仍保持单向依赖：`network_manager` 和 `protocols`
 都不反向依赖本 Tool，因此不会形成组件环。
@@ -62,7 +62,7 @@ remote_log_task
 | --- | --- | --- |
 | `remote_log_config_set_defaults()` | 同步 | 写入推荐的容量、重试和 Task 默认值 |
 | `remote_log_init()` | 同步 | 创建缓存资源并启用 Log V2 捕获，不创建 Task |
-| `remote_log_configure_copy()` | 同步 | 复制服务端 URL、产品 ID 和设备 ID，清空旧 session |
+| `remote_log_configure_copy()` | 同步 | 复制完整后端上下文，清空旧 session |
 | `remote_log_start()` | 异步启动 | 创建上传 Task；网络未在线时在后台等待 |
 | `remote_log_stop()` | 同步 | 请求停止并在调用方超时内等待 Task 到达安全停止点 |
 | `remote_log_deinit()` | 同步 | 停用捕获并释放资源 |
@@ -101,9 +101,12 @@ init → configure_copy → start → stop → deinit
 - 默认队列 64 条、每批 8 条、聚合 100 ms、失败重试 3 秒、HTTP 超时 3 秒。
 - 组件要求启用 `CONFIG_LOG_VERSION_2` 和 `CONFIG_LOG_MODE_TEXT`，并通过 `--wrap=esp_log` 接入
   普通 `ESP_LOGx`。
-- `base_url`、正整数 `product_id` 与 `device_id` 由调用方复制配置；Tool 不读取项目持久化配置。
-- 当前 `log_upload` 不接收设备 Token，因此本 Tool 暂不处理认证。
-- Network Manager 当前未公开 STA IP 快照，boot 事件中的 `ip` 暂时为空字符串。
+- `base_url`、Token、`product_id`、`firmware_target` 与稳定 `device_id` 由调用方通过
+  `protocol_backend_context_t` 一次性复制；Tool 不读取项目持久化配置。
+- `log_upload` 的 boot 与 batch 都携带 `Authorization: Bearer ...` 和 `X-Device-Id`；
+  Token 为空时遵循 Hub 的局域网开发模式。
+- boot 事件从 `network_manager_get_diagnostics_copy()` 取得当前 STA IPv4；诊断查询失败时
+  才发送空字符串。
 - `ESP_EARLY_LOGx`、`ESP_DRAM_LOGx`、ROM 与 panic 的直接输出不经过普通 `esp_log()`，不在本
   Tool 的捕获范围内。
 - 单条日志受 `log_upload_line_t` 固定字段容量限制；过长内容会被截断。

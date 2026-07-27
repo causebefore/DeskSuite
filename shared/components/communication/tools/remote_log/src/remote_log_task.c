@@ -1,6 +1,5 @@
 #include "remote_log_internal.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,11 +25,6 @@ static const char *TAG = "remote_log_task";
 remote_log_runtime_t g_remote_log_runtime;
 portMUX_TYPE         g_remote_log_lock = portMUX_INITIALIZER_UNLOCKED;
 
-static bool remote_log_string_fits(const char *value, size_t capacity)
-{
-    return value != NULL && value[0] != '\0' && strlen(value) < capacity;
-}
-
 static bool remote_log_config_valid(const remote_log_config_t *config)
 {
     return config != NULL && config->queue_capacity > 0U && config->queue_capacity <= REMOTE_LOG_QUEUE_CAPACITY_MAX
@@ -50,7 +44,8 @@ static bool remote_log_stop_requested(void)
 /**
  * @brief 更新上传状态，同时保持停止流程的单向收敛
  *
- * stop 请求可能在同步协议调用期间到达；调用返回后不得用 IDLE 等状态覆盖 STOPPING。
+ * stop 请求可能在同步协议调用期间到达；调用返回后不得用 IDLE 等状态覆盖
+ * STOPPING。
  *
  * @param[in] state 目标上传状态
  * @param[in] last_error 最近错误
@@ -122,8 +117,8 @@ static const char *remote_log_reset_reason_name(esp_reset_reason_t reason)
 /**
  * @brief 等待 Network Manager 报告 ONLINE
  *
- * 本函数不控制网络生命周期。离线期间只记录 Network Manager 的错误事实并按配置退避；停止
- * 通知会提前唤醒退避等待。
+ * 本函数不控制网络生命周期。离线期间只记录 Network Manager
+ * 的错误事实并按配置退避；停止 通知会提前唤醒退避等待。
  *
  * @return true 已在线；false 收到停止请求
  */
@@ -148,8 +143,8 @@ static bool remote_log_wait_online(void)
 /**
  * @brief 建立本次设备启动对应的服务端日志会话
  *
- * session_id 在 remote_log 生命周期中复用；上传 Task 停止后再次启动不会重复发送 boot，只有
- * configure_copy 修改服务端身份时才会清空会话。
+ * session_id 在 remote_log 生命周期中复用；上传 Task 停止后再次启动不会重复发送
+ * boot，只有 configure_copy 修改服务端身份时才会清空会话。
  *
  * @return true 会话已可用；false 收到停止请求
  */
@@ -164,14 +159,7 @@ static bool remote_log_ensure_session(void)
         return true;
     }
 
-    const esp_app_desc_t   *app  = esp_app_get_description();
-    const log_upload_boot_t boot = {
-        .product_id       = g_remote_log_runtime.product_id,
-        .device_id        = g_remote_log_runtime.device_id,
-        .firmware_version = app != NULL ? app->version : "unknown",
-        .reset_reason     = remote_log_reset_reason_name(esp_reset_reason()),
-        .ip               = "",
-    };
+    const esp_app_desc_t *app = esp_app_get_description();
 
     while (!remote_log_stop_requested())
     {
@@ -180,9 +168,16 @@ static bool remote_log_ensure_session(void)
             return false;
         }
 
+        network_manager_diagnostics_t diagnostics       = { 0 };
+        const esp_err_t               diagnostics_error = network_manager_get_diagnostics_copy(&diagnostics);
+        const log_upload_boot_t       boot              = {
+            .firmware_version = app != NULL ? app->version : "unknown",
+            .reset_reason     = remote_log_reset_reason_name(esp_reset_reason()),
+            .ip = diagnostics_error == ESP_OK && diagnostics.link_snapshot_error == ESP_OK ? diagnostics.link.ip : "",
+        };
         remote_log_set_state(REMOTE_LOG_STATE_STARTING_SESSION, ESP_OK);
         char            session_id[REMOTE_LOG_SESSION_ID_MAX] = { 0 };
-        const esp_err_t error = log_upload_start(g_remote_log_runtime.base_url,
+        const esp_err_t error = log_upload_start(&g_remote_log_runtime.backend,
                                                  g_remote_log_runtime.config.http_timeout_ms,
                                                  &boot,
                                                  session_id,
@@ -234,7 +229,8 @@ static void remote_log_discard_pending_stop(void)
 /**
  * @brief 取得一个有界日志批次
  *
- * 第一条日志使用无限等待；后续日志只在 batch_wait_ms 内聚合。若收到停止事件，已经从队列
+ * 第一条日志使用无限等待；后续日志只在 batch_wait_ms
+ * 内聚合。若收到停止事件，已经从队列
  * 取出的批次由调用方计为丢弃，队列中其他日志继续保留。
  *
  * @param[out] out_count 批次条数
@@ -268,7 +264,8 @@ static bool remote_log_collect_batch(size_t *out_count)
 /**
  * @brief 上传当前批次并在失败时原地重试
  *
- * 批次数组在整个重试期间由上传 Task 独占，不重新入队，因此不会改变日志顺序。停止请求会
+ * 批次数组在整个重试期间由上传 Task
+ * 独占，不重新入队，因此不会改变日志顺序。停止请求会
  * 终止后续重试，由调用方把该批次计为丢弃。
  *
  * @param[in] count 批次条数
@@ -285,10 +282,8 @@ static bool remote_log_upload_batch(size_t count)
 
         remote_log_set_state(REMOTE_LOG_STATE_UPLOADING, ESP_OK);
         char            next_session_id[REMOTE_LOG_SESSION_ID_MAX] = { 0 };
-        const esp_err_t error = log_upload_batch(g_remote_log_runtime.base_url,
+        const esp_err_t error = log_upload_batch(&g_remote_log_runtime.backend,
                                                  g_remote_log_runtime.config.http_timeout_ms,
-                                                 g_remote_log_runtime.product_id,
-                                                 g_remote_log_runtime.device_id,
                                                  g_remote_log_runtime.session_id,
                                                  g_remote_log_runtime.batch,
                                                  count,
@@ -317,7 +312,8 @@ static bool remote_log_upload_batch(size_t count)
 /**
  * @brief 远端日志上传 Task
  *
- * Task 串行拥有会话创建、批次组装和上传重试。收到停止请求后释放当前批次的逻辑所有权，
+ * Task
+ * 串行拥有会话创建、批次组装和上传重试。收到停止请求后释放当前批次的逻辑所有权，
  * 通知 stop 调用者并挂起，由 stop 统一删除 Task 句柄。
  *
  * @param[in] context 未使用
@@ -440,18 +436,14 @@ esp_err_t remote_log_init(const remote_log_config_t *config)
     return ESP_OK;
 }
 
-esp_err_t remote_log_configure_copy(const char *base_url, uint32_t product_id, const char *device_id)
+esp_err_t remote_log_configure_copy(const protocol_backend_context_t *backend)
 {
-    if (!remote_log_string_fits(base_url, REMOTE_LOG_BASE_URL_MAX) || product_id == 0U
-        || !remote_log_string_fits(device_id, REMOTE_LOG_DEVICE_ID_MAX))
+    if (!protocol_backend_context_is_valid(backend))
     {
         return ESP_ERR_INVALID_ARG;
     }
 
-    char base_url_copy[REMOTE_LOG_BASE_URL_MAX];
-    char device_id_copy[REMOTE_LOG_DEVICE_ID_MAX];
-    snprintf(base_url_copy, sizeof(base_url_copy), "%s", base_url);
-    snprintf(device_id_copy, sizeof(device_id_copy), "%s", device_id);
+    const protocol_backend_context_t backend_copy = *backend;
 
     taskENTER_CRITICAL(&g_remote_log_lock);
     const bool can_configure = g_remote_log_runtime.initialized
@@ -459,9 +451,7 @@ esp_err_t remote_log_configure_copy(const char *base_url, uint32_t product_id, c
                                && g_remote_log_runtime.task == NULL;
     if (can_configure)
     {
-        memcpy(g_remote_log_runtime.base_url, base_url_copy, sizeof(base_url_copy));
-        g_remote_log_runtime.product_id = product_id;
-        memcpy(g_remote_log_runtime.device_id, device_id_copy, sizeof(device_id_copy));
+        g_remote_log_runtime.backend       = backend_copy;
         g_remote_log_runtime.session_id[0] = '\0';
         g_remote_log_runtime.configured    = true;
         g_remote_log_runtime.last_error    = ESP_OK;

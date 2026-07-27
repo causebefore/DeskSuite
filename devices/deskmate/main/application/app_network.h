@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "protocol_backend_context.h"
 
 /** @brief OTA 检查的产品来源，用于决定完成后的自动安装策略 */
 typedef enum
@@ -116,6 +117,18 @@ esp_err_t app_network_sync_for_light_sleep(uint32_t timeout_ms);
  *         尚未成功解析过服务端截止时间
  */
 esp_err_t app_network_get_next_refresh_at_utc(int64_t *out_utc_timestamp);
+
+/**
+ * @brief 从当前持久化设置构造完整后端连接上下文
+ *
+ * 产品 ID 与固件目标来自构建生成头，设备 ID 由共享 protocols 组件基于 Wi-Fi Station
+ * 基础 MAC 生成。返回值是纯值快照，调用方可在当前事务中复制或借用。
+ *
+ * @param[out] out_context 后端连接、鉴权与设备身份上下文
+ * @return ESP_OK 已构造；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 服务地址为空；
+ *         或设置读取、配置校验、硬件身份错误码
+ */
+esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_context);
 
 /**
  * @brief 同步暂停网络策略与底层连接，为整机轻睡眠做准备

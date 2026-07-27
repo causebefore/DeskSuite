@@ -5,6 +5,7 @@
 #pragma once
 
 #include "log_upload.h"
+#include "protocol_backend_context.h"
 #include "protocol_identity.h"
 #include "protocol_url.h"
 #include "voice_protocol.h"
