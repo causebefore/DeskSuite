@@ -2132,6 +2132,11 @@ static esp_err_t request_ota_command(network_command_type_t type, app_network_ot
         return ESP_ERR_INVALID_STATE;
     }
     s_ota_queued = true;
+    if (type == NETWORK_COMMAND_OTA_CHECK && mode == APP_NETWORK_OTA_CHECK_MANUAL)
+    {
+        /* 手动检查优先：取消排队或进行中的 Dashboard 同步，避免 OTA 命令长时间排在同步之后 */
+        s_sync_cancel_requested = s_sync_queued || s_sync_running;
+    }
     taskEXIT_CRITICAL(&s_state_lock);
 
     const network_command_t command = {

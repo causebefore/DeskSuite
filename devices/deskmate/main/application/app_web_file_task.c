@@ -13,8 +13,11 @@
 #include "task_stack_stats.h"
 #include "web_file_service.h"
 
-#define APP_WEB_FILE_LEASE_TIMEOUT_MS      1000U
-#define APP_WEB_FILE_STOP_TIMEOUT_MS       6000U
+#define APP_WEB_FILE_LEASE_TIMEOUT_MS         1000U
+#define APP_WEB_FILE_LEASE_ACQUIRE_TIMEOUT_MS 20000U
+#define APP_WEB_FILE_NETWORK_WAIT_MS          ((uint32_t) CONFIG_DESKMATE_WEB_FILE_NETWORK_WAIT_MS)
+#define APP_WEB_FILE_NETWORK_POLL_MS          100U
+#define APP_WEB_FILE_STOP_TIMEOUT_MS          6000U
 #define APP_WEB_FILE_TASK_STACK_SIZE       4096U
 #define APP_WEB_FILE_TASK_PRIORITY         4U
 #define APP_WEB_FILE_PRESENTATION_RETRY_MS 50U
@@ -143,6 +146,56 @@ static esp_err_t confirm_online_ipv4(void)
 }
 
 /**
+ * @brief 在有限时间内等待 Network Manager 发布 ONLINE
+ *
+ * 唤醒重连和上线后的 Dashboard 同步期间网络尚未就绪或网络任务被占用，
+ * 启动前先做有界等待，避免首次启动被即时判定拒绝。
+ *
+ * @param[in] timeout_ms 最长等待时间
+ * @return ESP_OK 已在线；ESP_ERR_TIMEOUT 等待超时；其他值为当前网络状态对应错误码
+ */
+static esp_err_t wait_for_network_online(uint32_t timeout_ms)
+{
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+    for (;;)
+    {
+        if (has_unconsumed_stop_request())
+        {
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        network_manager_status_t status = { 0 };
+        const esp_err_t          error  = network_manager_get_status_copy(&status);
+        if (error != ESP_OK)
+        {
+            return error;
+        }
+        switch (status.state)
+        {
+            case NETWORK_STATE_ONLINE:
+                return ESP_OK;
+            case NETWORK_STATE_PROVISIONING:
+            case NETWORK_STATE_VALIDATING:
+            case NETWORK_STATE_STOPPED:
+            case NETWORK_STATE_STOPPING:
+                return ESP_ERR_INVALID_STATE;
+            case NETWORK_STATE_ERROR:
+                return status.last_error != ESP_OK ? status.last_error : ESP_FAIL;
+            case NETWORK_STATE_CONNECTING:
+            case NETWORK_STATE_RETRY_WAIT:
+            default:
+                break;
+        }
+
+        if ((int32_t) (deadline - xTaskGetTickCount()) <= 0)
+        {
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(APP_WEB_FILE_NETWORK_POLL_MS));
+    }
+}
+
+/**
  * @brief 停止 Service、反初始化固定资源，再释放网络租约
  *
  * 任何一步未安全完成都会保留当前及后续资源所有权，调用方随后发布可重试错误态。
@@ -266,8 +319,15 @@ static esp_err_t start_owned_resources(void)
     }
 
     app_web_file_internal_publish_state(APP_WEB_FILE_STATE_ACQUIRING_NETWORK, ESP_OK, true);
+
+    error = wait_for_network_online(APP_WEB_FILE_NETWORK_WAIT_MS);
+    if (error != ESP_OK)
+    {
+        return error;
+    }
+
     uint32_t generation = 0U;
-    error               = app_network_acquire_web_file_lease(APP_WEB_FILE_LEASE_TIMEOUT_MS, &generation);
+    error               = app_network_acquire_web_file_lease(APP_WEB_FILE_LEASE_ACQUIRE_TIMEOUT_MS, &generation);
     if (error != ESP_OK)
     {
         return error;
