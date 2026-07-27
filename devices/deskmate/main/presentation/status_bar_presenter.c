@@ -91,16 +91,25 @@ static bool update_page_title_locked(presentation_page_id_t page)
 }
 
 /**
- * @brief 从 Communication 只读快照查询 Wi-Fi 状态
+ * @brief 从 Communication 只读快照查询 Wi-Fi 连接与连接中状态
  *
- * @return true 表示 STA 已关联、取得 IPv4 且 Network Manager 在线
+ * @param[out] out_connected true 表示 STA 已关联、取得 IPv4 且 Network Manager 在线
+ * @param[out] out_connecting true 表示 Network Manager 正在连接、退避重试或校验连通性
  */
-static bool query_network_connected(void)
+static void query_network_view(bool *out_connected, bool *out_connecting)
 {
-    network_manager_status_t status = { 0 };
-    connect_link_info_t      link   = { 0 };
-    return network_manager_get_status_copy(&status) == ESP_OK && status.state == NETWORK_STATE_ONLINE
-           && connect_get_link_snapshot_copy(&link) == ESP_OK && link.associated && link.has_ipv4;
+    network_manager_status_t status    = { 0 };
+    connect_link_info_t      link      = { 0 };
+    const bool               status_ok = network_manager_get_status_copy(&status) == ESP_OK;
+    const bool               connected = status_ok && status.state == NETWORK_STATE_ONLINE
+                                         && connect_get_link_snapshot_copy(&link) == ESP_OK && link.associated
+                                         && link.has_ipv4;
+    const bool               connecting = !connected && status_ok
+                                          && (status.state == NETWORK_STATE_CONNECTING
+                                              || status.state == NETWORK_STATE_RETRY_WAIT
+                                              || status.state == NETWORK_STATE_VALIDATING);
+    *out_connected  = connected;
+    *out_connecting = connecting;
 }
 
 /** @brief 在状态栏锁内更新电池事实 */
@@ -245,14 +254,17 @@ esp_err_t status_bar_presenter_get_view_copy(status_bar_view_model_t *out_view)
     {
         resolve_time_view(&snapshot, &time_valid, &hour, &minute);
     }
-    const bool network_connected = query_network_connected();
+    bool network_connected  = false;
+    bool network_connecting = false;
+    query_network_view(&network_connected, &network_connecting);
 
     taskENTER_CRITICAL(&s_status_bar_lock);
     if (has_time_snapshot)
     {
         (void) update_time_view_locked(time_valid, hour, minute);
     }
-    s_status_bar_view.wifi_connected = network_connected;
+    s_status_bar_view.wifi_connected  = network_connected;
+    s_status_bar_view.wifi_connecting = network_connecting;
     *out_view                        = s_status_bar_view;
     taskEXIT_CRITICAL(&s_status_bar_lock);
     return ESP_OK;

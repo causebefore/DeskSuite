@@ -32,6 +32,7 @@ static lv_obj_t               *s_wifi_icon;
 static lv_obj_t               *s_server_icon;
 static lv_obj_t               *s_batt_pct;
 static lv_obj_t               *s_batt_icon;
+static lv_timer_t             *s_wifi_blink_timer;
 static bool                    s_created       = false;
 static bool                    s_status_cached = false;
 static status_bar_view_model_t s_last_status;
@@ -64,6 +65,44 @@ static status_icon_id_t battery_icon_for(bool valid, uint8_t percent)
         return STATUS_ICON_BATTERY_75;
     }
     return STATUS_ICON_BATTERY_100;
+}
+
+/** @brief Wi-Fi 连接中图标闪烁周期（毫秒） */
+#define WIFI_BLINK_PERIOD_MS 500
+
+/**
+ * @brief Wi-Fi 连接中闪烁定时器：在"无图标"与"在线图标"之间切换
+ *
+ * 每次触发顺带重拉一次状态栏 View Model，保证网络事实及时收敛。
+ */
+static void wifi_blink_timer_cb(lv_timer_t *timer)
+{
+    (void) timer;
+    if (s_wifi_icon == NULL)
+    {
+        return;
+    }
+
+    status_bar_view_model_t view;
+    if (status_bar_presenter_get_view_copy(&view) != ESP_OK)
+    {
+        return;
+    }
+    (void) ui_status_bar_update(&view);
+
+    if (!view.wifi_connecting)
+    {
+        lv_obj_clear_flag(s_wifi_icon, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (lv_obj_has_flag(s_wifi_icon, LV_OBJ_FLAG_HIDDEN))
+    {
+        lv_obj_clear_flag(s_wifi_icon, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(s_wifi_icon, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 /**
@@ -127,6 +166,12 @@ static void create_controls(lv_obj_t *parent)
     (void) ui_common_new_rule(parent, 0, 27, STATUS_BAR_W, UI_RULE_THIN);
     (void) ui_common_new_rule(parent, 0, 30, STATUS_BAR_W, UI_RULE_THIN);
 
+    s_wifi_blink_timer = lv_timer_create(wifi_blink_timer_cb, WIFI_BLINK_PERIOD_MS, NULL);
+    if (s_wifi_blink_timer == NULL)
+    {
+        ESP_LOGW(TAG, "Wi-Fi 闪烁定时器创建失败");
+    }
+
     s_created = true;
     ESP_LOGI(TAG, "状态栏控件创建完成");
 }
@@ -149,6 +194,11 @@ esp_err_t ui_status_bar_init(void)
  */
 void ui_status_bar_deinit(void)
 {
+    if (s_wifi_blink_timer != NULL)
+    {
+        lv_timer_delete(s_wifi_blink_timer);
+        s_wifi_blink_timer = NULL;
+    }
     s_page_label    = NULL;
     s_time_label    = NULL;
     s_wifi_icon     = NULL;
@@ -172,7 +222,13 @@ esp_err_t ui_status_bar_update(const status_bar_view_model_t *status)
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!s_status_cached || s_last_status.wifi_connected != status->wifi_connected)
+    if (status->wifi_connecting)
+    {
+        /* 连接中固定使用在线图标，可见性由闪烁定时器控制 */
+        lv_image_set_src(s_wifi_icon, status_icon_resolver_get(STATUS_ICON_WIFI_ONLINE));
+    }
+    else if (!s_status_cached || s_last_status.wifi_connected != status->wifi_connected
+             || s_last_status.wifi_connecting != status->wifi_connecting)
     {
         lv_image_set_src(
             s_wifi_icon,

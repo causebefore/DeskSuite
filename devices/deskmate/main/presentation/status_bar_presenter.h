@@ -17,6 +17,7 @@ typedef struct
 {
     char    page_title[STATUS_BAR_VIEW_TITLE_MAX]; /*!< 当前页面标题 */
     bool    wifi_connected;                        /*!< Wi-Fi 是否已连接 */
+    bool    wifi_connecting;                       /*!< Wi-Fi 正在连接（状态栏图标闪烁提示） */
     bool    time_valid;                            /*!< 时间是否有效 */
     uint8_t hour;                                  /*!< 当前小时 (0-23) */
     uint8_t minute;                                /*!< 当前分钟 (0-59) */
