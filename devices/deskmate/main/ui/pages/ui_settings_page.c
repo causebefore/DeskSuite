@@ -242,7 +242,7 @@ static lv_obj_t *create_child_action(lv_obj_t *parent, const char *title, int32_
 static lv_obj_t *create_root_item(settings_item_t item, lv_obj_t *target_page, const char *title)
 {
     lv_obj_t *container = lv_menu_cont_create(s_view.root_page);
-    lv_obj_set_size(container, LV_PCT(100), 58);
+    lv_obj_set_size(container, LV_PCT(100), 44);
     lv_obj_set_style_bg_color(container, lv_color_white(), 0);
     lv_obj_set_style_bg_opa(container, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(container, lv_color_black(), LV_STATE_FOCUSED);
@@ -697,7 +697,7 @@ static esp_err_t open_menu(void)
     }
     lv_group_set_wrap(s_view.group, false);
 
-    s_view.root_page     = lv_menu_page_create(s_view.menu, "设置");
+    s_view.root_page     = lv_menu_page_create(s_view.menu, NULL);
     s_view.network_page  = lv_menu_page_create(s_view.menu, "网络设置");
     s_view.web_file_page = lv_menu_page_create(s_view.menu, "网页文件管理");
     s_view.system_page   = lv_menu_page_create(s_view.menu, "系统信息");
