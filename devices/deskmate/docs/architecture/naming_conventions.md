@@ -223,9 +223,9 @@ app_network_get_next_dashboard_refresh_at_utc();
 | `event` | 事件 / 事实事件 | 已发生且不可变的事实 |
 | `notification` | 通知 / 唤醒通知 | 可合并提示；不承诺保存事件历史或完整载荷 |
 | `result` | 结果 | 一次操作的最终输出或错误 |
-| `state` | 状态 | 生命周期或状态机当前离散阶段 |
-| `status` | 状态摘要 | 面向调用方的有界运行摘要，可包含 `state`、标志和 `last_error` |
-| `snapshot` | 快照 | 某一时点整结构复制的领域数据，不返回内部可变指针 |
+| `state` | 状态 / 阶段 | 生命周期或状态机当前唯一的离散阶段 |
+| `status` | 运行摘要 | 面向调用方的组件运行情况，说明是否可用、正在做什么或为何失败 |
+| `snapshot` | 数据快照 | 某一时点整结构复制的领域或硬件数据，不返回内部可变指针 |
 | `info` | 能力信息 | 初始化后基本稳定的设备能力或静态属性 |
 | `config` | 配置 | 初始化或操作所需的调用方输入参数 |
 | `settings` | 产品设置 | 用户可持久化修改的产品偏好 |
@@ -239,12 +239,79 @@ app_network_get_next_dashboard_refresh_at_utc();
 | `page` | 页面 | 产品导航和 Presentation 契约中的页面身份 |
 | `screen` | LVGL Screen | 具体 LVGL 根对象；不作为产品页面的同义词 |
 
-补充规则：
+### 5.1 `state`、`status`、`snapshot` 强制判定顺序
 
-- `state` 是单个状态机阶段，`status` 是对外摘要，`snapshot` 是某一时点的数据副本。不能仅因
-  结构体字段多就任选其一。
-- 返回复合 `status`、`snapshot` 或 `info` 副本的函数必须带 `_copy`。返回标量、枚举值或
-  借用静态只读字符串时不机械添加 `_copy`。
+新增或重命名类型时按以下顺序判断，命中后停止：
+
+1. 表达一次函数调用的完成输出或错误：使用 `result`，不使用三者。
+2. 表达所有者内部长期可变的资源和工作数据集合：使用 `runtime`，不使用三者。
+3. 只表达状态机当前唯一阶段，并且任一时刻只能取一个枚举值：使用 `state`。
+4. 面向调用方回答“组件是否可运行、正在做什么、是否失败以及为什么”：使用 `status`。
+5. 面向调用方回答“某一时点的领域、设备或寄存器数据是什么”：使用 `snapshot`。
+
+禁止因为结构体字段多、函数是 Getter 或中文都能翻译成“状态”，就在三者中任选一个。
+
+| 类型 | 允许的形态 | 典型字段 | Getter |
+| --- | --- | --- | --- |
+| `<component>_state_t` | `enum`，不用作可变聚合结构 | `UNINITIALIZED/RUNNING/STOPPING` | 标量可直接 `get_state()` |
+| `<component>_status_t` | 有界只读 `struct` | `state`、活动标志、`last_error` | `get_status_copy()` |
+| `<component>_snapshot_t` | 有界只读 `struct` | 领域值、时间戳、版本、硬件标志 | 缓存用 `get_snapshot_copy()`；I/O 用 `read_snapshot()` |
+| `<component>_runtime_t` | 仅所有者私有的可变 `struct/class` | 句柄、锁、Task、工作缓冲和当前数据 | 不提供整结构公共 Getter |
+| `<operation>_result_t` | 一次操作的值或枚举 | 本次完成原因、计数、输出值 | 由操作直接输出 |
+
+### 5.2 三者的边界
+
+`state` 必须满足：
+
+- 只表示一个离散阶段，不携带复合数据。
+- 类型使用 `_state_t`，枚举值使用 `<COMPONENT>_STATE_<VALUE>`。
+- `phase` 只用于一个更大状态机内部的业务阶段，例如番茄钟的
+  `app_pomodoro_phase_t`；生命周期仍使用 `state`。
+- 位集合使用 `_flags_t`，参与条件的集合使用 `_mask_t` 或领域名词，不伪装成 `state`。
+
+`status` 必须满足：
+
+- 是组件或其执行资源的运行摘要，而不是完整业务数据仓库。
+- 通常包含一个 `_state_t` 字段，也可以包含 `active`、`pending`、`last_error` 等少量运行
+  事实。
+- 调用方主要用它决定能否启动、停止、重试、呈现错误或等待，而不是读取天气、时间、电量等
+  领域值。
+- `status` 在实现上同样是某一时点的副本，但语义优先于复制机制，因此使用
+  `get_status_copy()`，不命名为 `status_snapshot`。
+
+`snapshot` 必须满足：
+
+- 是领域数据、硬件读数、寄存器标志或所有者缓存的某一时点完整副本。
+- 调用方主要读取“值是什么”，例如时间、电量、温湿度、网络租约或按键物理电平。
+- 可以包含 `valid`、`updated_at_ms`、`last_error`，这些字段描述快照质量，不会因此变成
+  `status`。
+- 所有者缓存使用 `get_<object>_snapshot_copy()`；直接执行设备、文件或总线 I/O 使用
+  `read_<object>_snapshot()`。两者都不返回内部可变指针，也不使用
+  `get_snapshot()`、`get_state_copy()` 等模糊组合。
+
+冲突时按调用方的首要问题选择：
+
+```text
+“现在处于哪个阶段？”                   → state
+“组件现在能否工作、为何失败？”           → status
+“当前领域值或硬件事实是什么？”           → snapshot
+“本次调用最终发生了什么？”               → result
+“所有者内部持有哪些可变资源与工作数据？”  → runtime
+```
+
+项目中的正确参照：
+
+- `web_file_service_state_t`：单一生命周期枚举，属于 `state`。
+- `web_file_service_status_t`：包含生命周期阶段、活动传输和最近错误，属于 `status`。
+- `system_clock_snapshot_t`：包含当前时间及可信来源等时点数据，属于 `snapshot`。
+- `device_button_scan_result_t`：只描述本轮扫描完成输出，属于 `result`。
+
+从所有者缓存返回复合 `status`、`snapshot` 或 `info` 副本的函数必须带 `_copy`；直接执行
+设备、文件或总线 I/O 的 `read` 函数不重复添加。返回标量、枚举值或借用静态只读字符串时
+也不机械添加 `_copy`。
+
+### 5.3 其他名词边界
+
 - `manager` 只保留给确实独占技术状态机和资源协调的既有组件，例如共享
   `network_manager`；普通类或模块不得用它替代具体职责。
 - `service` 表示已满足 Service 层进入条件的事务或持续资源所有者，不是任意工具函数集合。
@@ -287,6 +354,21 @@ URI, URL, UTC, Wi-Fi
 | `weather_get_snapshot()` | `weather_get_snapshot_copy()` | 返回完整快照副本 |
 | `dashboard_store_get_snapshot()` | `dashboard_store_get_snapshot_copy()` | 返回完整快照副本 |
 | `app_network_get_lease_snapshot()` | `app_network_get_lease_snapshot_copy()` | 返回完整快照副本 |
+| `device_button_pressed_state_t` | `device_button_pressed_snapshot_t` | 复合物理电平副本，不是离散状态枚举 |
+| `device_button_get_pressed_state_copy()` | `device_button_read_pressed_snapshot()` | 函数直接读取 GPIO，不是读取所有者缓存 |
+| `app_pomodoro_context_t`（私有结构） | `app_pomodoro_runtime_t` | 该结构实际拥有 Task、锁、Timer 和全部工作数据 |
+| `app_pomodoro_state_t`（私有结构） | `app_pomodoro_runtime_data_t` | Runtime 内部长期可变业务数据，不是离散阶段 |
+| `app_pomodoro_status_t` | `app_pomodoro_snapshot_t` | 完整番茄钟领域数据，现有 Doxygen 也将其定义为快照 |
+| `app_pomodoro_get_status_copy()` | `app_pomodoro_get_snapshot_copy()` | Getter 与领域快照类型保持一致 |
+| `presentation_data_status_t` | `presentation_data_state_t` | `EMPTY/OK/STALE/ERROR` 是单一呈现阶段枚举 |
+| `ui_platform_font_status_t` | `ui_platform_font_state_t` | `READY/FALLBACK/UNAVAILABLE` 是单一可用阶段枚举 |
+| `rlcd_font_container_status_t` | `rlcd_font_container_result_t` | `OK/INVALID_*` 描述单次解析结果，不是持续运行摘要 |
+| `environment_service_environment_status_t` | `environment_service_environment_snapshot_t` | 温湿度领域值及质量信息 |
+| `environment_service_battery_status_t` | `environment_service_battery_snapshot_t` | 电池领域值及质量信息 |
+| `environment_service_status_t` | `environment_service_snapshot_t` | 两类采样数据的完整时点副本 |
+| `environment_service_get_status_copy()` | `environment_service_get_snapshot_copy()` | Getter 与输出类型保持同一语义 |
+| `pcf85063_interrupt_status_t` | `pcf85063_interrupt_snapshot_t` | 一次寄存器读取产生的硬件标志副本 |
+| `pcf85063_driver_get_interrupt_status_copy()` | `pcf85063_driver_read_interrupt_snapshot()` | 函数直接执行 I2C 读取，不是读取所有者缓存 |
 
 `dashboard_store_get_weather/calendar/mail/quota()` 也会核对实现；若均为整结构复制，则分别增加
 `_copy`，不为旧名保留转发包装。
@@ -313,7 +395,7 @@ URI, URL, UTC, Wi-Fi
 - `consume_input()` 的 `bool` 返回表示“是否已消费”时语义成立；如果函数还会异步提交命令，
   需要在 Doxygen 中分别说明“已消费”和“命令已接受”，必要时改为显式结果类型。
 - `status`、`state`、`snapshot` 当前大部分符合规则，但 Data 层旧接口和部分私有 Task 类型仍
-  混用。迁移时按所有权与对外可见性逐个判断，不全局替换文本。
+  混用。迁移时必须按第 5.1 节逐个判断，禁止全局替换文本。
 
 ## 8. 术语重构执行规则
 
@@ -337,7 +419,9 @@ URI, URL, UTC, Wi-Fi
 - [ ] 名称是否描述“对象发生了什么”，而不是只写 `handle/process/do`？
 - [ ] `request` 的返回是否真的只表示接受，最终结果是否有明确出口？
 - [ ] `stop` 返回 `ESP_OK` 时是否真的已经停止？
-- [ ] `status/state/snapshot/info` 是否符合各自定义？
+- [ ] `_state_t` 是否只有一个离散枚举值，而不是可变结构体？
+- [ ] `_status_t` 是否主要回答组件能否工作、正在做什么或为何失败？
+- [ ] `_snapshot_t` 是否主要回答某一时点的领域值或硬件事实是什么？
 - [ ] 复合对象复制是否带 `_copy`，长期回调借用是否带 `_borrow`？
 - [ ] 回调、事件、通知和命令是否没有相互冒充？
 - [ ] Dashboard 单向拉取是否使用 `refresh`，是否误用 `sync` 表示阻塞？
