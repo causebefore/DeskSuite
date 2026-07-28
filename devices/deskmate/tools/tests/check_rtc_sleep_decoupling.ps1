@@ -75,6 +75,10 @@ Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC=60'
 Assert-Contains 'main\app_main.c' 'rtc_service_start'
 Assert-Contains 'main\application\app_key.c' 'app_power_notify_activity'
+Assert-Contains 'components\services\rtc_service\src\rtc_service_task.c' `
+    'RTC_SERVICE_STATE_RUNNING\s*&&\s*s_state\s*!=\s*RTC_SERVICE_STATE_STOPPING'
+Assert-Contains 'components\services\rtc_service\include\rtc_service.h' `
+    '调用方可再次调用本函数继续等待'
 
 if ($failures.Count -gt 0) {
     Write-Host 'RTC INT 与轻睡眠解耦契约检查失败：' -ForegroundColor Red

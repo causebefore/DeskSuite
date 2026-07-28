@@ -485,38 +485,57 @@ bool app_pomodoro_consume_input(device_button_event_t key_event)
     }
     if (key_event == DEVICE_BUTTON_EVENT_LEFT_LONG)
     {
+        esp_err_t   request_error;
+        const char *action;
         switch (snapshot.run_state)
         {
             case APP_POMODORO_RUN_STATE_IDLE:
-                (void) app_pomodoro_request_start();
-                return true;
+                action        = "开始专注";
+                request_error = app_pomodoro_request_start();
+                break;
             case APP_POMODORO_RUN_STATE_RUNNING:
             case APP_POMODORO_RUN_STATE_PAUSED:
-                (void) app_pomodoro_request_toggle_pause();
-                return true;
+                action        = "切换暂停";
+                request_error = app_pomodoro_request_toggle_pause();
+                break;
             case APP_POMODORO_RUN_STATE_DONE:
-                (void) app_pomodoro_request_reset();
-                return true;
+                action        = "重置番茄钟";
+                request_error = app_pomodoro_request_reset();
+                break;
             default:
                 return false;
         }
+        if (request_error != ESP_OK)
+        {
+            ESP_LOGW(TAG, "%s请求未被接受: %s", action, esp_err_to_name(request_error));
+        }
+        return true;
     }
     if (key_event == DEVICE_BUTTON_EVENT_RIGHT_LONG)
     {
+        esp_err_t   request_error;
+        const char *action;
         switch (snapshot.run_state)
         {
             case APP_POMODORO_RUN_STATE_RUNNING:
-                (void) app_pomodoro_request_skip();
+                action        = "跳过当前阶段";
+                request_error = app_pomodoro_request_skip();
                 break;
             case APP_POMODORO_RUN_STATE_PAUSED:
-                (void) app_pomodoro_request_reset();
+                action        = "重置番茄钟";
+                request_error = app_pomodoro_request_reset();
                 break;
             case APP_POMODORO_RUN_STATE_DONE:
-                (void) app_pomodoro_request_confirm();
+                action        = "确认完成阶段";
+                request_error = app_pomodoro_request_confirm();
                 break;
             case APP_POMODORO_RUN_STATE_IDLE:
             default:
-                break;
+                return false;
+        }
+        if (request_error != ESP_OK)
+        {
+            ESP_LOGW(TAG, "%s请求未被接受: %s", action, esp_err_to_name(request_error));
         }
         return true;
     }

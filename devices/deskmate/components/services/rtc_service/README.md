@@ -59,7 +59,7 @@ GPIO15 下降沿
 | `rtc_service_set_event_callback_borrow()` | 同步 | 在停止状态设置长期借用的事件回调 |
 | `rtc_service_start()` | 同步 | 创建 Task、注册 Device ISR 回调并检查已有 AF |
 | `rtc_service_request_check()` | 异步提交 | 通知 Task 主动检查当前 AF |
-| `rtc_service_stop()` | 同步有界等待 | 注销 ISR 回调并等待 Task 终止 |
+| `rtc_service_stop()` | 同步有界等待 | 注销 ISR 回调并等待 Task 终止；超时后可重复调用继续收敛 |
 | `rtc_service_get_status_copy()` | 同步 | 复制生命周期、累计告警数和最后错误 |
 | `rtc_service_deinit()` | 同步 | 释放已停止 Service 的资源 |
 
@@ -72,7 +72,8 @@ GPIO15 下降沿
 - Task：运行期创建一个阻塞等待 Task；无中断时不轮询。
 - 栈统计：Task 首次运行和后续被唤醒时按 60 秒周期节流输出，并在退出前输出最终值。
 - ISR：只复制 Task 句柄并使用 Task Notification 投递位，不做 I2C、日志或产品逻辑。
-- 停止超时后保留 `STOPPING`，Task 实际退出后自行收敛为 `INITIALIZED`。
+- 停止超时后保留 `STOPPING`，重复 `stop()` 会等待同一 Task；Task 实际退出后自行收敛为
+  `INITIALIZED`，此后再次停止幂等返回成功。
 
 ## 7. 故障与恢复
 

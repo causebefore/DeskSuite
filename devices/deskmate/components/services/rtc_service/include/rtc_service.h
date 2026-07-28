@@ -97,6 +97,9 @@ extern "C"
     /**
      * @brief 注销 ISR 回调并同步停止 RTC Service Task
      *
+     * 重复调用保持幂等。超时返回时状态保留为 `STOPPING`，调用方可再次调用本函数继续等待
+     * 同一 Task；只有返回 ESP_OK 才表示 Task 已退出并收敛到 `INITIALIZED`。
+     *
      * @param[in] timeout_ms 等待 Task 终止的上限，必须大于 0
      * @return ESP_OK 已停止；ESP_ERR_TIMEOUT 未在期限内停止，此时状态保留为 STOPPING；
      *         ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE 生命周期不允许

@@ -505,7 +505,11 @@ bool app_voice_consume_input(device_button_event_t key_event)
         if (voice_service_is_busy())
         {
             ESP_LOGI(TAG, "右键长按：取消当前语音对话");
-            (void) voice_service_cancel();
+            const esp_err_t error = voice_service_cancel();
+            if (error != ESP_OK)
+            {
+                ESP_LOGW(TAG, "取消语音对话请求未被接受: %s", esp_err_to_name(error));
+            }
             return true;
         }
         esp_err_t err = start_voice_chat(CONFIG_DESKMATE_VOICE_CHAT_DURATION_MS);

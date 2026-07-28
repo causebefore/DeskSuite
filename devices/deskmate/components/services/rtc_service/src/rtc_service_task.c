@@ -300,27 +300,51 @@ esp_err_t rtc_service_stop(uint32_t timeout_ms)
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    if (s_state != RTC_SERVICE_STATE_RUNNING)
+    if (s_state == RTC_SERVICE_STATE_INITIALIZED && s_task == NULL)
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return ESP_OK;
+    }
+    if (s_state != RTC_SERVICE_STATE_RUNNING && s_state != RTC_SERVICE_STATE_STOPPING)
     {
         taskEXIT_CRITICAL(&s_state_lock);
         return ESP_ERR_INVALID_STATE;
     }
-    TaskHandle_t task = s_task;
-    s_state           = RTC_SERVICE_STATE_STOPPING;
+    const bool   begin_stop = s_state == RTC_SERVICE_STATE_RUNNING;
+    TaskHandle_t task       = s_task;
+    if (begin_stop)
+    {
+        s_state = RTC_SERVICE_STATE_STOPPING;
+    }
     taskEXIT_CRITICAL(&s_state_lock);
 
-    const esp_err_t unregister_error = device_rtc_set_interrupt_callback_borrow(NULL, NULL);
-    if (unregister_error != ESP_OK)
+    if (begin_stop)
     {
-        taskENTER_CRITICAL(&s_state_lock);
-        s_state = RTC_SERVICE_STATE_RUNNING;
-        taskEXIT_CRITICAL(&s_state_lock);
-        return unregister_error;
+        const esp_err_t unregister_error = device_rtc_set_interrupt_callback_borrow(NULL, NULL);
+        if (unregister_error != ESP_OK)
+        {
+            taskENTER_CRITICAL(&s_state_lock);
+            if (s_state == RTC_SERVICE_STATE_STOPPING && s_task == task)
+            {
+                s_state = RTC_SERVICE_STATE_RUNNING;
+            }
+            taskEXIT_CRITICAL(&s_state_lock);
+            return unregister_error;
+        }
+
+        (void) xTaskNotify(task, RTC_SERVICE_NOTIFY_STOP, eSetBits);
     }
 
-    (void) xTaskNotify(task, RTC_SERVICE_NOTIFY_STOP, eSetBits);
     if (xSemaphoreTake(s_stopped_signal, pdMS_TO_TICKS(timeout_ms)) != pdTRUE)
     {
+        taskENTER_CRITICAL(&s_state_lock);
+        const bool stopped = s_state == RTC_SERVICE_STATE_INITIALIZED && s_task == NULL;
+        taskEXIT_CRITICAL(&s_state_lock);
+        if (stopped)
+        {
+            ESP_LOGI(TAG, "RTC INT 消费 Service 已停止");
+            return ESP_OK;
+        }
         return ESP_ERR_TIMEOUT;
     }
     ESP_LOGI(TAG, "RTC INT 消费 Service 已停止");
