@@ -16,7 +16,6 @@
 
 | 当前名称 | 拟统一名称 | 原因 |
 | --- | --- | --- |
-| `button_service_event_cb_t` | `button_service_event_callback_t` | 回调类型统一使用 `callback` |
 | `UI_RUNTIME_STATE_UNINIT` | `UI_RUNTIME_STATE_UNINITIALIZED` | 公共生命周期状态不使用局部缩写 |
 | `calendar_get_snapshot()` | `calendar_get_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
 | `mail_get_snapshot()` | `mail_get_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
@@ -49,13 +48,15 @@
 | --- | --- | --- |
 | Dashboard `sync` | Dashboard `refresh` | 当前是服务端到设备的单向拉取 |
 | `*_flush_async()` | `*_request_flush()` | 返回只表示异步提交成功 |
-| `_cb_t` / `_listener_t` | `_callback_t` | 统一函数指针类型 |
+| `_listener_t` | `_callback_t` 或 `_cb_t` | `listener` 不作为回调同义词；最终拼写取决于组件缩写配置 |
 | `emit_user_intent` | `dispatch_user_intent` | UI 将已构造意图路由给 Application |
 | 公共 `handle_*` / `*_handle` | 具体动作词 | 按实际行为改为 `apply`、`dispatch` 或领域动词 |
 | 产品层 `screen` | `page` | `screen` 只保留给 LVGL 根对象 |
 
 ## 4. 需要先澄清语义
 
+- DeskMate 尚未统一选择回调、上下文、配置和消息的完整或紧凑拼写。开始批量改名前，应先确定
+  全项目配置或按组件记录例外；现有 `button_service_event_cb_t` 本身不再视为错误。
 - `UI_USER_INTENT_SCREEN_LOADED` 是 UI 已完成加载的事实，不是用户意图。应先拆分用户动作和
   UI 生命周期事件类型。
 - `app_page_notify_screen_loaded()`、`app_page_publish_initial_ui()`、

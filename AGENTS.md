@@ -32,8 +32,9 @@ uv run pytest -q
   DeskMate Dashboard 等产品契约保留在各自 `components/product_protocols/`。
 - 新增或重命名项目自有 C/C++ 公共 API、跨文件接口、生命周期、并发、所有权或跨模块领域
   术语前，必须阅读 `docs/standards/c_cpp_naming_conventions.md` 和
-  `docs/standards/c_cpp_terminology.md`。受控术语表不存在所需术语时，必须在同一任务中先
-  补充术语，并向用户说明新增理由、适用边界和推荐示例，禁止静默创造近义词。
+  `docs/standards/c_cpp_terminology.md`。受控术语表不存在所需术语或短拼写时，必须在同一
+  任务中先补充，并向用户说明新增理由、适用边界和推荐示例，禁止静默创造近义词或未登记
+  缩写。
 - 修改跨设备 API、数据流或持久化语义前，先阅读相关设备的根 README 和架构规范。
 - 所有项目自有运行日志和错误信息使用中文，公共 C/C++ API 使用中文 Doxygen。
 - 不提交 `.env`、运行日志、显示帧、固件二进制、构建目录、虚拟环境或本地缓存。

@@ -13,7 +13,7 @@
 - 相同语义在不同模块中使用相同英文词。
 - 函数名能够表达操作对象、同步或异步完成语义以及所有权。
 - 公共 C API 在 C 与 C++ 混合实现中保持稳定、一致且可搜索。
-- 私有实现名称与作用域相称，不通过缩写、泛词或包装层隐藏真实行为。
+- 私有实现名称与作用域相称，不通过未登记缩写、泛词或包装层隐藏真实行为。
 - AI 或开发者需要引入新术语时，先扩展受控术语表并向用户说明理由。
 
 本规范不试图统一第三方库、芯片厂商 SDK、RTOS、协议字段或生成代码的既有名称。
@@ -49,7 +49,7 @@
 本规范组合使用以下公开规则：
 
 1. [ESP-IDF Style Guide][esp-idf-style]：公共符号使用组件前缀，文件私有符号使用
-   `static`，文件静态变量使用 `s_`，避免不必要缩写；C 类型使用 `snake_case_t`。
+   `static`，文件静态变量使用 `s_`，避免不必要或未登记缩写；C 类型使用 `snake_case_t`。
 2. [C++ Core Guidelines NL.7/NL.8][cpp-core-naming]：名称长度与作用域成比例，为项目选择
    唯一 house style，外部库保留原有风格。
 3. [Google C++ Style Guide 的 Naming][google-naming]：名称应具有描述性，避免删除单词
@@ -145,10 +145,12 @@ C 枚举值：<MODULE>_<NOUN>_<VALUE>
 
 - 输入参数默认使用具体名词；容易混淆方向时使用 `in_`、`out_`、`inout_`。
 - 输出参数使用 `out_<noun>`，不能只写 `out`、`value` 或 `data`。
-- 回调上下文统一使用 `context`，不混用 `ctx`、`arg`、`cookie`。
+- 回调上下文使用 `context` 或受控短拼写 `ctx`；同一公共接口族必须服从同一缩写配置，
+  不能混用。`arg`、`cookie` 只在外部 API 已固定时保留。
 - 布尔查询函数以 `is_`、`has_`、`can_` 或 `should_` 开头。
 - 布尔字段使用正向含义，例如 `active`、`enabled`、`pending`。
-- 数量使用 `count`，容量使用 `capacity`，字节数使用 `size_bytes`。
+- 数量使用 `count` 或受控短拼写 `num`，容量使用 `capacity`，字节数使用 `size_bytes`；
+  具体拼写服从所在作用域配置。
 - 时间、频率和容量必须带单位，例如 `timeout_ms`、`interval_us`、`sample_rate_hz`。
 - 绝对时间说明时间基准，例如 `deadline_monotonic_us`、`timestamp_utc_s`。
 
@@ -166,6 +168,33 @@ C 枚举值：<MODULE>_<NOUN>_<VALUE>
 - Task 入口文件使用 `<owner>_<purpose>_task.c/.cpp`，入口函数以 `_task` 结尾。
 - 不使用 `worker`、`thread`、`loop` 作为 RTOS Task 的同义后缀；如果平台正式概念就是
   Thread，则保持该平台术语。
+
+### 6.1 受控短缩写配置
+
+以下常用短拼写在嵌入式 C 中合法：
+
+| 完整拼写 | 短拼写 |
+| --- | --- |
+| `callback` | `cb` |
+| `context` | `ctx` |
+| `config` | `cfg` |
+| `message` | `msg` |
+| `count` | `num` |
+| `length` | `len` |
+| `buffer` | `buf` |
+
+使用规则：
+
+- 函数内局部变量和严格私有的短接口可以直接使用受控短拼写。
+- 项目、组件或公共 API 族可以针对表中每一项选择完整或紧凑拼写，也可以在本地规范中强制
+  选择结果。
+- 一旦某个作用域对某项选择或强制一种拼写，同一语义不得再混用另一种。例如选择
+  `callback=cb` 后，类型和参数统一使用 `_cb_t`、`cb`，不再同时出现
+  `_callback_t`、`callback`。
+- `num` 表示数量时写成 `num_frames`、`num_items`；不能用它替代任意数值。
+- `len` 必须能从对象或后缀看出单位，例如 `msg_len`、`buf_len_bytes`。
+- `buf` 在存在多个缓冲区时补充方向或用途，例如 `rx_buf`、`tx_buf`。
+- 未列入[受控术语表](c_cpp_terminology.md#受控缩写)的短拼写仍需先登记并向用户说明理由。
 
 ## 7. 同步、异步和完成语义
 
@@ -211,8 +240,8 @@ wait_<operation>_done() → 等待已经提交的操作
 - `dispatch` 用于路由已经构造好的类型化消息。
 - `publish` 用于事实所有者发布不可变事件。
 
-函数指针类型统一使用 `_callback_t`，不使用 `_cb_t`。回调 API 必须说明执行上下文、是否可
-阻塞、是否允许重入以及参数的有效期。
+函数指针类型可以使用完整形式 `_callback_t` 或紧凑形式 `_cb_t`，由项目或组件缩写配置决定。
+回调 API 必须说明执行上下文、是否可阻塞、是否允许重入以及参数的有效期。
 
 ## 8. 数据形态
 
@@ -261,8 +290,8 @@ wait_<operation>_done() → 等待已经提交的操作
 - C++ Runtime 用于收拢同一生命周期的资源与不变量，不为每个 C 函数机械创建同名方法。
 - 不为字段机械增加 getter/setter；只暴露维护不变量所需的操作。
 - 公共 C ABI 不暴露类、模板、重载、引用、异常、智能指针或标准库容器。
-- C++ 回调 thunk 使用 `static` 函数，通过 `void *context` 定位实例，只做参数校验和快速
-  投递。
+- C++ 回调 thunk 使用 `static` 函数，通过 `void *context` 或 `void *ctx` 定位实例，只做
+  参数校验和快速投递；拼写服从所在组件配置。
 
 ## 11. 注释与日志中的术语
 
@@ -293,7 +322,7 @@ wait_<operation>_done() → 等待已经提交的操作
 - [ ] `state/status/snapshot/result/runtime` 是否按结构和用途选择？
 - [ ] 异步提交是否使用 `request`，最终结果是否有明确出口？
 - [ ] 复合缓存副本是否带 `_copy`，长期借用是否带 `_borrow`？
-- [ ] 是否引入了白名单外缩写或模糊泛词？
+- [ ] 使用的短拼写是否存在于受控缩写表，并与所在作用域配置一致？
 - [ ] 是否可以删除旧名而不增加包装函数？
 
 [esp-idf-style]: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/contribute/style-guide.html
