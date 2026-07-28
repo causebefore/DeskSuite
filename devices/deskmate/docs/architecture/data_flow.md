@@ -158,18 +158,22 @@ ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保�
 稳定按键事件
     → app_power 重置活动窗口
     → Application 等待语音 / OTA / 网络租约收敛
-    → app_network 有界停网
-    → app_environment 协作停止
-    → UI Runtime Task 停止
-    → button_service 停止扫描
-    → Device / BSP 配置双按键 EXT1 与内部 Timer 唤醒并进入 Light-sleep
+    → 运行中的番茄钟页？
+        → 是：app_network 有界停网，UI 保持运行并每秒刷新
+        → 否：app_network 有界停网
+             → app_environment 协作停止
+             → UI Runtime Task 停止
+             → button_service 停止扫描
+             → Device / BSP 配置双按键 EXT1 与内部 Timer 唤醒并进入 Light-sleep
     → Timer 唤醒后恢复 UI、同步刷新屏幕，再次停止 UI 并继续睡眠
     → 按键唤醒后按相反产品顺序恢复并重新开始活动窗口
 ```
 
 无活动截止时间、准备顺序、重试和失败阻断由 `app_power` 的唯一 Application Task 拥有。
 Device/BSP 只提供一次带 Timer 间隔参数的同步轻睡眠事务，不拥有周期刷新策略；
-`app_network` 提供网络资源的暂停/恢复握手。详细产品流程见
+`app_network` 提供不依赖 UI 或 Light-sleep 的低功耗停网/恢复握手。番茄钟前台离线显示期间
+Dashboard 截止到达时临时恢复网络完成维护，再次停网；用户活动或离开运行中的番茄钟页时恢复
+正常网络策略。详细产品流程见
 [低功耗流程](../低功耗流程.md)。
 
 ### UI 更新

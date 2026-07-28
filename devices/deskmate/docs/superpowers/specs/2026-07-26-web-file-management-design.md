@@ -158,7 +158,7 @@ components/services/web_file_service/
 - 暂停 Dashboard 周期同步和自动 OTA。
 - 拒绝进入配网 Portal。
 - 拒绝开始实时语音租约或 OTA 事务。
-- `app_network_suspend_for_light_sleep()` 返回冲突状态，从而阻止轻睡眠。
+- `app_network_suspend_for_power_save()` 返回冲突状态，从而阻止低功耗停网和轻睡眠。
 
 租约仍由 `app_network` 的唯一 Task 串行修改。`app_web_file` 不直接操作 Wi-Fi Driver。
 

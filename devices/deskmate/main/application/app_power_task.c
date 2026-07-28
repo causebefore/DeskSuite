@@ -1,6 +1,6 @@
 /**
  * @file app_power_task.c
- * @brief 以单一 Application Task 编排按键与内部 Timer Light-sleep
+ * @brief 以单一 Application Task 编排离线显示与内部 Timer Light-sleep
  */
 #include "app_power.h"
 
@@ -250,6 +250,21 @@ static uint32_t begin_cycle(void)
     return generation;
 }
 
+/** @brief 开始前台离线显示尝试，不增加物理 Light-sleep 计数 */
+static uint32_t begin_offline_display_attempt(void)
+{
+    taskENTER_CRITICAL(&s_lock);
+    s_state                   = APP_POWER_STATE_PREPARING;
+    s_step                    = APP_POWER_STEP_CHECK_BLOCKERS;
+    s_wakeup_source           = APP_POWER_WAKEUP_NONE;
+    s_blockers                = APP_POWER_BLOCKER_NONE;
+    s_primary_error           = ESP_OK;
+    s_recovery_error          = ESP_OK;
+    const uint32_t generation = s_activity_generation;
+    taskEXIT_CRITICAL(&s_lock);
+    return generation;
+}
+
 /** @brief 把不可恢复错误锁存为 BLOCKED */
 static void enter_blocked(esp_err_t primary_error, esp_err_t recovery_error)
 {
@@ -347,7 +362,7 @@ static esp_err_t stop_ui_for_sleep(uint32_t expected_generation)
  * @return ESP_OK 网络已暂停；ESP_ERR_INVALID_STATE 准备被活动取消或网络产品冲突；
  *         其他值表示网络停止失败
  */
-static esp_err_t stop_network_for_sleep(uint32_t expected_generation)
+static esp_err_t stop_network_for_power_save(uint32_t expected_generation)
 {
     if (preparation_was_interrupted(expected_generation))
     {
@@ -355,20 +370,20 @@ static esp_err_t stop_network_for_sleep(uint32_t expected_generation)
     }
 
     set_state_step(APP_POWER_STATE_PREPARING, APP_POWER_STEP_NETWORK_STOP);
-    const esp_err_t error = app_network_suspend_for_light_sleep(APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS);
+    const esp_err_t error = app_network_suspend_for_power_save(APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS);
     keep_primary_error(error);
     return error;
 }
 
 /**
- * @brief 恢复轻睡眠前停止的网络策略
+ * @brief 恢复低功耗停网前停止的网络策略
  *
  * @return ESP_OK 网络连接策略已重新启动；其他值表示恢复失败
  */
 static esp_err_t resume_network_runtime(void)
 {
     set_state_step(APP_POWER_STATE_RESUMING, APP_POWER_STEP_NETWORK_START);
-    const esp_err_t error = app_network_resume_from_light_sleep(APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS);
+    const esp_err_t error = app_network_resume_from_power_save(APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS);
     keep_recovery_error(error);
     return error;
 }
@@ -448,24 +463,23 @@ typedef enum
 } app_power_timer_reason_t;
 
 /**
- * @brief 取屏幕维护、Dashboard 同步截止和番茄钟截止中更近的内部 Timer 间隔
+ * @brief 取屏幕维护、Dashboard 同步截止和番茄钟截止中更近的低功耗等待间隔
  *
  * @param[out] out_reason 可选的本轮间隔来源
- * @return 下一次 Light-sleep Timer 间隔，单位毫秒，至少为 1
+ * @return 下一次低功耗维护间隔，单位毫秒，至少为 1
  */
-static uint32_t next_light_sleep_interval_ms(app_power_timer_reason_t *out_reason)
+static uint32_t next_power_save_interval_ms(app_power_timer_reason_t *out_reason)
 {
-    uint32_t                 interval_ms = s_config.refresh_interval_ms;
-    app_power_timer_reason_t reason = APP_POWER_TIMER_REASON_SCREEN;
+    uint32_t                 interval_ms     = s_config.refresh_interval_ms;
+    app_power_timer_reason_t reason          = APP_POWER_TIMER_REASON_SCREEN;
 
-    int64_t next_sync_at_utc = 0;
-    system_clock_snapshot_t clock = { 0 };
+    int64_t                 next_sync_at_utc = 0;
+    system_clock_snapshot_t clock            = { 0 };
     if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) == ESP_OK
         && system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid)
     {
-        const int64_t remaining_seconds = next_sync_at_utc - (int64_t) clock.utc_timestamp;
-        const uint64_t remaining_ms =
-            remaining_seconds <= 0 ? 1ULL : (uint64_t) remaining_seconds * 1000ULL;
+        const int64_t  remaining_seconds = next_sync_at_utc - (int64_t) clock.utc_timestamp;
+        const uint64_t remaining_ms      = remaining_seconds <= 0 ? 1ULL : (uint64_t) remaining_seconds * 1000ULL;
         if (remaining_ms < interval_ms)
         {
             interval_ms = (uint32_t) remaining_ms;
@@ -496,10 +510,10 @@ static uint32_t next_light_sleep_interval_ms(app_power_timer_reason_t *out_reaso
  */
 static void log_next_wakeup(uint32_t interval_ms, app_power_timer_reason_t reason)
 {
-    const char *reason_text = reason == APP_POWER_TIMER_REASON_POMODORO
-                                  ? "番茄钟阶段截止"
-                                  : (reason == APP_POWER_TIMER_REASON_DASHBOARD ? "Dashboard 同步截止"
-                                                                               : "屏幕维护周期");
+    const char *reason_text =
+        reason == APP_POWER_TIMER_REASON_POMODORO
+            ? "番茄钟阶段截止"
+            : (reason == APP_POWER_TIMER_REASON_DASHBOARD ? "Dashboard 同步截止" : "屏幕维护周期");
     system_clock_snapshot_t clock = { 0 };
     if (system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid)
     {
@@ -550,7 +564,7 @@ static esp_err_t run_network_maintenance(uint32_t expected_generation, bool *net
     *network_suspended = false;
 
     set_state_step(APP_POWER_STATE_RESUMING, APP_POWER_STEP_NETWORK_SYNC);
-    const esp_err_t sync_error = app_network_sync_for_light_sleep(APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS);
+    const esp_err_t sync_error = app_network_sync_for_power_save(APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS);
     if (sync_error == ESP_OK)
     {
         int64_t next_sync_at_utc = 0;
@@ -570,7 +584,7 @@ static esp_err_t run_network_maintenance(uint32_t expected_generation, bool *net
     }
 
     set_state_step(APP_POWER_STATE_PREPARING, APP_POWER_STEP_NETWORK_STOP);
-    error = app_network_suspend_for_light_sleep(APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS);
+    error = app_network_suspend_for_power_save(APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS);
     if (error != ESP_OK)
     {
         keep_primary_error(error);
@@ -578,6 +592,72 @@ static esp_err_t run_network_maintenance(uint32_t expected_generation, bool *net
     }
     *network_suspended = true;
     return ESP_OK;
+}
+
+/**
+ * @brief 保持番茄钟 UI 秒级运行，仅暂停网络并按 Dashboard 截止临时联网维护
+ *
+ * 用户活动、番茄钟离开 RUNNING 前台状态或停止请求都会先恢复网络再退出。该会话不停止语音
+ * Runtime、不停止 UI，也不进入 Device Light-sleep；网络维护完成后在活动代次未变化时再次停网。
+ *
+ * @param[in] initial_generation 进入离线显示前锁存的活动代次
+ * @return ESP_OK 已恢复正常清醒网络；ESP_ERR_INVALID_STATE 产品冲突或准备被活动取消；
+ *         其他值表示网络停止或恢复失败
+ */
+static esp_err_t run_offline_display_session(uint32_t initial_generation)
+{
+    bool      network_suspended = false;
+    esp_err_t result            = stop_network_for_power_save(initial_generation);
+    if (result != ESP_OK)
+    {
+        return result;
+    }
+    network_suspended = true;
+    set_status(APP_POWER_STATE_OFFLINE_DISPLAY, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
+    ESP_LOGI(TAG, "番茄钟前台进入离线显示，Wi-Fi 已关闭且 UI 保持秒级刷新");
+
+    for (;;)
+    {
+        wait_notification(next_power_save_interval_ms(NULL));
+        if (preparation_was_interrupted(initial_generation) || !app_pomodoro_requires_live_display())
+        {
+            result = resume_network_runtime();
+            if (result == ESP_OK)
+            {
+                network_suspended = false;
+                set_status(APP_POWER_STATE_AWAKE, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
+                ESP_LOGI(TAG, "番茄钟离线显示结束，网络连接策略已恢复");
+            }
+            return result;
+        }
+
+        if (!network_maintenance_is_due())
+        {
+            set_state_step(APP_POWER_STATE_OFFLINE_DISPLAY, APP_POWER_STEP_NONE);
+            continue;
+        }
+
+        result = run_network_maintenance(initial_generation, &network_suspended);
+        if (result != ESP_OK)
+        {
+            break;
+        }
+        set_status(APP_POWER_STATE_OFFLINE_DISPLAY, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
+    }
+
+    if (network_suspended)
+    {
+        const esp_err_t recovery_error = resume_network_runtime();
+        if (recovery_error != ESP_OK)
+        {
+            return result == ESP_OK ? recovery_error : result;
+        }
+    }
+    if (result == ESP_ERR_INVALID_STATE)
+    {
+        set_status(APP_POWER_STATE_AWAKE, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
+    }
+    return result;
 }
 
 /**
@@ -611,7 +691,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
     }
     ui_stopped = true;
 
-    result     = stop_network_for_sleep(expected_generation);
+    result     = stop_network_for_power_save(expected_generation);
     if (result != ESP_OK)
     {
         goto restore_awake;
@@ -629,7 +709,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         set_state_step(APP_POWER_STATE_SLEEPING, APP_POWER_STEP_DEVICE_SLEEP);
         device_power_wakeup_info_t wakeup             = { 0 };
         app_power_timer_reason_t   timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
-        const uint32_t             wakeup_interval_ms = next_light_sleep_interval_ms(&timer_reason);
+        const uint32_t             wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
         log_next_wakeup(wakeup_interval_ms, timer_reason);
         const esp_err_t sleep_error = device_power_enter_light_sleep(wakeup_interval_ms, &wakeup);
 
@@ -834,8 +914,10 @@ static void app_power_task(void *arg)
             continue;
         }
 
-        const uint32_t  expected_generation = begin_cycle();
-        const esp_err_t error               = run_sleep_session(expected_generation);
+        const bool      keep_live_display   = app_pomodoro_requires_live_display();
+        const uint32_t  expected_generation = keep_live_display ? begin_offline_display_attempt() : begin_cycle();
+        const esp_err_t error               = keep_live_display ? run_offline_display_session(expected_generation)
+                                                                : run_sleep_session(expected_generation);
         if (error == ESP_OK)
         {
             continue;
@@ -928,7 +1010,7 @@ esp_err_t app_power_start(void)
 
     if (!s_config.automatic_light_sleep_enabled)
     {
-        ESP_LOGI(TAG, "自动 Light-sleep 已关闭");
+        ESP_LOGI(TAG, "自动低功耗流程已关闭");
         return ESP_OK;
     }
 
@@ -942,7 +1024,7 @@ esp_err_t app_power_start(void)
     }
 
     ESP_LOGI(TAG,
-             "自动 Light-sleep 已启动，无活动窗口=%lu ms，Timer 刷新间隔=%lu ms",
+             "自动低功耗流程已启动，无活动窗口=%lu ms，Timer 刷新间隔=%lu ms",
              (unsigned long) s_config.idle_timeout_ms,
              (unsigned long) s_config.refresh_interval_ms);
     return ESP_OK;

@@ -2,7 +2,7 @@
 
 - 日期：2026-07-27
 - 目标项目：`devices/deskmate`（ESP32-S3 桌面终端固件）
-- 状态：设计已确认并完成一致性修订，待写实施计划
+- 状态：已实施；2026-07-28 补充前台离线显示策略
 
 ## 1. 背景与目标
 
@@ -34,7 +34,7 @@ DeskMate 是带本地交互界面的桌面终端：400×300 RLCD、左右两个�
 | 阶段衔接 | 手动确认 | 自然到期停在 `DONE`；用户确认后才启动下一阶段 |
 | 跳过阶段 | 直接进入下一阶段 | 跳过专注不计完成数、不推进已完成轮次 |
 | 完成提醒 | 唤醒和视觉提示 | 无提示音；完成提示保持到用户确认或取消 |
-| 低功耗策略 | 复用内部 Timer 唤醒 | Light-sleep 间隔纳入番茄钟剩余时间 |
+| 低功耗策略 | 前台离线显示 + 内部 Timer 唤醒 | 番茄钟页运行时只停 Wi-Fi 并保持秒级 UI；其他页面可进入 Light-sleep |
 | 页面布局 | 单一英雄时间 + 时间轨道 | 不使用卡片网格、圆形进度环或装饰动画 |
 | 后台运行 | 运行时可自由切页 | 左右短按保持系统切页，番茄钟由 Application 后台推进 |
 | 设置入口 | Settings 新增“番茄钟设置” | 不使用 Emoji 文本；复用现有菜单框架 |
@@ -396,11 +396,32 @@ UI 只提交完整设置副本。Application 校验范围并调用 `pomodoro_sto
 只读显示设置，并提示“结束当前番茄钟后可修改”。这样当前轮次不会混用不同的 duration 或
 long-break interval。
 
-## 7. Light-sleep 集成
+## 7. 低功耗集成
 
-### 7.1 下一次内部 Timer 间隔
+### 7.1 前台离线显示
 
-`app_power_task.c::next_light_sleep_interval_ms()` 继续作为业务截止的唯一汇聚点：
+“停止网络”与“进入 Light-sleep”是两个独立步骤。无活动窗口结束后，Power Application 读取
+`app_pomodoro_requires_live_display()`：
+
+```text
+RUNNING 且当前页面为番茄钟
+  → app_network_suspend_for_power_save()
+  → 进入 APP_POWER_STATE_OFFLINE_DISPLAY
+  → 保留 UI Runtime 和番茄钟一秒 one-shot Timer
+  → mm:ss 继续每秒刷新
+
+其他状态或其他页面
+  → 停止语音、UI 和网络
+  → 进入完整 Light-sleep
+```
+
+离线显示期间 Dashboard 截止到达时允许临时恢复网络完成同步，随后再次停网。用户活动、阶段
+自然完成或番茄钟不再处于运行中的前台页面时恢复正常网络策略。不得为了连续显示秒数而每秒
+进入和退出 Light-sleep。
+
+### 7.2 下一次内部 Timer 间隔
+
+`app_power_task.c::next_power_save_interval_ms()` 继续作为业务截止的唯一汇聚点：
 
 ```text
 interval = refresh_interval_ms
@@ -413,7 +434,7 @@ interval = min(interval, pomodoro_remaining_ms)    // 单调持续时间
 - 番茄钟计算不依赖 `system_clock.valid`。
 - 日志原因应区分“屏幕维护周期”“Dashboard 同步截止”和“番茄钟阶段截止”。
 
-### 7.2 Timer 唤醒顺序
+### 7.3 Timer 唤醒顺序
 
 番茄钟补算必须发生在恢复 UI 之前：
 
@@ -438,7 +459,7 @@ interval = min(interval, pomodoro_remaining_ms)    // 单调持续时间
 `app_pomodoro_reconcile_after_wakeup()` 返回前必须完成状态和 Presenter 输入快照的收敛，不能仅
 异步投递一个稍后处理的完成事件。这样 `resume_ui_runtime()` 首次重同步即可读到 `DONE`。
 
-### 7.3 完成提示 latch
+### 7.4 完成提示 latch
 
 - 自然到期设置 `completion_latched=true`。
 - Power Application 将本次自然到期视为用户活动，阻止当前睡眠会话立即再次入睡。
@@ -493,7 +514,7 @@ NVS 命名空间为 `"pomodoro"`：
 | UI | 新增 `ui_pomodoro_page.{c,h}`，扩展 Router、状态栏、设置页和用户意图 |
 | Data | 新增 `components/data/pomodoro_store/` 及 `CMakeLists.txt` |
 | 资源 | 新增 16×16 单色运行、暂停、完成图标及 resolver 映射 |
-| 低功耗 | 扩展 `app_power_task.c` interval 聚合、唤醒前同步补算和完成保持 |
+| 低功耗 | 扩展 `app_power_task.c` 前台离线显示、interval 聚合、唤醒前同步补算和完成保持；停网 API 与 Light-sleep 解耦 |
 | Composition Root | 修改 `main/app_main.c` 初始化、启动、停止和反向清理顺序 |
 | 构建 | 修改 `main/CMakeLists.txt`，声明新增源码和 `pomodoro_store` 依赖 |
 | 文档 | 更新根设备 README、`main/application/README.md`、`main/presentation/README.md`、`main/ui/README.md` 和低功耗流程 |
@@ -508,14 +529,16 @@ NVS 命名空间为 `"pomodoro"`：
 3. 运行中切换到天气、日历等页面，确认倒计时继续且只更新状态栏角标，不重绘当前业务页面。
 4. 未联网且系统时间不可信时启动 5 分钟专注，确认仍准时完成，预计结束使用相对时间。
 5. 运行期间接受 RTC/SNTP 校时，确认剩余时长没有跳变。
-6. 让设备进入 Light-sleep，阶段截止时确认先补算番茄钟、再恢复 UI，首次画面即为 `DONE`。
-7. 完成提示保持可见；60 秒后重新睡眠仍保持 `DONE`，按键唤醒后仍可确认下一阶段。
-8. 连续执行多轮 Light-sleep，确认没有每秒 TICK 补发、事件队列突发或重复完成计数。
-9. 运行中、暂停或完成待确认时进入设置，确认番茄钟设置只读；回到 `IDLE` 后可编辑，写入失败时
+6. 在番茄钟页运行计时并等待无活动窗口结束，确认 Wi-Fi 关闭、UI 未停止且 `mm:ss` 仍每秒
+   更新；短按离开页面后确认网络恢复，再次空闲后允许进入 Light-sleep。
+7. 在其他页面让设备进入 Light-sleep，阶段截止时确认先补算番茄钟、再恢复 UI，首次画面即为 `DONE`。
+8. 完成提示保持可见；60 秒后重新睡眠仍保持 `DONE`，按键唤醒后仍可确认下一阶段。
+9. 连续执行多轮 Light-sleep，确认没有每秒 TICK 补发、事件队列突发或重复完成计数。
+10. 运行中、暂停或完成待确认时进入设置，确认番茄钟设置只读；回到 `IDLE` 后可编辑，写入失败时
    显示“未保存”并保留原值。
-10. 跨本地午夜和时间不可信两种场景检查今日计数，确认不会继续显示昨天数据或丢失未定日计数。
-11. 检查状态栏图标与文本不覆盖页面名、系统时间、Wi-Fi、服务端和电池区域。
-12. 重启设备，确认运行中状态被丢弃并回到 `IDLE`，设置和今日计数正确恢复。
+11. 跨本地午夜和时间不可信两种场景检查今日计数，确认不会继续显示昨天数据或丢失未定日计数。
+12. 检查状态栏图标与文本不覆盖页面名、系统时间、Wi-Fi、服务端和电池区域。
+13. 重启设备，确认运行中状态被丢弃并回到 `IDLE`，设置和今日计数正确恢复。
 
 若用户明确要求编译，只能在 DeskSuite 根目录执行：
 

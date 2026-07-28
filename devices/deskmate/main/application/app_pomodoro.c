@@ -6,6 +6,7 @@
 
 #include <limits.h>
 
+#include "app_page.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "system_clock.h"
@@ -375,6 +376,13 @@ esp_err_t app_pomodoro_get_status_copy(app_pomodoro_status_t *out_status)
     }
     xSemaphoreGive(g_app_pomodoro.state_lock);
     return ESP_OK;
+}
+
+bool app_pomodoro_requires_live_display(void)
+{
+    app_pomodoro_status_t status = { 0 };
+    return app_pomodoro_get_status_copy(&status) == ESP_OK && status.run_state == APP_POMODORO_RUN_STATE_RUNNING
+           && app_page_get_current() == PRESENTATION_PAGE_POMODORO;
 }
 
 esp_err_t app_pomodoro_get_next_wakeup_interval_ms(uint32_t *out_interval_ms)

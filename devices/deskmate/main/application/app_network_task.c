@@ -60,8 +60,8 @@ typedef enum
     NETWORK_COMMAND_SYNC_TIME,
     NETWORK_COMMAND_LEASE_ACQUIRE,
     NETWORK_COMMAND_LEASE_RELEASE,
-    NETWORK_COMMAND_SUSPEND_FOR_LIGHT_SLEEP,
-    NETWORK_COMMAND_RESUME_FROM_LIGHT_SLEEP,
+    NETWORK_COMMAND_SUSPEND_FOR_POWER_SAVE,
+    NETWORK_COMMAND_RESUME_FROM_POWER_SAVE,
 } network_command_type_t;
 
 typedef struct
@@ -116,7 +116,7 @@ static bool                               s_ota_auto_check_enabled;
 static app_network_lease_type_t           s_active_lease_type = APP_NETWORK_LEASE_NONE;
 static bool                               s_portal_transition_pending;
 static uint32_t                           s_portal_transition_activity_sequence;
-static bool                               s_light_sleep_suspended;
+static bool                               s_power_save_suspended;
 static bool                               s_manager_change_pending;
 static bool                               s_dashboard_online;
 static int64_t                            s_next_refresh_at_utc;
@@ -228,11 +228,11 @@ static esp_err_t post_control_command(const network_command_t *command)
     return xQueueSend(s_command_queue, command, 0U) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
-/** @brief 在线程安全上下文读取轻睡眠暂停状态 */
-static bool light_sleep_is_suspended(void)
+/** @brief 在线程安全上下文读取低功耗停网状态 */
+static bool power_save_is_suspended(void)
 {
     taskENTER_CRITICAL(&s_state_lock);
-    const bool suspended = s_light_sleep_suspended;
+    const bool suspended = s_power_save_suspended;
     taskEXIT_CRITICAL(&s_state_lock);
     return suspended;
 }
@@ -695,7 +695,7 @@ static void reset_reconnect_policy(void)
 /** @brief 在 Network Manager 完成本轮内部重试后安排新会话 */
 static void schedule_reconnect_backoff(void)
 {
-    if (s_reconnect_timer == NULL || light_sleep_is_suspended())
+    if (s_reconnect_timer == NULL || power_save_is_suspended())
     {
         return;
     }
@@ -747,7 +747,7 @@ static void mark_dashboard_failure_retry(void)
  * @brief 按服务端绝对截止或失败退避重新设置 Dashboard 一次性 Timer
  *
  * 成功响应提供的 `next_refresh_at_utc` 是正常调度的唯一权威。只有完整同步失败或系统时间
- * 暂时不可信时才使用本地失败退避；互斥租约和轻睡眠暂停期间保持 Timer 停止。
+ * 暂时不可信时才使用本地失败退避；互斥租约和低功耗停网期间保持 Timer 停止。
  */
 static void reschedule_dashboard_timer(void)
 {
@@ -759,7 +759,7 @@ static void reschedule_dashboard_timer(void)
 
     taskENTER_CRITICAL(&s_state_lock);
     const bool enabled =
-        s_dashboard_auto_sync_enabled && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_light_sleep_suspended;
+        s_dashboard_auto_sync_enabled && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_power_save_suspended;
     const bool    retry_pending       = s_dashboard_retry_pending;
     const int64_t retry_at_utc        = s_dashboard_retry_at_utc;
     const int64_t next_refresh_at_utc = s_next_refresh_at_utc;
@@ -862,7 +862,7 @@ static void reschedule_ota_timer(void)
 
     taskENTER_CRITICAL(&s_state_lock);
     const bool enabled = s_ota_auto_check_enabled && s_active_lease_type == APP_NETWORK_LEASE_NONE
-                         && !s_light_sleep_suspended && !s_ota_queued && !s_ota_running && !s_ota_pending_update;
+                         && !s_power_save_suspended && !s_ota_queued && !s_ota_running && !s_ota_pending_update;
     taskEXIT_CRITICAL(&s_state_lock);
     if (!enabled)
     {
@@ -932,7 +932,7 @@ static void handle_start_session_command(void)
 /** @brief 停止已结束策略的会话并建立下一轮 Network Manager 会话 */
 static void handle_restart_session_command(void)
 {
-    if (light_sleep_is_suspended())
+    if (power_save_is_suspended())
     {
         return;
     }
@@ -1149,7 +1149,7 @@ static void handle_manager_changed_command(void)
         schedule_reconnect_backoff();
         return;
     }
-    if (status.state == NETWORK_STATE_STOPPED && !light_sleep_is_suspended() && previous != NETWORK_STATE_STOPPED)
+    if (status.state == NETWORK_STATE_STOPPED && !power_save_is_suspended() && previous != NETWORK_STATE_STOPPED)
     {
         schedule_reconnect_backoff();
     }
@@ -1169,7 +1169,7 @@ static void handle_start_portal_command(void)
     taskENTER_CRITICAL(&s_state_lock);
     reconcile_portal_transition_locked(&status);
     const bool conflict = s_active_lease_type != APP_NETWORK_LEASE_NONE || s_portal_transition_pending || s_ota_queued
-                          || s_ota_running || s_light_sleep_suspended;
+                          || s_ota_running || s_power_save_suspended;
     if (!conflict)
     {
         s_portal_transition_pending           = true;
@@ -1178,7 +1178,7 @@ static void handle_start_portal_command(void)
     taskEXIT_CRITICAL(&s_state_lock);
     if (conflict)
     {
-        ESP_LOGW(TAG, "互斥网络产品租约、Portal 过渡、OTA 或轻睡眠事务期间拒绝切换配网");
+        ESP_LOGW(TAG, "互斥网络产品租约、Portal 过渡、OTA 或低功耗停网期间拒绝切换配网");
         return;
     }
 
@@ -1221,7 +1221,7 @@ static esp_err_t execute_sync_command(void)
     taskENTER_CRITICAL(&s_state_lock);
     s_sync_queued = false;
     const bool should_run =
-        !s_sync_cancel_requested && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_light_sleep_suspended;
+        !s_sync_cancel_requested && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_power_save_suspended;
     s_sync_running = should_run;
     taskEXIT_CRITICAL(&s_state_lock);
 
@@ -1285,7 +1285,7 @@ static void handle_sync_command(void)
     (void) execute_sync_command();
 }
 
-/** @brief 执行轻睡眠维护同步并在完整同步结束后返回回执 */
+/** @brief 执行低功耗维护同步并在完整同步结束后返回回执 */
 static void handle_maintenance_sync_command(const network_command_t *command)
 {
     if (!begin_control_command(command))
@@ -1325,14 +1325,14 @@ static void handle_ota_command(bool install, app_network_ota_check_mode_t mode)
 {
     taskENTER_CRITICAL(&s_state_lock);
     s_ota_queued          = false;
-    const bool should_run = s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_light_sleep_suspended;
+    const bool should_run = s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_power_save_suspended;
     s_ota_running         = should_run;
     s_ota_check_mode      = mode;
     taskEXIT_CRITICAL(&s_state_lock);
 
     if (!should_run)
     {
-        ESP_LOGI(TAG, "互斥网络产品租约或轻睡眠事务期间跳过 OTA %s", install ? "安装" : "检查");
+        ESP_LOGI(TAG, "互斥网络产品租约或低功耗停网期间跳过 OTA %s", install ? "安装" : "检查");
         present_ota_request_failure(install ? FIRMWARE_OTA_EVENT_INSTALL_COMPLETED : FIRMWARE_OTA_EVENT_CHECK_COMPLETED,
                                     ESP_ERR_INVALID_STATE,
                                     mode == APP_NETWORK_OTA_CHECK_MANUAL);
@@ -1450,7 +1450,7 @@ static void handle_ota_event_command(const network_command_t *command)
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    const bool can_install = s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_light_sleep_suspended;
+    const bool can_install = s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_power_save_suspended;
     if (can_install)
     {
         s_ota_running    = true;
@@ -1459,7 +1459,7 @@ static void handle_ota_event_command(const network_command_t *command)
     taskEXIT_CRITICAL(&s_state_lock);
     if (!can_install)
     {
-        ESP_LOGI(TAG, "互斥网络产品租约或轻睡眠事务阻止 OTA 自动安装，保留待安装目标");
+        ESP_LOGI(TAG, "互斥网络产品租约或低功耗停网阻止 OTA 自动安装，保留待安装目标");
         return;
     }
 
@@ -1515,7 +1515,7 @@ static void handle_lease_acquire_command(const network_command_t *command)
             else
             {
                 reconcile_portal_transition_locked(&status);
-                if (s_light_sleep_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE
+                if (s_power_save_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE
                     || s_portal_transition_pending || s_ota_queued || s_ota_running || s_next_lease_generation == 0U)
                 {
                     result = ESP_ERR_INVALID_STATE;
@@ -1608,7 +1608,7 @@ static void handle_lease_release_command(const network_command_t *command)
     }
 }
 
-/** @brief 停止所有可能在轻睡眠后补发命令的网络产品 Timer */
+/** @brief 停止所有可能在低功耗停网后补发命令的网络产品 Timer */
 static void stop_network_policy_timers(void)
 {
     esp_timer_handle_t timers[] = {
@@ -1627,8 +1627,8 @@ static void stop_network_policy_timers(void)
     s_reconnect_backoff_ms = 0U;
 }
 
-/** @brief 同步停止 Network Manager 会话并进入轻睡眠暂停态 */
-static void handle_suspend_for_light_sleep_command(const network_command_t *command)
+/** @brief 同步停止 Network Manager 会话并进入低功耗停网态 */
+static void handle_suspend_for_power_save_command(const network_command_t *command)
 {
     if (!begin_control_command(command))
     {
@@ -1637,11 +1637,11 @@ static void handle_suspend_for_light_sleep_command(const network_command_t *comm
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    const bool already_suspended = s_light_sleep_suspended;
+    const bool already_suspended = s_power_save_suspended;
     const bool conflict          = s_active_lease_type != APP_NETWORK_LEASE_NONE || s_ota_queued || s_ota_running;
     if (!already_suspended && !conflict)
     {
-        s_light_sleep_suspended = true;
+        s_power_save_suspended  = true;
         s_sync_cancel_requested = s_sync_queued || s_sync_running;
     }
     taskEXIT_CRITICAL(&s_state_lock);
@@ -1662,12 +1662,12 @@ static void handle_suspend_for_light_sleep_command(const network_command_t *comm
     if (error != ESP_OK)
     {
         taskENTER_CRITICAL(&s_state_lock);
-        s_light_sleep_suspended = false;
+        s_power_save_suspended  = false;
         s_sync_cancel_requested = false;
         taskEXIT_CRITICAL(&s_state_lock);
         reschedule_dashboard_timer();
         reschedule_ota_timer();
-        ESP_LOGE(TAG, "停止远端日志以进入轻睡眠失败: %s", esp_err_to_name(error));
+        ESP_LOGE(TAG, "停止远端日志以进入低功耗停网失败: %s", esp_err_to_name(error));
         complete_control_response(command, error);
         return;
     }
@@ -1683,24 +1683,24 @@ static void handle_suspend_for_light_sleep_command(const network_command_t *comm
     if (error != ESP_OK)
     {
         taskENTER_CRITICAL(&s_state_lock);
-        s_light_sleep_suspended = false;
+        s_power_save_suspended  = false;
         s_sync_cancel_requested = false;
         taskEXIT_CRITICAL(&s_state_lock);
         reschedule_dashboard_timer();
         reschedule_ota_timer();
-        ESP_LOGE(TAG, "暂停网络以进入轻睡眠失败: %s", esp_err_to_name(error));
+        ESP_LOGE(TAG, "进入低功耗停网状态失败: %s", esp_err_to_name(error));
         complete_control_response(command, error);
         return;
     }
 
     set_dashboard_online(false);
     (void) presentation_dispatch_status_update();
-    ESP_LOGI(TAG, "网络会话已停止，允许进入轻睡眠");
+    ESP_LOGI(TAG, "网络会话已停止，进入低功耗停网状态");
     complete_control_response(command, ESP_OK);
 }
 
-/** @brief 重新启动 Network Manager 会话并恢复轻睡眠前产品策略 */
-static void handle_resume_from_light_sleep_command(const network_command_t *command)
+/** @brief 重新启动 Network Manager 会话并恢复低功耗停网前的产品策略 */
+static void handle_resume_from_power_save_command(const network_command_t *command)
 {
     if (!begin_control_command(command))
     {
@@ -1709,7 +1709,7 @@ static void handle_resume_from_light_sleep_command(const network_command_t *comm
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    const bool was_suspended = s_light_sleep_suspended;
+    const bool was_suspended = s_power_save_suspended;
     taskEXIT_CRITICAL(&s_state_lock);
     if (!was_suspended)
     {
@@ -1720,17 +1720,17 @@ static void handle_resume_from_light_sleep_command(const network_command_t *comm
     const esp_err_t error = start_network_session();
     if (error != ESP_OK)
     {
-        ESP_LOGE(TAG, "轻睡眠唤醒后启动网络会话失败: %s", esp_err_to_name(error));
+        ESP_LOGE(TAG, "恢复低功耗停网状态后启动网络会话失败: %s", esp_err_to_name(error));
         complete_control_response(command, error);
         return;
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    s_light_sleep_suspended = false;
+    s_power_save_suspended  = false;
     s_sync_cancel_requested = false;
     taskEXIT_CRITICAL(&s_state_lock);
     reschedule_ota_timer();
-    ESP_LOGI(TAG, "轻睡眠唤醒后网络产品策略已恢复");
+    ESP_LOGI(TAG, "低功耗停网后的网络产品策略已恢复");
     complete_control_response(command, ESP_OK);
 }
 
@@ -1813,17 +1813,17 @@ static void app_network_task(void *arg)
             }
             continue;
         }
-        if (command.type == NETWORK_COMMAND_SUSPEND_FOR_LIGHT_SLEEP)
+        if (command.type == NETWORK_COMMAND_SUSPEND_FOR_POWER_SAVE)
         {
-            handle_suspend_for_light_sleep_command(&command);
+            handle_suspend_for_power_save_command(&command);
             continue;
         }
-        if (command.type == NETWORK_COMMAND_RESUME_FROM_LIGHT_SLEEP)
+        if (command.type == NETWORK_COMMAND_RESUME_FROM_POWER_SAVE)
         {
-            handle_resume_from_light_sleep_command(&command);
+            handle_resume_from_power_save_command(&command);
             continue;
         }
-        if (light_sleep_is_suspended())
+        if (power_save_is_suspended())
         {
             discard_command_while_suspended(&command);
             continue;
@@ -2070,7 +2070,7 @@ esp_err_t app_network_request_sync(void)
     ESP_RETURN_ON_FALSE(s_command_queue != NULL, ESP_ERR_INVALID_STATE, TAG, "网络任务未初始化");
 
     taskENTER_CRITICAL(&s_state_lock);
-    if (s_light_sleep_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE || s_sync_queued || s_sync_running)
+    if (s_power_save_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE || s_sync_queued || s_sync_running)
     {
         taskEXIT_CRITICAL(&s_state_lock);
         return ESP_ERR_INVALID_STATE;
@@ -2129,7 +2129,7 @@ static esp_err_t request_control_response_command(network_command_type_t type, a
     return wait_control_response(slot_index, request_id, deadline_us, out_generation);
 }
 
-esp_err_t app_network_sync_for_light_sleep(uint32_t timeout_ms)
+esp_err_t app_network_sync_for_power_save(uint32_t timeout_ms)
 {
     ESP_RETURN_ON_FALSE(s_command_queue != NULL, ESP_ERR_INVALID_STATE, TAG, "网络任务未初始化");
     ESP_RETURN_ON_FALSE(timeout_ms > 0U, ESP_ERR_INVALID_ARG, TAG, "维护同步等待时间无效");
@@ -2139,7 +2139,7 @@ esp_err_t app_network_sync_for_light_sleep(uint32_t timeout_ms)
     ESP_RETURN_ON_ERROR(allocate_control_response_slot(&slot_index, &request_id), TAG, "没有可用的维护同步回执槽");
 
     taskENTER_CRITICAL(&s_state_lock);
-    const bool allowed = !s_light_sleep_suspended && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_sync_queued
+    const bool allowed = !s_power_save_suspended && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_sync_queued
                          && !s_sync_running && !s_ota_queued && !s_ota_running;
     if (allowed)
     {
@@ -2187,19 +2187,19 @@ esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp)
     return ESP_OK;
 }
 
-esp_err_t app_network_suspend_for_light_sleep(uint32_t timeout_ms)
+esp_err_t app_network_suspend_for_power_save(uint32_t timeout_ms)
 {
     (void) app_network_cancel_sync();
-    return request_control_response_command(NETWORK_COMMAND_SUSPEND_FOR_LIGHT_SLEEP,
+    return request_control_response_command(NETWORK_COMMAND_SUSPEND_FOR_POWER_SAVE,
                                             APP_NETWORK_LEASE_NONE,
                                             0U,
                                             timeout_ms,
                                             NULL);
 }
 
-esp_err_t app_network_resume_from_light_sleep(uint32_t timeout_ms)
+esp_err_t app_network_resume_from_power_save(uint32_t timeout_ms)
 {
-    return request_control_response_command(NETWORK_COMMAND_RESUME_FROM_LIGHT_SLEEP,
+    return request_control_response_command(NETWORK_COMMAND_RESUME_FROM_POWER_SAVE,
                                             APP_NETWORK_LEASE_NONE,
                                             0U,
                                             timeout_ms,
@@ -2239,7 +2239,7 @@ static esp_err_t request_ota_command(network_command_type_t type, app_network_ot
     ESP_RETURN_ON_FALSE(state_allowed, ESP_ERR_INVALID_STATE, TAG, "OTA 当前状态不接受该请求");
 
     taskENTER_CRITICAL(&s_state_lock);
-    if (s_light_sleep_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE || s_ota_queued || s_ota_running)
+    if (s_power_save_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE || s_ota_queued || s_ota_running)
     {
         taskEXIT_CRITICAL(&s_state_lock);
         return ESP_ERR_INVALID_STATE;
@@ -2344,11 +2344,11 @@ static esp_err_t acquire_network_lease(app_network_lease_type_t type, uint32_t t
     taskENTER_CRITICAL(&s_state_lock);
     reconcile_portal_transition_locked(&status);
     const bool generation_exhausted = s_next_lease_generation == 0U;
-    const bool conflict             = s_light_sleep_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE
+    const bool conflict             = s_power_save_suspended || s_active_lease_type != APP_NETWORK_LEASE_NONE
                                       || s_portal_transition_pending || s_ota_queued || s_ota_running;
     taskEXIT_CRITICAL(&s_state_lock);
     ESP_RETURN_ON_FALSE(!generation_exhausted, ESP_ERR_INVALID_STATE, TAG, "网络产品租约代次已耗尽，需重启后恢复");
-    ESP_RETURN_ON_FALSE(!conflict, ESP_ERR_INVALID_STATE, TAG, "Portal、OTA、轻睡眠或其他网络产品租约正在占用网络");
+    ESP_RETURN_ON_FALSE(!conflict, ESP_ERR_INVALID_STATE, TAG, "Portal、OTA、低功耗停网或其他网络产品租约正在占用网络");
 
     return request_control_response_command(NETWORK_COMMAND_LEASE_ACQUIRE, type, 0U, timeout_ms, out_generation);
 }
@@ -2425,7 +2425,7 @@ esp_err_t app_network_start_portal(void)
     ESP_RETURN_ON_FALSE(s_command_queue != NULL, ESP_ERR_INVALID_STATE, TAG, "网络任务未初始化");
     taskENTER_CRITICAL(&s_state_lock);
     const bool conflict =
-        s_active_lease_type != APP_NETWORK_LEASE_NONE || s_light_sleep_suspended || s_ota_queued || s_ota_running;
+        s_active_lease_type != APP_NETWORK_LEASE_NONE || s_power_save_suspended || s_ota_queued || s_ota_running;
     taskEXIT_CRITICAL(&s_state_lock);
     ESP_RETURN_ON_FALSE(!conflict, ESP_ERR_INVALID_STATE, TAG, "当前产品事务不允许进入配网");
 

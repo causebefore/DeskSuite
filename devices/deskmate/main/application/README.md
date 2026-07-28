@@ -65,14 +65,14 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | --- | --- |
 | `app_key` | 把稳定按键事实转换为产品输入 |
 | `app_page` | 维护顶层环形页面、Screen 切换门控和 500 ms 完成事件兜底 |
-| `app_pomodoro` | 拥有本地番茄钟状态机、单调 deadline、日期归一化、NVS 计数和睡眠唤醒补算 |
+| `app_pomodoro` | 拥有本地番茄钟状态机、单调 deadline、日期归一化、NVS 计数、前台秒级显示事实和睡眠唤醒补算 |
 | `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页文件明确停止后清理会话 |
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
 | `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
 | `app_web_file` | SD/在线前置检查、Web 文件租约、网页文件 Service 启停与安全回滚 |
-| `app_power` | 拥有 60 秒活动窗口、语音/UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
+| `app_power` | 拥有 60 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
-| `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和轻睡眠握手 |
+| `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和通用低功耗停网握手 |
 
 番茄钟数据流为：
 
@@ -214,7 +214,7 @@ Manager 快照，不使用周期轮询或额外 Task。
 
 | Task 文件 | 唯一所有状态 |
 | --- | --- |
-| `app_power_task.c` | 无活动窗口、睡眠编号、Timer 刷新计数、按键唤醒状态和失败终态 |
+| `app_power_task.c` | 无活动窗口、离线显示状态、睡眠编号、Timer 刷新计数、按键唤醒状态和失败终态 |
 | `app_environment_task.c` | 两类产品采样截止时间和采样命令 |
 | `app_network_task.c` | 网络产品命令队列、Dashboard 绝对截止与失败退避、OTA、类型化互斥租约、会话退避和策略 Timer |
 | `app_web_file_task.c` | 网页文件管理启动、运行和可失败停止的一次性产品状态机 |
@@ -233,16 +233,20 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 `UINT64_MAX` 只分配一次，耗尽后停止与后续启动都拒绝，避免回绕后吞掉清理重试。Task 退出前
 清空私有句柄并输出最终栈高水位。
 
-当前低功耗阶段同时使用语音、UI Runtime 与网络链路的可逆 `stop/start`。睡前先关闭语音
-新会话入口，确认 AFE Task 停泊且输入输出关闭；再关闭 UI 业务入口、停止 LVGL timer、
-等待显示 DMA 静止，最后由 `app_network` 停止 Dashboard 截止、
-失败退避及其他产品 Timer、远端日志、
-Network Manager 和 Wi-Fi Driver。ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止
-时间更近则缩短本轮间隔以对齐计划整点；普通周期保持停网；
-可信 UTC 到达 Dashboard 返回的 `next_refresh_at_utc` 后，电源 Task 恢复网络、同步等待
-Dashboard 完成、保存新截止时间并再次停网，随后 UI 从 Presenter 重同步并等待完整显示传输。
-同步失败保留旧截止时间，下个 Timer 周期重试。Timer 维护窗口不启动语音 Runtime；左右键
-唤醒则按以下链路恢复产品按键事实：
+当前低功耗阶段把“停网”和“Light-sleep”拆成两个可组合步骤。无活动窗口结束后，如果
+`app_pomodoro_requires_live_display()` 报告运行中的番茄钟正处于前台，`app_power` 进入
+`APP_POWER_STATE_OFFLINE_DISPLAY`：只由 `app_network` 停止 Dashboard 截止、失败退避及其他
+产品 Timer、远端日志、Network Manager 和 Wi-Fi Driver，UI Runtime 与一秒番茄钟 Timer
+继续运行。Dashboard 截止到达时临时恢复网络并完成维护，活动代次未改变则再次停网；任意按键、
+阶段完成或离开运行中的番茄钟页都会恢复正常网络策略。
+
+其他场景继续执行完整 Light-sleep：睡前先关闭语音新会话入口，确认 AFE Task 停泊且输入输出
+关闭；再关闭 UI 业务入口、停止 LVGL timer、等待显示 DMA 静止，最后使用同一低功耗停网握手。
+ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止时间更近则缩短本轮间隔以对齐计划整点；
+普通周期保持停网；可信 UTC 到达 Dashboard 返回的 `next_refresh_at_utc` 后，电源 Task 恢复
+网络、同步等待 Dashboard 完成、保存新截止时间并再次停网，随后 UI 从 Presenter 重同步并
+等待完整显示传输。同步失败保留旧截止时间，下个 Timer 周期重试。Timer 维护窗口不启动语音
+Runtime；左右键唤醒则按以下链路恢复产品按键事实：
 
 ```text
 EXT1 左右键掩码 → app_power 按网络 → 语音 → UI 恢复

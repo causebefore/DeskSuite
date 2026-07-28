@@ -159,8 +159,12 @@ Assert-Contains $powerTask 'voice\.network_lease_held'
 Assert-InOrder $powerTask @(
     'stop_voice_for_sleep(expected_generation)',
     'stop_ui_for_sleep(expected_generation)',
-    'stop_network_for_sleep(expected_generation)'
+    'stop_network_for_power_save(expected_generation)'
 )
+Assert-SectionNotContains $powerTask `
+    'static esp_err_t run_offline_display_session' `
+    'static esp_err_t run_sleep_session' `
+    'stop_voice_for_sleep|stop_ui_for_sleep|device_power_enter_light_sleep'
 Assert-InOrder $powerTask @(
     'resume_network_runtime()',
     'resume_voice_runtime()',

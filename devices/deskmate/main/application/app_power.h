@@ -1,6 +1,6 @@
 /**
  * @file app_power.h
- * @brief 编排 DeskMate 按键与内部 Timer Light-sleep 闭环
+ * @brief 编排 DeskMate 离线显示与内部 Timer Light-sleep 闭环
  */
 #pragma once
 
@@ -17,12 +17,13 @@ extern "C"
     /** @brief 电源 Application 的唯一运行状态 */
     typedef enum
     {
-        APP_POWER_STATE_STOPPED = 0, /*!< 尚未启动或已经停止 */
-        APP_POWER_STATE_AWAKE,       /*!< 等待无活动窗口或产品阻止条件解除 */
-        APP_POWER_STATE_PREPARING,   /*!< 检查活动代次并可逆停止语音、UI 与网络 */
-        APP_POWER_STATE_SLEEPING,    /*!< 当前 Task 阻塞在 Light-sleep 入口 */
-        APP_POWER_STATE_RESUMING,    /*!< 已唤醒并恢复、刷新 UI */
-        APP_POWER_STATE_BLOCKED,     /*!< 睡眠或恢复状态不可靠，禁止再次自动睡眠 */
+        APP_POWER_STATE_STOPPED = 0,     /*!< 尚未启动或已经停止 */
+        APP_POWER_STATE_AWAKE,           /*!< 等待无活动窗口或产品阻止条件解除 */
+        APP_POWER_STATE_OFFLINE_DISPLAY, /*!< Wi-Fi 已停，UI 保持运行并继续前台秒级刷新 */
+        APP_POWER_STATE_PREPARING,       /*!< 检查活动代次并可逆停止语音、UI 与网络 */
+        APP_POWER_STATE_SLEEPING,        /*!< 当前 Task 阻塞在 Light-sleep 入口 */
+        APP_POWER_STATE_RESUMING,        /*!< 已唤醒并恢复、刷新 UI */
+        APP_POWER_STATE_BLOCKED,         /*!< 睡眠或恢复状态不可靠，禁止再次自动睡眠 */
     } app_power_state_t;
 
     /** @brief 当前睡眠循环正在执行的显式步骤 */
@@ -55,11 +56,11 @@ extern "C"
     /** @brief 暂时阻止自动睡眠的只读产品状态位 */
     typedef enum
     {
-        APP_POWER_BLOCKER_NONE          = 0U,
-        APP_POWER_BLOCKER_VOICE         = 1U << 0,
-        APP_POWER_BLOCKER_AUDIO         = 1U << 1,
-        APP_POWER_BLOCKER_OTA           = 1U << 2,
-        APP_POWER_BLOCKER_NETWORK_LEASE = 1U << 3,
+        APP_POWER_BLOCKER_NONE            = 0U,
+        APP_POWER_BLOCKER_VOICE           = 1U << 0,
+        APP_POWER_BLOCKER_AUDIO           = 1U << 1,
+        APP_POWER_BLOCKER_OTA             = 1U << 2,
+        APP_POWER_BLOCKER_NETWORK_LEASE   = 1U << 3,
         APP_POWER_BLOCKER_AUDIO_PROCESSOR = 1U << 4,
     } app_power_blocker_t;
 
@@ -102,9 +103,10 @@ extern "C"
     /**
      * @brief 启动唯一的按键与内部 Timer Light-sleep 编排 Task
      *
-     * 无活动窗口结束后，Task 可逆停止 UI 与网络并进入轻睡眠。Timer 唤醒只在服务端截止
-     * 时间到达时恢复网络、同步 Dashboard，再停网并刷新一次屏幕后继续睡眠；左右按键唤醒
-     * 则按网络、语音、UI 的顺序恢复正常交互窗口。
+     * 无活动窗口结束后，若运行中的番茄钟页需要秒级显示，则只停止网络并保持 UI；其他场景
+     * 可逆停止 UI 与网络并进入轻睡眠。Timer 唤醒只在服务端截止时间到达时恢复网络、同步
+     * Dashboard，再停网并刷新一次屏幕后继续睡眠；左右按键唤醒则按网络、语音、UI 的顺序
+     * 恢复正常交互窗口。
      *
      * @return ESP_OK 已启动；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_NO_MEM 创建失败
      */

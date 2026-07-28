@@ -96,9 +96,9 @@ esp_err_t app_network_start_portal(void);
 esp_err_t app_network_cancel_sync(void);
 
 /**
- * @brief 在轻睡眠维护窗口同步执行一次 Dashboard 拉取
+ * @brief 在低功耗维护窗口同步执行一次 Dashboard 拉取
  *
- * 调用前必须先通过 app_network_resume_from_light_sleep() 恢复网络策略。本函数等待唯一网络
+ * 调用前必须先通过 app_network_resume_from_power_save() 恢复网络策略。本函数等待唯一网络
  * Application Task 完成联网、Dashboard 更新及下一刷新截止时间解析后才返回；命令一旦被
  * Task 认领，timeout_ms 不会截断正在执行的 HTTP 事务。
  *
@@ -107,7 +107,7 @@ esp_err_t app_network_cancel_sync(void);
  *         ESP_ERR_INVALID_STATE 网络仍暂停或存在同步、OTA、租约冲突；ESP_ERR_TIMEOUT
  *         命令未及时认领；或联网、传输、协议和 Dashboard Store 错误码
  */
-esp_err_t app_network_sync_for_light_sleep(uint32_t timeout_ms);
+esp_err_t app_network_sync_for_power_save(uint32_t timeout_ms);
 
 /**
  * @brief 复制当前有效的下一次 Dashboard 自动同步 UTC 截止
@@ -133,21 +133,21 @@ esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp)
 esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_context);
 
 /**
- * @brief 同步暂停网络策略与底层连接，为整机轻睡眠做准备
+ * @brief 同步暂停网络策略与底层连接，进入无网络低功耗状态
  *
  * 命令在唯一网络 Application Task 中串行处理：停止同步、OTA、会话退避和校时 Timer，
  * 再同步停止 Network Manager 会话及其 Wi-Fi/Portal 资源。任一互斥网络产品租约或 OTA
- * 活跃时拒绝暂停。
+ * 活跃时拒绝暂停。调用方可以继续保持 UI 运行，也可以在本函数成功后进一步进入 Light-sleep。
  *
  * @param[in] timeout_ms 最长等待回执时间，单位毫秒
  * @return ESP_OK 已暂停；ESP_ERR_INVALID_ARG timeout_ms 为 0；
  *         ESP_ERR_INVALID_STATE 任务未初始化或当前有冲突；ESP_ERR_TIMEOUT 未及时处理；
  *         或回执资源、底层停机错误码
  */
-esp_err_t app_network_suspend_for_light_sleep(uint32_t timeout_ms);
+esp_err_t app_network_suspend_for_power_save(uint32_t timeout_ms);
 
 /**
- * @brief 同步恢复轻睡眠前暂停的网络连接与周期策略
+ * @brief 同步恢复低功耗期间暂停的网络连接与周期策略
  *
  * 本函数只保证连接策略已经重新启动，不等待 STA 真正联网；重复恢复保持幂等。
  *
@@ -156,7 +156,7 @@ esp_err_t app_network_suspend_for_light_sleep(uint32_t timeout_ms);
  *         ESP_ERR_INVALID_STATE 任务未初始化；ESP_ERR_TIMEOUT 未及时处理；
  *         或回执资源、命令投递错误码
  */
-esp_err_t app_network_resume_from_light_sleep(uint32_t timeout_ms);
+esp_err_t app_network_resume_from_power_save(uint32_t timeout_ms);
 
 /**
  * @brief 启用或停用 Dashboard 自动同步

@@ -138,6 +138,16 @@ extern "C"
     esp_err_t app_pomodoro_get_status_copy(app_pomodoro_status_t *out_status);
 
     /**
+     * @brief 查询当前是否需要保持番茄钟前台秒级刷新
+     *
+     * 仅在番茄钟处于 RUNNING 且当前页面就是番茄钟页时返回 true。该只读产品事实供电源
+     * Application 决定只停网络还是进入完整 Light-sleep，不修改页面或番茄钟状态。
+     *
+     * @return true 应保持 UI 和一秒刷新运行；false 可以按普通策略进入 Light-sleep
+     */
+    bool app_pomodoro_requires_live_display(void);
+
+    /**
      * @brief 读取运行阶段距离单调截止的相对毫秒数
      *
      * @param[out] out_interval_ms 剩余间隔，至少为 1
