@@ -252,28 +252,14 @@ esp_err_t web_file_handle_file_get(httpd_req_t *request);
 esp_err_t web_file_handle_file_put(httpd_req_t *request);
 
 /**
- * @brief 认证后创建一个新目录
+ * @brief 认证后执行目录创建、常规文件移动或项目删除
+ *
+ * HTTP PUT、PATCH 和 DELETE 分别映射到目录创建、文件移动和项目删除；其他 Method 被拒绝。
  *
  * @param[in] request HTTPD 请求
  * @return ESP_OK 响应成功；其他错误码表示拒绝或文件系统操作失败
  */
-esp_err_t web_file_handle_directory_put(httpd_req_t *request);
-
-/**
- * @brief 认证后把一个常规文件重命名或移动到目标路径
- *
- * @param[in] request HTTPD 请求
- * @return ESP_OK 响应成功；其他错误码表示拒绝或文件系统操作失败
- */
-esp_err_t web_file_handle_file_patch(httpd_req_t *request);
-
-/**
- * @brief 认证后删除一个常规文件或空目录
- *
- * @param[in] request HTTPD 请求
- * @return ESP_OK 响应成功；其他错误码表示拒绝或文件系统操作失败
- */
-esp_err_t web_file_handle_file_delete(httpd_req_t *request);
+esp_err_t web_file_handle_mutation(httpd_req_t *request);
 
 /**
  * @brief 校验上传长度不超过固定的 500 MiB 上限

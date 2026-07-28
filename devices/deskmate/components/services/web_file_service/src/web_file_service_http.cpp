@@ -439,77 +439,31 @@ static esp_err_t handle_session_post(httpd_req_t *request)
     return error;
 }
 
-static const httpd_uri_t s_index_uri = {
-    .uri      = "/",
-    .method   = HTTP_GET,
-    .handler  = handle_index_get,
-    .user_ctx = NULL,
-};
-
-static const httpd_uri_t s_session_uri = {
-    .uri      = "/api/session",
-    .method   = HTTP_POST,
-    .handler  = handle_session_post,
-    .user_ctx = NULL,
-};
-
-static const httpd_uri_t s_files_uri = {
-    .uri      = "/api/files",
-    .method   = HTTP_GET,
-    .handler  = web_file_handle_files_get,
-    .user_ctx = NULL,
-};
-
-static const httpd_uri_t s_file_uri = {
-    .uri      = "/api/file",
-    .method   = HTTP_GET,
-    .handler  = web_file_handle_file_get,
-    .user_ctx = NULL,
-};
-
-static const httpd_uri_t s_file_put_uri = {
-    .uri      = "/api/file",
-    .method   = HTTP_PUT,
-    .handler  = web_file_handle_file_put,
-    .user_ctx = NULL,
-};
-
-static const httpd_uri_t s_directory_put_uri = {
-    .uri      = "/api/directory",
-    .method   = HTTP_PUT,
-    .handler  = web_file_handle_directory_put,
-    .user_ctx = NULL,
-};
-
-static const httpd_uri_t s_file_patch_uri = {
-    .uri      = "/api/file",
-    .method   = HTTP_PATCH,
-    .handler  = web_file_handle_file_patch,
-    .user_ctx = NULL,
-};
-
-static const httpd_uri_t s_file_delete_uri = {
-    .uri      = "/api/file",
-    .method   = HTTP_DELETE,
-    .handler  = web_file_handle_file_delete,
-    .user_ctx = NULL,
-};
-
-struct web_file_uri_registration_t
+struct web_file_route_t
 {
-    const httpd_uri_t *uri;
-    uint32_t           bit;
+    httpd_uri_t uri;
+    uint32_t    bit;
 };
 
-static const web_file_uri_registration_t s_uri_registrations[] = {
-    { .uri = &s_index_uri,         .bit = WEB_FILE_INDEX_HANDLER_BIT         },
-    { .uri = &s_session_uri,       .bit = WEB_FILE_SESSION_HANDLER_BIT       },
-    { .uri = &s_files_uri,         .bit = WEB_FILE_FILES_HANDLER_BIT         },
-    { .uri = &s_file_uri,          .bit = WEB_FILE_FILE_HANDLER_BIT          },
-    { .uri = &s_file_put_uri,      .bit = WEB_FILE_FILE_PUT_HANDLER_BIT      },
-    { .uri = &s_directory_put_uri, .bit = WEB_FILE_DIRECTORY_PUT_HANDLER_BIT },
-    { .uri = &s_file_patch_uri,    .bit = WEB_FILE_FILE_PATCH_HANDLER_BIT    },
-    { .uri = &s_file_delete_uri,   .bit = WEB_FILE_FILE_DELETE_HANDLER_BIT   },
+/** @brief 构造同时包含 HTTPD 描述和停止期注销位的常量路由 */
+static constexpr web_file_route_t web_file_make_route(const char *path, httpd_method_t method,
+                                                      esp_err_t (*handler)(httpd_req_t *), uint32_t bit)
+{
+    return {
+        .uri = { .uri = path, .method = method, .handler = handler, .user_ctx = NULL },
+        .bit = bit,
+    };
+}
+
+static constexpr web_file_route_t s_routes[] = {
+    web_file_make_route("/",              HTTP_GET,    handle_index_get,          WEB_FILE_INDEX_HANDLER_BIT),
+    web_file_make_route("/api/session",   HTTP_POST,   handle_session_post,       WEB_FILE_SESSION_HANDLER_BIT),
+    web_file_make_route("/api/files",     HTTP_GET,    web_file_handle_files_get, WEB_FILE_FILES_HANDLER_BIT),
+    web_file_make_route("/api/file",      HTTP_GET,    web_file_handle_file_get,  WEB_FILE_FILE_HANDLER_BIT),
+    web_file_make_route("/api/file",      HTTP_PUT,    web_file_handle_file_put,  WEB_FILE_FILE_PUT_HANDLER_BIT),
+    web_file_make_route("/api/directory", HTTP_PUT,    web_file_handle_mutation,  WEB_FILE_DIRECTORY_PUT_HANDLER_BIT),
+    web_file_make_route("/api/file",      HTTP_PATCH,  web_file_handle_mutation,  WEB_FILE_FILE_PATCH_HANDLER_BIT),
+    web_file_make_route("/api/file",      HTTP_DELETE, web_file_handle_mutation,  WEB_FILE_FILE_DELETE_HANDLER_BIT),
 };
 
 /**
@@ -531,18 +485,18 @@ static void web_file_unregister_handlers_work(void *argument)
     uint32_t  remaining_mask = registered_mask;
     esp_err_t first_error    = ESP_OK;
 
-    for (size_t index = 0U; index < sizeof(s_uri_registrations) / sizeof(s_uri_registrations[0]); ++index)
+    for (size_t index = 0U; index < sizeof(s_routes) / sizeof(s_routes[0]); ++index)
     {
-        const web_file_uri_registration_t *registration = &s_uri_registrations[index];
-        if ((registered_mask & registration->bit) == 0U)
+        const web_file_route_t *route = &s_routes[index];
+        if ((registered_mask & route->bit) == 0U)
         {
             continue;
         }
 
-        const esp_err_t error = httpd_unregister_uri_handler(server, registration->uri->uri, registration->uri->method);
+        const esp_err_t error = httpd_unregister_uri_handler(server, route->uri.uri, route->uri.method);
         if (error == ESP_OK || error == ESP_ERR_NOT_FOUND)
         {
-            remaining_mask &= ~registration->bit;
+            remaining_mask &= ~route->bit;
         }
         else if (first_error == ESP_OK)
         {
@@ -563,7 +517,7 @@ static void web_file_unregister_handlers_work(void *argument)
     }
 }
 
-static_assert(sizeof(s_uri_registrations) / sizeof(s_uri_registrations[0]) == WEB_FILE_HTTPD_MAX_URI_HANDLERS,
+static_assert(sizeof(s_routes) / sizeof(s_routes[0]) == WEB_FILE_HTTPD_MAX_URI_HANDLERS,
               "HTTPD handler 配置必须覆盖全部网页文件 URI");
 
 /**
@@ -575,15 +529,14 @@ static_assert(sizeof(s_uri_registrations) / sizeof(s_uri_registrations[0]) == WE
 esp_err_t web_file_http_register_handlers(httpd_handle_t server)
 {
     esp_err_t error = ESP_OK;
-    for (size_t index = 0U; error == ESP_OK && index < sizeof(s_uri_registrations) / sizeof(s_uri_registrations[0]);
-         ++index)
+    for (size_t index = 0U; error == ESP_OK && index < sizeof(s_routes) / sizeof(s_routes[0]); ++index)
     {
-        const web_file_uri_registration_t *registration = &s_uri_registrations[index];
-        error = httpd_register_uri_handler(server, registration->uri);
+        const web_file_route_t *route = &s_routes[index];
+        error                         = httpd_register_uri_handler(server, &route->uri);
         if (error == ESP_OK)
         {
             xSemaphoreTake(s_context.lock, portMAX_DELAY);
-            s_context.registered_handler_mask |= registration->bit;
+            s_context.registered_handler_mask |= route->bit;
             xSemaphoreGive(s_context.lock);
         }
     }

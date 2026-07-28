@@ -274,15 +274,31 @@ static esp_err_t web_file_send_mutation_success(httpd_req_t *request, web_file_m
  * 其他文件请求并发。每次请求只提交一个文件系统变更，多选操作由浏览器按顺序调用。
  *
  * @param[in] request HTTP 请求
- * @param[in] mutation 变更类型
  * @return ESP_OK 响应成功；其他错误码表示请求被拒绝或发送失败
  */
-static esp_err_t web_file_handle_mutation_request(httpd_req_t *request, web_file_mutation_t mutation)
+esp_err_t web_file_handle_mutation(httpd_req_t *request)
 {
     if (request == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
+
+    web_file_mutation_t mutation;
+    switch (request->method)
+    {
+        case HTTP_PUT:
+            mutation = WEB_FILE_MUTATION_CREATE_DIRECTORY;
+            break;
+        case HTTP_PATCH:
+            mutation = WEB_FILE_MUTATION_MOVE_FILE;
+            break;
+        case HTTP_DELETE:
+            mutation = WEB_FILE_MUTATION_DELETE_ITEM;
+            break;
+        default:
+            return ESP_ERR_NOT_SUPPORTED;
+    }
+
     if (!web_file_handler_enter())
     {
         web_file_handler_leave();
@@ -339,20 +355,4 @@ static esp_err_t web_file_handle_mutation_request(httpd_req_t *request, web_file
     web_file_transfer_release();
     web_file_handler_leave();
     return error;
-}
-
-
-esp_err_t web_file_handle_directory_put(httpd_req_t *request)
-{
-    return web_file_handle_mutation_request(request, WEB_FILE_MUTATION_CREATE_DIRECTORY);
-}
-
-esp_err_t web_file_handle_file_patch(httpd_req_t *request)
-{
-    return web_file_handle_mutation_request(request, WEB_FILE_MUTATION_MOVE_FILE);
-}
-
-esp_err_t web_file_handle_file_delete(httpd_req_t *request)
-{
-    return web_file_handle_mutation_request(request, WEB_FILE_MUTATION_DELETE_ITEM);
 }
