@@ -11,6 +11,8 @@ DeskSuite 是面向桌面智能设备的统一项目，包含两条设备产品�
 ```text
 DeskSuite/
 ├─ build_tools/             # 多产品 ESP-IDF 构建与 OTA 发布工具
+├─ docs/
+│  └─ standards/            # 全仓嵌入式 C/C++ 术语与命名规范
 ├─ devices/
 │  ├─ photopainter/       # PhotoPainter ESP32-S3 固件
 │  └─ deskmate/           # DeskMate ESP32-S3 固件
@@ -72,6 +74,14 @@ services/hub/firmwares/
 清单按固件兼容目标隔离，二进制在全局制品库中按哈希去重。设备统一请求
 `POST /api/v1/ota/check`，通过 `product_id` 与 `firmware_target` 选择并双重校验清单。
 各目标的本地单调版本状态保存在 `.build-state/ota/<firmware_target>.version`，不进入 Git。
+
+## 开发规范
+
+- [嵌入式 C/C++ 术语与命名规范](docs/standards/c_cpp_naming_conventions.md)
+- [嵌入式 C/C++ 受控术语表](docs/standards/c_cpp_terminology.md)
+
+两份文档面向嵌入式 C 公共 API 和 C++ 私有实现。引入受控术语表中不存在的公共动作词、
+生命周期/并发/所有权名词或跨模块领域词时，必须先登记术语，并向用户说明新增理由和适用边界。
 
 ## 命名约定
 

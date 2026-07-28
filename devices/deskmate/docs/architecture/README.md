@@ -32,7 +32,9 @@
 
 | 文档 | 审阅目标 |
 | --- | --- |
-| [DeskMate 术语与命名规范](naming_conventions.md) | 统一 C/C++ 标识符、动作词、名词、同步/异步语义和迁移词表 |
+| [嵌入式 C/C++ 术语与命名规范](../../../../docs/standards/c_cpp_naming_conventions.md) | 统一嵌入式 C 公共 API 与 C++ 私有实现的命名规则 |
+| [嵌入式 C/C++ 受控术语表](../../../../docs/standards/c_cpp_terminology.md) | 定义动作词、语义名词、固定译法及新增术语告知流程 |
+| [DeskMate 命名迁移审计](deskmate_naming_audit.md) | 记录当前项目相对通用规范的具体迁移候选 |
 
 审阅草案不属于已经确认的目标规范。在用户确认前，不得据此批量修改公共符号；与上方已确认
 规范冲突时，仍以上方规范为准。
