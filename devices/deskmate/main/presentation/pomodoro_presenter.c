@@ -77,7 +77,7 @@ static const char *hint_for(pomodoro_view_run_state_t state)
         case POMODORO_VIEW_RUN_PAUSED:
             return "左长继续 / 右长重置";
         case POMODORO_VIEW_RUN_DONE:
-            return "左长确认 / 右长取消";
+            return "左长取消 / 右长确认";
         case POMODORO_VIEW_RUN_IDLE:
         default:
             return "长按左键开始";

@@ -495,7 +495,7 @@ bool app_pomodoro_consume_input(device_button_event_t key_event)
                 (void) app_pomodoro_request_toggle_pause();
                 return true;
             case APP_POMODORO_RUN_STATE_DONE:
-                (void) app_pomodoro_request_confirm();
+                (void) app_pomodoro_request_reset();
                 return true;
             default:
                 return false;
@@ -509,8 +509,10 @@ bool app_pomodoro_consume_input(device_button_event_t key_event)
                 (void) app_pomodoro_request_skip();
                 break;
             case APP_POMODORO_RUN_STATE_PAUSED:
-            case APP_POMODORO_RUN_STATE_DONE:
                 (void) app_pomodoro_request_reset();
+                break;
+            case APP_POMODORO_RUN_STATE_DONE:
+                (void) app_pomodoro_request_confirm();
                 break;
             case APP_POMODORO_RUN_STATE_IDLE:
             default:

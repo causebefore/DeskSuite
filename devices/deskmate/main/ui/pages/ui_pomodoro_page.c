@@ -96,7 +96,7 @@ static void create_layout(lv_obj_t *parent)
     }
 
     s_cycle_label = ui_common_new_text16_regular(parent);
-    ui_common_set_label(s_cycle_label, "", 12, 184, 376, 22, LV_TEXT_ALIGN_LEFT);
+    ui_common_set_label(s_cycle_label, "", 12, 194, 376, 22, LV_TEXT_ALIGN_LEFT);
     (void) ui_common_new_rule(parent, 12, 224, 376, UI_RULE_THIN);
     s_hint_label = ui_common_new_text16_semibold(parent);
     ui_common_set_label(s_hint_label, "", 12, 234, 376, 22, LV_TEXT_ALIGN_CENTER);
