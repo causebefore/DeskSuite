@@ -84,6 +84,12 @@ static const char *hint_for(pomodoro_view_run_state_t state)
     }
 }
 
+/** @brief 把任意秒数安全换算为向上取整的分钟，避免展示层整数溢出 */
+static uint32_t ceil_minutes(uint32_t seconds)
+{
+    return (seconds / 60U) + ((seconds % 60U) != 0U ? 1U : 0U);
+}
+
 static void build_view(const pomodoro_presenter_input_t *input, pomodoro_view_model_t *view)
 {
     memset(view, 0, sizeof(*view));
@@ -106,11 +112,13 @@ static void build_view(const pomodoro_presenter_input_t *input, pomodoro_view_mo
     view->last_error            = input->last_error;
 
     (void) snprintf(view->phase_text, sizeof(view->phase_text), "%s", phase_text(input->phase, input->run_state));
+    const uint32_t remaining_minutes = input->remaining_seconds / 60U;
+    const unsigned display_minutes   = remaining_minutes <= 999U ? (unsigned) remaining_minutes : 999U;
     (void) snprintf(view->time_text,
                     sizeof(view->time_text),
-                    "%02lu:%02lu",
-                    (unsigned long) (input->remaining_seconds / 60U),
-                    (unsigned long) (input->remaining_seconds % 60U));
+                    "%02u:%02u",
+                    display_minutes,
+                    (unsigned) (input->remaining_seconds % 60U));
     const unsigned total_count = (unsigned) input->today_count + (unsigned) input->pending_count;
     (void) snprintf(view->count_text,
                     sizeof(view->count_text),
@@ -135,7 +143,7 @@ static void build_view(const pomodoro_presenter_input_t *input, pomodoro_view_mo
     }
     if (view->end_text[0] == '\0')
     {
-        const uint32_t minutes = (input->remaining_seconds + 59U) / 60U;
+        const uint32_t minutes = ceil_minutes(input->remaining_seconds);
         (void) snprintf(view->end_text, sizeof(view->end_text), "约 %lu 分钟后结束", (unsigned long) minutes);
     }
 
@@ -203,7 +211,8 @@ esp_err_t pomodoro_presenter_apply(const pomodoro_presenter_input_t *input, bool
 
     if (*out_accepted)
     {
-        const uint16_t minutes = (uint16_t) ((input->remaining_seconds + 59U) / 60U);
+        const uint32_t rounded_minutes = ceil_minutes(input->remaining_seconds);
+        const uint16_t minutes         = rounded_minutes <= UINT16_MAX ? (uint16_t) rounded_minutes : UINT16_MAX;
         status_bar_presenter_set_pomodoro(status_bar_state_for(input->run_state), minutes);
     }
     return ESP_OK;
