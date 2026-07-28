@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>设备配网</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #f4f6f8;
+            color: #17202a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        }
+
+        .wrap {
+            max-width: 520px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .card {
+            padding: 20px;
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 14px;
+            box-shadow: 0 8px 28px #0001;
+        }
+
+        h1 {
+            margin: 0 0 6px;
+            font-size: 24px;
+        }
+
+        .sub {
+            margin: 0 0 18px;
+            color: #5d6d7e;
+            line-height: 1.5;
+        }
+
+        .status {
+            margin: 12px 0;
+            padding: 10px 12px;
+            color: #1f5f99;
+            background: #eef6ff;
+            border-radius: 10px;
+        }
+
+        .scanHead {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .scanHead strong {
+            font-size: 15px;
+        }
+
+        .btn {
+            padding: 10px 14px;
+            color: #fff;
+            font-weight: 700;
+            background: #17202a;
+            border: 0;
+            border-radius: 10px;
+        }
+
+        .btn.secondary {
+            color: #17202a;
+            background: #edf1f5;
+        }
+
+        .btn:disabled {
+            opacity: .55;
+        }
+
+        .list {
+            display: grid;
+            gap: 8px;
+            margin: 10px 0 16px;
+        }
+
+        .wifi {
+            width: 100%;
+            padding: 12px;
+            text-align: left;
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 12px;
+        }
+
+        .wifi.sel {
+            background: #edf5ff;
+            border-color: #1f7aec;
+        }
+
+        .wifi b {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 16px;
+        }
+
+        .wifi span {
+            color: #6b7a8a;
+            font-size: 13px;
+        }
+
+        label {
+            display: block;
+            margin: 14px 0 6px;
+            font-weight: 700;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 1px solid #ccd6e0;
+            border-radius: 10px;
+        }
+
+        details {
+            margin: 8px 0 14px;
+            color: #5d6d7e;
+        }
+
+        summary {
+            cursor: pointer;
+        }
+
+        .check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            font-weight: 400;
+        }
+
+        .check input {
+            width: auto;
+        }
+
+        .advanced {
+            margin-top: 18px;
+        }
+
+        .submit {
+            width: 100%;
+            margin-top: 16px;
+            padding: 13px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 800;
+            background: #1f7aec;
+            border: 0;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <h1>设备配网</h1>
+            <p class="sub">正在自动搜索附近 Wi-Fi。选择网络后输入密码，保存后设备会使用新配置联网。</p>
+            <div id="status" class="status" aria-live="polite">准备搜索...</div>
+            <form id="configForm" method="post" action="/save">
+                <input id="ssid" name="ssid" type="hidden">
+                <div class="scanHead">
+                    <strong>附近 Wi-Fi</strong>
+                    <button id="scanBtn" class="btn secondary" type="button">重新搜索</button>
+                </div>
+                <div id="ssidList" class="list"></div>
+                <details>
+                    <summary>手动输入 Wi-Fi 名称</summary>
+                    <label for="manualSsid">Wi-Fi 名称</label>
+                    <input id="manualSsid" autocomplete="off" placeholder="隐藏网络或搜索失败时填写">
+                </details>
+                <label for="password">Wi-Fi 密码</label>
+                <input id="password" name="pass" type="password" placeholder="请输入 Wi-Fi 密码">
+                <label class="check">
+                    <input id="showPass" type="checkbox">
+                    显示密码
+                </label>
+                <details class="advanced">
+                    <summary>高级设置（可选）</summary>
+                    <label for="service">服务地址</label>
+                    <input id="service" name="service" value="{{CONNECT_PORTAL_DEFAULT_SERVICE_URL}}">
+                    <label for="token">设备 Token</label>
+                    <input id="token" name="token" autocomplete="off">
+                </details>
+                <button id="submitBtn" class="submit" type="submit">保存并连接</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        const list = document.getElementById("ssidList");
+        const ssid = document.getElementById("ssid");
+        const manual = document.getElementById("manualSsid");
+        const password = document.getElementById("password");
+        const status = document.getElementById("status");
+        const scanBtn = document.getElementById("scanBtn");
+        const submitBtn = document.getElementById("submitBtn");
+        let selectedEncrypted = false;
+        let lastActivity = 0;
+
+        function activity() {
+            const now = Date.now();
+            if (now - lastActivity < 3000) {
+                return;
+            }
+            lastActivity = now;
+            fetch("/activity", { method: "POST", cache: "no-store" }).catch(() => {});
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/[&<>"']/g, character => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "\"": "&quot;",
+                "'": "&#39;"
+            })[character]);
+        }
+
+        function choose(accessPoint, button) {
+            if (ssid.value !== accessPoint.ssid) {
+                password.value = "";
+            }
+            ssid.value = accessPoint.ssid;
+            manual.value = accessPoint.ssid;
+            selectedEncrypted = !accessPoint.open;
+            password.disabled = accessPoint.open;
+            password.placeholder = accessPoint.open ? "开放网络无需密码" : "请输入 Wi-Fi 密码";
+            document.querySelectorAll(".wifi").forEach(item => item.classList.remove("sel"));
+            if (button) {
+                button.classList.add("sel");
+            }
+            status.textContent = `已选择：${accessPoint.ssid}`;
+        }
+
+        manual.oninput = () => {
+            if (ssid.value !== manual.value) {
+                password.value = "";
+            }
+            ssid.value = manual.value;
+            selectedEncrypted = false;
+            password.disabled = false;
+            password.placeholder = "请输入 Wi-Fi 密码";
+            document.querySelectorAll(".wifi").forEach(item => item.classList.remove("sel"));
+            status.textContent = manual.value ? `已填写：${manual.value}` : "请选择或填写 Wi-Fi 名称";
+        };
+
+        async function scan() {
+            status.textContent = "正在搜索附近 Wi-Fi...";
+            scanBtn.disabled = true;
+            try {
+                const start = await fetch("/scan/start");
+                if (!start.ok) {
+                    throw new Error();
+                }
+                let result;
+                for (let index = 0; index < 20; index += 1) {
+                    const response = await fetch("/scan");
+                    if (!response.ok) {
+                        throw new Error();
+                    }
+                    result = await response.json();
+                    if (!result.scanning) {
+                        break;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                const accessPoints = result && result.aps ? result.aps : [];
+                list.innerHTML = "";
+                if (!accessPoints.length) {
+                    status.textContent = "未搜索到 Wi-Fi，可手动输入";
+                    return;
+                }
+                list.innerHTML = accessPoints.map((accessPoint, index) =>
+                    `<button class="wifi" type="button" data-i="${index}">` +
+                    `<b>${escapeHtml(accessPoint.ssid)}</b>` +
+                    `<span>${accessPoint.rssi} dBm · ${accessPoint.open ? "开放" : "加密"}</span>` +
+                    "</button>"
+                ).join("");
+                document.querySelectorAll(".wifi").forEach((button, index) => {
+                    button.onclick = () => choose(accessPoints[index], button);
+                });
+                const selected = accessPoints.findIndex(accessPoint => accessPoint.ssid === ssid.value);
+                if (selected >= 0) {
+                    document.querySelectorAll(".wifi")[selected].classList.add("sel");
+                }
+                status.textContent = ssid.value ? `当前选择：${ssid.value}` : "请选择要连接的 Wi-Fi";
+            } catch (error) {
+                status.textContent = "搜索失败，可手动输入 Wi-Fi 名称";
+            } finally {
+                scanBtn.disabled = false;
+            }
+        }
+
+        scanBtn.onclick = scan;
+        document.getElementById("showPass").onchange = event => {
+            password.type = event.target.checked ? "text" : "password";
+        };
+        document.getElementById("configForm").onsubmit = event => {
+            ssid.value = manual.value;
+            if (!ssid.value.trim()) {
+                event.preventDefault();
+                status.textContent = "请先选择或填写 Wi-Fi 名称";
+                manual.focus();
+                return;
+            }
+            if (selectedEncrypted && !password.value) {
+                event.preventDefault();
+                status.textContent = "该 Wi-Fi 需要密码";
+                password.focus();
+                return;
+            }
+            submitBtn.disabled = true;
+            submitBtn.textContent = "正在验证...";
+        };
+        ["pointerdown", "keydown", "input", "change", "wheel"].forEach(name => {
+            document.addEventListener(name, activity);
+        });
+        window.addEventListener("load", () => {
+            activity();
+            scan();
+        });
+    </script>
+</body>
+</html>

@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #include "connect_portal_form.h"
+#include "connect_portal_web.h"
 #include "utils.h"
 
 #define CONNECT_PORTAL_IP              "192.168.4.1"
@@ -34,113 +35,6 @@ static httpd_handle_t s_httpd;
 static esp_netif_t   *s_ap_netif;
 static char           s_portal_status[CONNECT_PORTAL_STATUS_MAX] = "请填写 Wi-Fi 配置";
 static portMUX_TYPE   s_portal_lock                              = portMUX_INITIALIZER_UNLOCKED;
-
-static const char *config_html =
-    "<!doctype html><html><head><meta charset='utf-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>设备配网</title>"
-    "<style>*{box-sizing:border-box}body{margin:0;background:#f4f6f8;color:#17202a;"
-    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif}"
-    ".wrap{max-width:520px;margin:0 auto;padding:20px}.card{background:#fff;"
-    "border:1px solid #dfe5ec;border-radius:14px;padding:20px;box-shadow:0 8px 28px #0001}"
-    "h1{font-size:24px;margin:0 0 6px}.sub{margin:0 0 18px;color:#5d6d7e;line-height:1.5}"
-    ".status{padding:10px 12px;border-radius:10px;background:#eef6ff;color:#1f5f99;margin:12px 0}"
-    ".scanHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}"
-    ".scanHead strong{font-size:15px}.btn{border:0;border-radius:10px;padding:10px 14px;"
-    "background:#17202a;color:#fff;font-weight:700}.btn.secondary{background:#edf1f5;color:#17202a}"
-    ".btn:disabled{opacity:.55}"
-    ".list{display:grid;gap:8px;margin:10px 0 16px}.wifi{width:100%;text-align:left;border:1px solid #dfe5ec;"
-    "background:#fff;border-radius:12px;padding:12px}.wifi.sel{border-color:#1f7aec;background:#edf5ff}"
-    ".wifi b{display:block;font-size:16px;margin-bottom:4px}.wifi span{color:#6b7a8a;font-size:13px}"
-    "label{display:block;margin:14px 0 6px;font-weight:700}input{width:100%;border:1px solid #ccd6e0;"
-    "border-radius:10px;padding:12px;font-size:16px}details{margin:8px 0 14px;color:#5d6d7e}"
-    "summary{cursor:pointer}.check{display:flex;align-items:center;gap:8px;font-weight:400;margin-top:8px}"
-    ".check input{width:auto}.advanced{margin-top:18px}.submit{width:100%;margin-top:16px;padding:13px;"
-    "border:0;border-radius:12px;"
-    "background:#1f7aec;color:white;font-size:16px;font-weight:800}</style></head><body>"
-    "<div class='wrap'><div class='card'>"
-    "<h1>设备配网</h1>"
-    "<p class='sub'>正在自动搜索附近 Wi-Fi。选择网络后输入密码，保存后设备会使用新配置联网。</p>"
-    "<div id='status' class='status' aria-live='polite'>准备搜索...</div>"
-    "<form id='configForm' method='post' action='/save'>"
-    "<input id='ssid' name='ssid' type='hidden'>"
-    "<div class='scanHead'><strong>附近 Wi-Fi</strong>"
-    "<button id='scanBtn' class='btn secondary' type='button'>重新搜索</button></div>"
-    "<div id='ssidList' class='list'></div>"
-    "<details><summary>手动输入 Wi-Fi 名称</summary>"
-    "<label>Wi-Fi 名称</label><input id='manualSsid' autocomplete='off' "
-    "placeholder='隐藏网络或搜索失败时填写'></details>"
-    "<label for='password'>Wi-Fi 密码</label><input id='password' name='pass' type='password' "
-    "placeholder='请输入 Wi-Fi 密码'>"
-    "<label class='check'><input id='showPass' type='checkbox'>显示密码</label>"
-    "<details class='advanced'><summary>高级设置（可选）</summary>"
-    "<label>服务地址</label><input name='service' value='" CONFIG_CONNECT_PORTAL_DEFAULT_SERVICE_URL
-    "'>"
-    "<label>设备 Token</label><input name='token' autocomplete='off'></details>"
-    "<button id='submitBtn' class='submit' type='submit'>保存并连接</button>"
-    "</form>"
-    "<script>"
-    "const list=document.getElementById('ssidList'),ssid=document.getElementById('ssid'),"
-    "manual=document.getElementById('manualSsid'),password=document.getElementById('password'),"
-    "status=document.getElementById('status'),scanBtn=document.getElementById('scanBtn'),"
-    "submitBtn=document.getElementById('submitBtn');let selectedEncrypted=false,lastActivity=0;"
-    "function activity(){const now=Date.now();if(now-lastActivity<3000)return;lastActivity=now;"
-    "fetch('/activity',{method:'POST',cache:'no-store'}).catch(()=>{});}"
-    "function esc(s){return s.replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"
-    "'\"':'&quot;',\"'\":'&#39;'}[c]));}"
-    "function choose(ap,btn){if(ssid.value!==ap.ssid)password.value='';"
-    "ssid.value=ap.ssid;manual.value=ap.ssid;selectedEncrypted=!ap.open;"
-    "password.disabled=ap.open;password.placeholder=ap.open?'开放网络无需密码':'请输入 Wi-Fi 密码';"
-    "document.querySelectorAll('.wifi').forEach(x=>x.classList.remove('sel'));"
-    "if(btn)btn.classList.add('sel');status.textContent='已选择：'+ap.ssid;}"
-    "manual.oninput=()=>{if(ssid.value!==manual.value)password.value='';ssid.value=manual.value;"
-    "selectedEncrypted=false;password.disabled=false;password.placeholder='请输入 Wi-Fi 密码';"
-    "document.querySelectorAll('.wifi').forEach(x=>x.classList.remove('sel'));"
-    "status.textContent=manual.value?'已填写：'+manual.value:'请选择或填写 Wi-Fi 名称';};"
-    "async function scan(){status.textContent='正在搜索附近 Wi-Fi...';scanBtn.disabled=true;"
-    "try{const start=await fetch('/scan/start');if(!start.ok)throw new Error();"
-    "let result;for(let i=0;i<20;i++){const r=await fetch('/scan');if(!r.ok)throw new Error();"
-    "result=await r.json();if(!result.scanning)break;await new Promise(x=>setTimeout(x,500));}"
-    "const aps=result&&result.aps?result.aps:[];"
-    "list.innerHTML='';"
-    "if(!aps.length){status.textContent='未搜索到 Wi-Fi，可手动输入';return;}"
-    "list.innerHTML=aps.map((a,i)=>`<button class=\"wifi\" type=\"button\" data-i=\"${i}\">"
-    "<b>${esc(a.ssid)}</b><span>${a.rssi} dBm · ${a.open?'开放':'加密'}</span></button>`).join('');"
-    "document.querySelectorAll('.wifi').forEach((b,i)=>b.onclick=()=>choose(aps[i],b));"
-    "const selected=aps.findIndex(a=>a.ssid===ssid.value);"
-    "if(selected>=0)document.querySelectorAll('.wifi')[selected].classList.add('sel');"
-    "status.textContent=ssid.value?'当前选择：'+ssid.value:'请选择要连接的 Wi-Fi';}"
-    "catch(e){status.textContent='搜索失败，可手动输入 Wi-Fi 名称';}"
-    "finally{scanBtn.disabled=false;}"
-    "};"
-    "scanBtn.onclick=scan;document.getElementById('showPass').onchange=e=>{"
-    "password.type=e.target.checked?'text':'password';};"
-    "document.getElementById('configForm').onsubmit=e=>{"
-    "ssid.value=manual.value;if(!ssid.value.trim()){e.preventDefault();"
-    "status.textContent='请先选择或填写 Wi-Fi 名称';manual.focus();return;}"
-    "if(selectedEncrypted&&!password.value){e.preventDefault();"
-    "status.textContent='该 Wi-Fi 需要密码';password.focus();return;}"
-    "submitBtn.disabled=true;submitBtn.textContent='正在验证...';};"
-    "['pointerdown','keydown','input','change','wheel'].forEach(n=>document.addEventListener(n,activity));"
-    "window.addEventListener('load',()=>{activity();scan();});"
-    "</script>"
-    "</div></div></body></html>";
-
-static const char *config_success_html =
-    "<!doctype html><html><head><meta charset='utf-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>设备正在连接</title>"
-    "<style>body{margin:0;background:#f4f6f8;color:#17202a;font-family:-apple-system,"
-    "BlinkMacSystemFont,'Segoe UI',Arial,sans-serif}.wrap{max-width:520px;margin:0 auto;"
-    "padding:20px}.card{margin-top:32px;background:#fff;border:1px solid #dfe5ec;"
-    "border-radius:14px;padding:24px;box-shadow:0 8px 28px #0001}h1{font-size:24px;"
-    "margin:0 0 12px}p{color:#5d6d7e;line-height:1.6;margin:8px 0}</style></head><body>"
-    "<div class='wrap'><div class='card'><h1>配置已提交</h1>"
-    "<p id='status'>设备正在验证你选择的 Wi-Fi，验证完成前设备热点会保持开启。</p>"
-    "<p><a href='/'>连接失败时返回修改配置</a></p>"
-    "<script>async function update(){try{const r=await fetch('/status');const x=await r.json();"
-    "document.getElementById('status').textContent=x.message;}catch(e){}setTimeout(update,1000);}update();</script>"
-    "</div></div></body></html>";
 
 /**
  * @brief 填充当前 Portal 资源与固定连接信息
@@ -218,9 +112,12 @@ void connect_internal_destroy_ap_netif(void)
 
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_send(req, config_html, HTTPD_RESP_USE_STRLEN);
+    return httpd_resp_send(req,
+                           (const char *) connect_portal_index_gzip,
+                           (ssize_t) connect_portal_index_gzip_size_bytes);
 }
 
 static void append_json_escaped(char *out, size_t out_len, size_t *offset, const char *text)
@@ -396,8 +293,11 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     }
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_send(req, config_success_html, HTTPD_RESP_USE_STRLEN);
+    return httpd_resp_send(req,
+                           (const char *) connect_portal_success_gzip,
+                           (ssize_t) connect_portal_success_gzip_size_bytes);
 }
 
 /**
