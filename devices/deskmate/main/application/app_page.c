@@ -22,19 +22,6 @@ static presentation_page_id_t s_transition_target = PRESENTATION_PAGE_HOME;
 static bool                   s_transitioning;
 static int64_t                s_transition_deadline_us;
 
-esp_err_t app_page_set_current(presentation_page_id_t page)
-{
-    if ((unsigned) page >= PRESENTATION_PAGE_COUNT)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    taskENTER_CRITICAL(&s_page_lock);
-    s_current_page = page;
-    taskEXIT_CRITICAL(&s_page_lock);
-    return ESP_OK;
-}
-
 presentation_page_id_t app_page_get_current(void)
 {
     taskENTER_CRITICAL(&s_page_lock);
@@ -43,27 +30,22 @@ presentation_page_id_t app_page_get_current(void)
     return page;
 }
 
-esp_err_t app_page_next(void)
+esp_err_t app_page_navigate_next(void)
 {
     const presentation_page_id_t current = app_page_get_current();
     const presentation_page_id_t next    = (presentation_page_id_t) ((current + 1) % PRESENTATION_PAGE_COUNT);
-    return app_page_show(next, PRESENTATION_NAV_DIR_FORWARD);
+    return app_page_navigate(next, PRESENTATION_NAV_DIR_FORWARD);
 }
 
-esp_err_t app_page_prev(void)
+esp_err_t app_page_navigate_previous(void)
 {
     const presentation_page_id_t current = app_page_get_current();
     const presentation_page_id_t prev =
         current == PRESENTATION_PAGE_HOME ? (PRESENTATION_PAGE_COUNT - 1) : (current - 1);
-    return app_page_show(prev, PRESENTATION_NAV_DIR_BACKWARD);
+    return app_page_navigate(prev, PRESENTATION_NAV_DIR_BACKWARD);
 }
 
-esp_err_t app_page_dispatch_current(presentation_nav_dir_t dir)
-{
-    return app_page_show(app_page_get_current(), dir);
-}
-
-esp_err_t app_page_show(presentation_page_id_t page, presentation_nav_dir_t dir)
+esp_err_t app_page_navigate(presentation_page_id_t page, presentation_nav_dir_t dir)
 {
     if ((unsigned) page >= PRESENTATION_PAGE_COUNT || (unsigned) dir > PRESENTATION_NAV_DIR_BACKWARD)
     {
@@ -104,9 +86,9 @@ esp_err_t app_page_show(presentation_page_id_t page, presentation_nav_dir_t dir)
     return ESP_OK;
 }
 
-esp_err_t app_page_publish_initial_ui(void)
+esp_err_t app_page_dispatch_initial_presentation(void)
 {
-    ESP_RETURN_ON_ERROR(app_page_show(app_page_get_current(), PRESENTATION_NAV_DIR_NONE), TAG, "显示初始页面失败");
+    ESP_RETURN_ON_ERROR(app_page_navigate(app_page_get_current(), PRESENTATION_NAV_DIR_NONE), TAG, "显示初始页面失败");
     return presentation_dispatch_status_update();
 }
 
@@ -129,7 +111,7 @@ bool app_page_is_transitioning(void)
     return transitioning;
 }
 
-void app_page_notify_screen_loaded(presentation_page_id_t page)
+void app_page_reconcile_screen_loaded(presentation_page_id_t page)
 {
     taskENTER_CRITICAL(&s_page_lock);
     if (s_transitioning && page == s_transition_target)
@@ -171,9 +153,9 @@ bool app_page_consume_input(device_button_event_t key_event)
     switch (key_event)
     {
         case DEVICE_BUTTON_EVENT_LEFT_SHORT:
-            return app_page_prev() == ESP_OK;
+            return app_page_navigate_previous() == ESP_OK;
         case DEVICE_BUTTON_EVENT_RIGHT_SHORT:
-            return app_page_next() == ESP_OK;
+            return app_page_navigate_next() == ESP_OK;
         default:
             return false;
     }

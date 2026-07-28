@@ -99,13 +99,13 @@ extern "C"
         uint64_t capacity_bytes;    /**< 总容量，单位字节 */
     } bsp_storage_info_t;
 
-    /** @brief 一次轻睡眠返回时锁存的板级唤醒来源 */
+    /** @brief 一次板级轻睡眠事务的唤醒结果 */
     typedef struct
     {
         bool left_button;  /**< 左键 GPIO 导致唤醒 */
         bool right_button; /**< 右键 GPIO 导致唤醒 */
         bool timer;        /**< ESP32 内部 Timer 导致唤醒 */
-    } bsp_power_wakeup_info_t;
+    } bsp_power_wakeup_result_t;
 
     /** @brief 初始化按键 GPIO 资源 */
     esp_err_t bsp_button_init(void);
@@ -119,7 +119,7 @@ extern "C"
  * @param[out] out_high true 表示当前为高电平
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE 尚未初始化
  */
-    esp_err_t bsp_button_get_level(bsp_button_id_t button, bool *out_high);
+    esp_err_t bsp_button_read_level(bsp_button_id_t button, bool *out_high);
 
     /**
      * @brief 注册或清除长期借用的按键双边沿活动回调
@@ -141,11 +141,11 @@ extern "C"
      * 函数返回前会清理本轮临时唤醒配置，不向调用方暴露半准备状态。
      *
      * @param[in] timer_wakeup_ms Timer 唤醒间隔，单位毫秒，必须大于 0
-     * @param[out] out_wakeup 返回时锁存的唤醒来源，仅在 ESP_OK 时有效
+     * @param[out] out_result 本次事务的唤醒结果，仅在 ESP_OK 时有效
      * @return ESP_OK 已从轻睡眠唤醒且清理完成；ESP_ERR_INVALID_ARG 参数无效；
      *         ESP_ERR_INVALID_STATE 按键尚未释放；或底层配置、睡眠及清理错误码
      */
-    esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup_info_t *out_wakeup);
+    esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup_result_t *out_result);
 
     /** @brief 初始化电池 ADC 资源 */
     esp_err_t bsp_battery_init(void);
@@ -184,10 +184,10 @@ extern "C"
  * @param[out] out_datetime 日历时间，仅在 ESP_OK 时有效
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
  */
-    esp_err_t bsp_rtc_get_datetime(bsp_rtc_datetime_t *out_datetime);
+    esp_err_t bsp_rtc_read_datetime(bsp_rtc_datetime_t *out_datetime);
 
     /** @brief 读取 RTC 振荡停止/电压过低标志 */
-    esp_err_t bsp_rtc_get_voltage_low(bool *out_voltage_low);
+    esp_err_t bsp_rtc_read_voltage_low(bool *out_voltage_low);
 
     /**
  * @brief 设置 RTC 日历时间
@@ -208,7 +208,7 @@ extern "C"
      * @param[out] out_alarm 告警配置，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t bsp_rtc_get_alarm(bsp_rtc_alarm_t *out_alarm);
+    esp_err_t bsp_rtc_read_alarm(bsp_rtc_alarm_t *out_alarm);
 
     /**
      * @brief 启用或关闭 RTC 告警中断
@@ -222,7 +222,7 @@ extern "C"
      * @param[out] out_enabled true 表示告警中断已启用，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t bsp_rtc_get_alarm_interrupt_enabled(bool *out_enabled);
+    esp_err_t bsp_rtc_read_alarm_interrupt_enabled(bool *out_enabled);
 
     /** @brief 清除 RTC 告警标志，返回底层操作结果 */
     esp_err_t bsp_rtc_clear_alarm_flag(void);
@@ -232,14 +232,14 @@ extern "C"
      * @param[out] out_pending true 表示 AF 已置位，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t bsp_rtc_get_alarm_flag(bool *out_pending);
+    esp_err_t bsp_rtc_read_alarm_flag(bool *out_pending);
 
     /**
      * @brief 读取板级 RTC INT 是否处于低电平有效状态
      * @param[out] out_asserted true 表示 INT 当前有效，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_STATE 尚未初始化
      */
-    esp_err_t bsp_rtc_get_interrupt_asserted(bool *out_asserted);
+    esp_err_t bsp_rtc_read_interrupt_asserted(bool *out_asserted);
 
     /**
      * @brief 设置长期借用的 RTC INT ISR 回调
@@ -294,12 +294,14 @@ extern "C"
     esp_err_t bsp_display_write_i1_area(int x1, int y1, int x2, int y2, const uint8_t *pixels, uint32_t stride_bytes);
 
     /**
- * @brief 提交一次显示刷新
+ * @brief 请求异步执行一次显示刷新
  *
- * 当前实现由 BSP 内部传输执行资源异步完成；调用方需要在释放帧资源前调用
- * bsp_display_wait_flush_done()。
+ * ESP_OK 只表示刷新请求已提交；最终传输结果由 `bsp_display_wait_flush_done()` 返回。
+ *
+ * @return ESP_OK 请求已提交；ESP_ERR_INVALID_STATE 当前不接受新帧；ESP_ERR_TIMEOUT
+ *         刷新请求队列已满
  */
-    esp_err_t bsp_display_flush_async(void);
+    esp_err_t bsp_display_request_flush(void);
 
     /** @brief 有界等待已经提交的显示刷新完成 */
     esp_err_t bsp_display_wait_flush_done(uint32_t timeout_ms);

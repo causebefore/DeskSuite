@@ -14,13 +14,13 @@ extern "C"
 {
 #endif
 
-    /** @brief 一次轻睡眠返回时锁存的设备级唤醒来源 */
+    /** @brief 一次设备级轻睡眠事务的唤醒结果 */
     typedef struct
     {
         bool left_button;  /**< 左键导致唤醒 */
         bool right_button; /**< 右键导致唤醒 */
         bool timer;        /**< ESP32 内部 Timer 导致唤醒 */
-    } device_power_wakeup_info_t;
+    } device_power_wakeup_result_t;
 
     /**
      * @brief 以左右按键和内部 Timer 为唤醒源执行一次完整轻睡眠事务
@@ -29,11 +29,11 @@ extern "C"
      * 临时配置清理。调用期间不会复位芯片；唤醒后继续执行原 Application 生命周期。
      *
      * @param[in] timer_wakeup_ms Timer 唤醒间隔，单位毫秒，必须大于 0
-     * @param[out] out_wakeup 唤醒来源，仅在 ESP_OK 时有效
+     * @param[out] out_result 本次事务的唤醒结果，仅在 ESP_OK 时有效
      * @return ESP_OK 已唤醒且清理完成；ESP_ERR_INVALID_ARG 参数无效；
      *         ESP_ERR_INVALID_STATE 按键尚未释放；或底层错误码
      */
-    esp_err_t device_power_enter_light_sleep(uint32_t timer_wakeup_ms, device_power_wakeup_info_t *out_wakeup);
+    esp_err_t device_power_enter_light_sleep(uint32_t timer_wakeup_ms, device_power_wakeup_result_t *out_result);
 
 #ifdef __cplusplus
 }

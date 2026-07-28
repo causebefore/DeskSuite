@@ -35,20 +35,20 @@ extern "C"
     /** @brief 单次 AFE 收集事务状态。 */
     typedef enum
     {
-        AUDIO_PROCESSOR_CAPTURE_IDLE = 0, /*!< 无活动收集 */
+        AUDIO_PROCESSOR_CAPTURE_IDLE = 0,  /*!< 无活动收集 */
         AUDIO_PROCESSOR_CAPTURE_CAPTURING, /*!< 正在采集 */
         AUDIO_PROCESSOR_CAPTURE_DRAINING,  /*!< 已停 feed，正在排空 AFE */
     } audio_processor_capture_state_t;
 
-    /** @brief AFE Service 只读状态快照。 */
+    /** @brief AFE Service 的有界运行摘要。 */
     typedef struct
     {
         audio_processor_service_state_t state;         /*!< Runtime 状态 */
         audio_processor_capture_state_t capture_state; /*!< 收集状态 */
-        bool                            tasks_created;  /*!< 是否已经创建处理 Task */
-        bool                            feed_parked;    /*!< feed Task 未创建或已阻塞 */
-        bool                            fetch_parked;   /*!< fetch Task 未创建或已阻塞 */
-        esp_err_t                       last_error;     /*!< 最近生命周期错误 */
+        bool                            tasks_created; /*!< 是否已经创建处理 Task */
+        bool                            feed_parked;   /*!< feed Task 未创建或已阻塞 */
+        bool                            fetch_parked;  /*!< fetch Task 未创建或已阻塞 */
+        esp_err_t                       last_error;    /*!< 最近生命周期错误 */
     } audio_processor_service_status_t;
 
     /**
@@ -105,9 +105,9 @@ extern "C"
     bool audio_processor_service_is_initialized(void);
 
     /**
-     * @brief 复制 AFE Service 完整状态
+     * @brief 复制 AFE Service 完整运行摘要
      *
-     * @param[out] out_status 状态输出
+     * @param[out] out_status 运行摘要输出
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
      */
     esp_err_t audio_processor_service_get_status_copy(audio_processor_service_status_t *out_status);

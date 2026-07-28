@@ -42,7 +42,7 @@ extern "C"
     {
         bool left_pressed;  /**< 左键当前是否为低电平按下 */
         bool right_pressed; /**< 右键当前是否为低电平按下 */
-    } device_button_pressed_state_t;
+    } device_button_pressed_snapshot_t;
 
     /**
  * @brief 初始化双按键和内部状态机
@@ -72,16 +72,16 @@ extern "C"
     esp_err_t device_button_set_activity_callback_borrow(device_button_activity_callback_t callback, void *context);
 
     /**
-     * @brief 复制双按键当前物理按下状态
+     * @brief 读取双按键当前物理按下快照
      *
      * 本函数只读取 GPIO 电平，不推进消抖或长短按状态机。用于轻睡眠返回后判定已释放的唤醒按键
      * 是否需要由 Application 重放为短按事实。
      *
-     * @param[out] out_state 按下状态快照，仅在 ESP_OK 时有效
+     * @param[out] out_snapshot 按下快照，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化；
      *         或 BSP 读取错误
      */
-    esp_err_t device_button_get_pressed_state_copy(device_button_pressed_state_t *out_state);
+    esp_err_t device_button_read_pressed_snapshot(device_button_pressed_snapshot_t *out_snapshot);
 
     /**
  * @brief 释放按键 BSP 资源并重置状态

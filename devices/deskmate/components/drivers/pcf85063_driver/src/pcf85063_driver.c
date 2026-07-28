@@ -103,12 +103,12 @@ static esp_err_t write_register(pcf85063_driver_t *driver, uint8_t reg, uint8_t 
  */
 static esp_err_t normalize_unsupported_interrupt_sources(pcf85063_driver_t *driver)
 {
-    pcf85063_interrupt_status_t status;
-    ESP_RETURN_ON_ERROR(pcf85063_driver_get_interrupt_status_copy(driver, &status), TAG, "读取 RTC 中断状态失败");
+    pcf85063_interrupt_snapshot_t snapshot;
+    ESP_RETURN_ON_ERROR(pcf85063_driver_read_interrupt_snapshot(driver, &snapshot), TAG, "读取 RTC 中断快照失败");
 
-    const uint8_t unsupported_timer_mode = status.timer_mode_raw & (PCF85063_TIMER_MODE_TE | PCF85063_TIMER_MODE_TIE);
+    const uint8_t unsupported_timer_mode = snapshot.timer_mode_raw & (PCF85063_TIMER_MODE_TE | PCF85063_TIMER_MODE_TIE);
     const uint8_t normalized_timer_mode =
-        status.timer_mode_raw & (uint8_t) ~(PCF85063_TIMER_MODE_TE | PCF85063_TIMER_MODE_TIE);
+        snapshot.timer_mode_raw & (uint8_t) ~(PCF85063_TIMER_MODE_TE | PCF85063_TIMER_MODE_TIE);
     if (unsupported_timer_mode != 0U)
     {
         ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_TIMER_MODE, normalized_timer_mode),
@@ -117,7 +117,7 @@ static esp_err_t normalize_unsupported_interrupt_sources(pcf85063_driver_t *driv
     }
 
     const uint8_t unsupported_control2 =
-        status.control2_raw & (PCF85063_CTRL2_MI | PCF85063_CTRL2_HMI | PCF85063_CTRL2_TF);
+        snapshot.control2_raw & (PCF85063_CTRL2_MI | PCF85063_CTRL2_HMI | PCF85063_CTRL2_TF);
     if (unsupported_control2 != 0U)
     {
         /*
@@ -125,7 +125,7 @@ static esp_err_t normalize_unsupported_interrupt_sources(pcf85063_driver_t *driv
          * 才能保留状态读取后、寄存器写入前刚好置位的新告警。
          */
         const uint8_t control2_write_value =
-            (status.control2_raw & (uint8_t) ~(PCF85063_CTRL2_MI | PCF85063_CTRL2_HMI | PCF85063_CTRL2_TF))
+            (snapshot.control2_raw & (uint8_t) ~(PCF85063_CTRL2_MI | PCF85063_CTRL2_HMI | PCF85063_CTRL2_TF))
             | PCF85063_CTRL2_AF;
         ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_CTRL2, control2_write_value),
                             TAG,
@@ -136,8 +136,8 @@ static esp_err_t normalize_unsupported_interrupt_sources(pcf85063_driver_t *driv
     {
         ESP_LOGW(TAG,
                  "已清理遗留 RTC 中断源: 原 Control_2=0x%02x, 原 Timer_mode=0x%02x",
-                 status.control2_raw,
-                 status.timer_mode_raw);
+                 snapshot.control2_raw,
+                 snapshot.timer_mode_raw);
     }
     return ESP_OK;
 }
@@ -164,9 +164,10 @@ esp_err_t pcf85063_driver_init(pcf85063_driver_t *driver, i2c_master_dev_handle_
     return err;
 }
 
-esp_err_t pcf85063_driver_get_interrupt_status_copy(pcf85063_driver_t *driver, pcf85063_interrupt_status_t *out_status)
+esp_err_t pcf85063_driver_read_interrupt_snapshot(pcf85063_driver_t             *driver,
+                                                  pcf85063_interrupt_snapshot_t *out_snapshot)
 {
-    if (!driver_is_valid(driver) || out_status == NULL)
+    if (!driver_is_valid(driver) || out_snapshot == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -176,7 +177,7 @@ esp_err_t pcf85063_driver_get_interrupt_status_copy(pcf85063_driver_t *driver, p
     ESP_RETURN_ON_ERROR(read_register(driver, PCF85063_REG_CTRL2, &control2), TAG, "读取 Control_2 失败");
     ESP_RETURN_ON_ERROR(read_register(driver, PCF85063_REG_TIMER_MODE, &timer_mode), TAG, "读取 Timer_mode 失败");
 
-    *out_status = (pcf85063_interrupt_status_t) {
+    *out_snapshot = (pcf85063_interrupt_snapshot_t) {
         .control2_raw                  = control2,
         .timer_mode_raw                = timer_mode,
         .alarm_interrupt_enabled       = (control2 & PCF85063_CTRL2_AIE) != 0U,
@@ -190,7 +191,7 @@ esp_err_t pcf85063_driver_get_interrupt_status_copy(pcf85063_driver_t *driver, p
     return ESP_OK;
 }
 
-esp_err_t pcf85063_driver_get_datetime(pcf85063_driver_t *driver, pcf85063_datetime_t *out)
+esp_err_t pcf85063_driver_read_datetime(pcf85063_driver_t *driver, pcf85063_datetime_t *out)
 {
     if (!driver_is_valid(driver) || out == NULL)
     {
@@ -220,7 +221,7 @@ esp_err_t pcf85063_driver_get_datetime(pcf85063_driver_t *driver, pcf85063_datet
     return ESP_OK;
 }
 
-esp_err_t pcf85063_driver_get_voltage_low(pcf85063_driver_t *driver, bool *out_voltage_low)
+esp_err_t pcf85063_driver_read_voltage_low(pcf85063_driver_t *driver, bool *out_voltage_low)
 {
     if (!driver_is_valid(driver) || out_voltage_low == NULL)
     {
@@ -268,7 +269,7 @@ esp_err_t pcf85063_driver_enable_alarm_interrupt(pcf85063_driver_t *driver, bool
     return write_register(driver, PCF85063_REG_CTRL2, control2);
 }
 
-esp_err_t pcf85063_driver_get_alarm_interrupt_enabled(pcf85063_driver_t *driver, bool *out_enabled)
+esp_err_t pcf85063_driver_read_alarm_interrupt_enabled(pcf85063_driver_t *driver, bool *out_enabled)
 {
     if (!driver_is_valid(driver) || out_enabled == NULL)
     {
@@ -280,15 +281,15 @@ esp_err_t pcf85063_driver_get_alarm_interrupt_enabled(pcf85063_driver_t *driver,
     return ESP_OK;
 }
 
-esp_err_t pcf85063_driver_get_alarm_flag(pcf85063_driver_t *driver, bool *pending)
+esp_err_t pcf85063_driver_read_alarm_flag(pcf85063_driver_t *driver, bool *out_pending)
 {
-    if (pending == NULL)
+    if (out_pending == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
     uint8_t control2 = 0;
     ESP_RETURN_ON_ERROR(read_register(driver, PCF85063_REG_CTRL2, &control2), TAG, "读取 Control_2 失败");
-    *pending = (control2 & PCF85063_CTRL2_AF) != 0;
+    *out_pending = (control2 & PCF85063_CTRL2_AF) != 0U;
     return ESP_OK;
 }
 
@@ -301,7 +302,7 @@ esp_err_t pcf85063_driver_clear_alarm_flag(pcf85063_driver_t *driver)
     return write_register(driver, PCF85063_REG_CTRL2, control2);
 }
 
-esp_err_t pcf85063_driver_get_alarm(pcf85063_driver_t *driver, pcf85063_alarm_t *out_alarm)
+esp_err_t pcf85063_driver_read_alarm(pcf85063_driver_t *driver, pcf85063_alarm_t *out_alarm)
 {
     if (!driver_is_valid(driver) || out_alarm == NULL)
     {

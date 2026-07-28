@@ -78,7 +78,7 @@ static TickType_t retry_delay_ticks(uint32_t retry_attempt)
 static esp_err_t consume_alarm_interrupt(void)
 {
     bool      pending = false;
-    esp_err_t error   = device_rtc_get_alarm_flag(&pending);
+    esp_err_t error   = device_rtc_read_alarm_flag(&pending);
     if (error == ESP_OK && !pending)
     {
         return ESP_OK;

@@ -1349,7 +1349,7 @@ esp_err_t bsp_display_init(void)
     ESP_RETURN_ON_FALSE(task_ok == pdPASS, ESP_ERR_NO_MEM, TAG, "创建 RLCD 刷新任务失败");
 
     set_display_accepting_frames(true);
-    ESP_RETURN_ON_ERROR(bsp_display_flush_async(), TAG, "初始清屏失败");
+    ESP_RETURN_ON_ERROR(bsp_display_request_flush(), TAG, "初始清屏失败");
     ESP_RETURN_ON_ERROR(bsp_display_wait_flush_done(1000), TAG, "等待初始清屏失败");
 
     s_initialized = true;
@@ -1487,7 +1487,7 @@ esp_err_t bsp_display_wait_flush_done(uint32_t timeout_ms)
     }
 }
 
-esp_err_t bsp_display_flush_async(void)
+esp_err_t bsp_display_request_flush(void)
 {
     if (!display_accepts_frames() || s_lcd_spi == NULL || draw_framebuffer() == NULL)
     {

@@ -103,9 +103,9 @@ esp_err_t device_display_write_i1_area(int x1, int y1, int x2, int y2, const uin
                                       : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t device_display_flush_async(void)
+esp_err_t device_display_request_flush(void)
 {
-    return s_initialized && s_running ? bsp_display_flush_async() : ESP_ERR_INVALID_STATE;
+    return s_initialized && s_running ? bsp_display_request_flush() : ESP_ERR_INVALID_STATE;
 }
 
 esp_err_t device_display_wait_flush_done(uint32_t timeout_ms)

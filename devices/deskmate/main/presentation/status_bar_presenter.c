@@ -103,19 +103,17 @@ static void query_network_view(bool *out_connected, bool *out_connecting)
     network_manager_status_t status    = { 0 };
     connect_link_info_t      link      = { 0 };
     const bool               status_ok = network_manager_get_status_copy(&status) == ESP_OK;
-    const bool               connected = status_ok && status.state == NETWORK_STATE_ONLINE
-                                         && connect_get_link_snapshot_copy(&link) == ESP_OK && link.associated
-                                         && link.has_ipv4;
-    const bool               connecting = !connected && status_ok
-                                          && (status.state == NETWORK_STATE_CONNECTING
-                                              || status.state == NETWORK_STATE_RETRY_WAIT
-                                              || status.state == NETWORK_STATE_VALIDATING);
-    *out_connected  = connected;
-    *out_connecting = connecting;
+    const bool connected  = status_ok && status.state == NETWORK_STATE_ONLINE
+                            && connect_get_link_snapshot_copy(&link) == ESP_OK && link.associated && link.has_ipv4;
+    const bool connecting = !connected && status_ok
+                            && (status.state == NETWORK_STATE_CONNECTING || status.state == NETWORK_STATE_RETRY_WAIT
+                                || status.state == NETWORK_STATE_VALIDATING);
+    *out_connected        = connected;
+    *out_connecting       = connecting;
 }
 
 /** @brief 在状态栏锁内更新电池事实 */
-static bool update_battery_view_locked(const environment_service_battery_status_t *snap)
+static bool update_battery_view_locked(const environment_service_battery_snapshot_t *snap)
 {
     if (snap == NULL)
     {
@@ -213,8 +211,8 @@ static void on_battery_event(void *arg, esp_event_base_t base, int32_t id, void 
     (void) id;
     (void) data;
 
-    environment_service_status_t snapshot;
-    if (environment_service_get_status_copy(&snapshot) == ESP_OK)
+    environment_service_snapshot_t snapshot;
+    if (environment_service_get_snapshot_copy(&snapshot) == ESP_OK)
     {
         taskENTER_CRITICAL(&s_status_bar_lock);
         const bool changed = update_battery_view_locked(&snapshot.battery);
@@ -243,7 +241,7 @@ esp_err_t status_bar_presenter_init(void)
                                                  on_battery_event,
                                                  NULL);
     ESP_RETURN_ON_ERROR(error, TAG, "注册状态栏电池事件失败");
-    error = system_clock_register_listener_borrow(on_time_event, NULL);
+    error = system_clock_register_callback_borrow(on_time_event, NULL);
     if (error != ESP_OK)
     {
         (void) esp_event_handler_unregister(ENVIRONMENT_SERVICE_EVENT,
@@ -280,7 +278,7 @@ esp_err_t status_bar_presenter_get_view_copy(status_bar_view_model_t *out_view)
     }
     s_status_bar_view.wifi_connected  = network_connected;
     s_status_bar_view.wifi_connecting = network_connecting;
-    *out_view                        = s_status_bar_view;
+    *out_view                         = s_status_bar_view;
     taskEXIT_CRITICAL(&s_status_bar_lock);
     return ESP_OK;
 }

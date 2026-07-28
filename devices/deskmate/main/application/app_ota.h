@@ -19,31 +19,31 @@
 esp_err_t app_ota_init(void);
 
 /**
- * @brief 触发 OTA 检查
+ * @brief 请求异步执行一次 OTA 检查
  *
  * 请求检查是否有可用更新。返回值只表示命令是否成功提交，最终结果通过 OTA 事实事件通知。
  *
  * @return ESP_OK 请求已发送；其他值表示请求失败
  */
-esp_err_t app_ota_check(void);
+esp_err_t app_ota_request_check(void);
 
 /**
- * @brief 提交最近一次检查发现的固件安装
+ * @brief 请求异步安装最近一次检查发现的固件
  *
  * 提交失败时保留待安装目标和 Presenter 中的目标信息，允许用户再次确认。
  *
  * @return ESP_OK 安装命令已提交；其他值表示当前状态或命令队列不接受请求
  */
-esp_err_t app_ota_install(void);
+esp_err_t app_ota_request_install(void);
 
 /**
- * @brief 丢弃尚未开始安装的目标并重置 OTA 呈现状态
+ * @brief 清除尚未开始安装的目标并重置 OTA 呈现状态
  *
  * 只有底层目标和网络 Application 待安装标记都清除成功后才返回 ESP_OK。
  *
  * @return ESP_OK 已清除；其他值表示事务正在执行或底层清理失败
  */
-esp_err_t app_ota_discard_pending_update(void);
+esp_err_t app_ota_clear_pending_update(void);
 
 /**
  * @brief 查询 OTA 是否正处于禁止页面导航的事务阶段

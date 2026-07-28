@@ -71,83 +71,83 @@ static SemaphoreHandle_t s_writer_mutex;
 /** @brief 保护可信锚点、来源、偏移和初始化标记的短临界区 */
 static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 
-/** @brief 显式监听器上限；当前由首页和状态栏使用 */
-#define SYSTEM_CLOCK_MAX_LISTENERS 4U
+/** @brief 显式变化回调上限；当前由首页和状态栏使用 */
+#define SYSTEM_CLOCK_MAX_CALLBACKS 4U
 
 typedef struct
 {
-    system_clock_listener_t listener;
-    void                   *ctx;
-} system_clock_listener_entry_t;
+    system_clock_callback_t callback;
+    void                   *context;
+} system_clock_callback_entry_t;
 
-static system_clock_listener_entry_t s_listeners[SYSTEM_CLOCK_MAX_LISTENERS];
-static portMUX_TYPE                  s_listener_lock = portMUX_INITIALIZER_UNLOCKED;
+static system_clock_callback_entry_t s_callbacks[SYSTEM_CLOCK_MAX_CALLBACKS];
+static portMUX_TYPE                  s_callback_lock = portMUX_INITIALIZER_UNLOCKED;
 
-esp_err_t system_clock_register_listener_borrow(system_clock_listener_t listener, void *ctx)
+esp_err_t system_clock_register_callback_borrow(system_clock_callback_t callback, void *context)
 {
-    ESP_RETURN_ON_FALSE(listener != NULL, ESP_ERR_INVALID_ARG, TAG, "系统时钟监听器为空");
+    ESP_RETURN_ON_FALSE(callback != NULL, ESP_ERR_INVALID_ARG, TAG, "系统时钟回调为空");
     taskENTER_CRITICAL(&s_state_lock);
     const bool initialized = s_initialized;
     taskEXIT_CRITICAL(&s_state_lock);
     ESP_RETURN_ON_FALSE(initialized, ESP_ERR_INVALID_STATE, TAG, "系统时钟尚未初始化");
 
     esp_err_t result = ESP_ERR_NO_MEM;
-    taskENTER_CRITICAL(&s_listener_lock);
-    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_LISTENERS; ++index)
+    taskENTER_CRITICAL(&s_callback_lock);
+    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_CALLBACKS; ++index)
     {
-        if (s_listeners[index].listener == listener && s_listeners[index].ctx == ctx)
+        if (s_callbacks[index].callback == callback && s_callbacks[index].context == context)
         {
             result = ESP_OK;
             break;
         }
-        if (s_listeners[index].listener == NULL)
+        if (s_callbacks[index].callback == NULL)
         {
-            s_listeners[index] = (system_clock_listener_entry_t) {
-                .listener = listener,
-                .ctx      = ctx,
+            s_callbacks[index] = (system_clock_callback_entry_t) {
+                .callback = callback,
+                .context  = context,
             };
             result = ESP_OK;
             break;
         }
     }
-    taskEXIT_CRITICAL(&s_listener_lock);
+    taskEXIT_CRITICAL(&s_callback_lock);
     return result;
 }
 
-esp_err_t system_clock_unregister_listener(system_clock_listener_t listener, void *ctx)
+esp_err_t system_clock_unregister_callback(system_clock_callback_t callback, void *context)
 {
-    ESP_RETURN_ON_FALSE(listener != NULL, ESP_ERR_INVALID_ARG, TAG, "系统时钟监听器为空");
+    ESP_RETURN_ON_FALSE(callback != NULL, ESP_ERR_INVALID_ARG, TAG, "系统时钟回调为空");
     esp_err_t result = ESP_ERR_NOT_FOUND;
-    taskENTER_CRITICAL(&s_listener_lock);
-    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_LISTENERS; ++index)
+    taskENTER_CRITICAL(&s_callback_lock);
+    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_CALLBACKS; ++index)
     {
-        if (s_listeners[index].listener == listener && s_listeners[index].ctx == ctx)
+        if (s_callbacks[index].callback == callback && s_callbacks[index].context == context)
         {
-            s_listeners[index] = (system_clock_listener_entry_t) { 0 };
+            s_callbacks[index] = (system_clock_callback_entry_t) { 0 };
             result             = ESP_OK;
             break;
         }
     }
-    taskEXIT_CRITICAL(&s_listener_lock);
+    taskEXIT_CRITICAL(&s_callback_lock);
     return result;
 }
 
-/** @brief 在可信时间写入者上下文中通知显式监听器 */
+/** @brief 在可信时间写入者上下文中通知显式变化回调 */
 static void system_clock_notify(system_clock_event_t event, const system_clock_snapshot_t *snapshot)
 {
-    system_clock_listener_entry_t listeners[SYSTEM_CLOCK_MAX_LISTENERS];
-    taskENTER_CRITICAL(&s_listener_lock);
-    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_LISTENERS; ++index)
+    system_clock_callback_entry_t callbacks[SYSTEM_CLOCK_MAX_CALLBACKS];
+    taskENTER_CRITICAL(&s_callback_lock);
+    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_CALLBACKS; ++index)
     {
-        listeners[index] = s_listeners[index];
+        callbacks[index] = s_callbacks[index];
     }
-    taskEXIT_CRITICAL(&s_listener_lock);
+    taskEXIT_CRITICAL(&s_callback_lock);
 
-    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_LISTENERS; ++index)
+    for (size_t index = 0; index < SYSTEM_CLOCK_MAX_CALLBACKS; ++index)
     {
-        if (listeners[index].listener != NULL)
+        if (callbacks[index].callback != NULL)
         {
-            listeners[index].listener(event, snapshot, listeners[index].ctx);
+            callbacks[index].callback(event, snapshot, callbacks[index].context);
         }
     }
 }
@@ -774,7 +774,7 @@ esp_err_t system_clock_sync_from_rtc(void)
                         "取得系统时钟写事务互斥锁失败");
 
     device_rtc_snapshot_t snapshot;
-    esp_err_t             result = device_rtc_get_snapshot_copy(&snapshot);
+    esp_err_t             result = device_rtc_read_snapshot(&snapshot);
     if (result != ESP_OK)
     {
         ESP_LOGE(TAG, "读取 RTC 快照失败：%s", esp_err_to_name(result));

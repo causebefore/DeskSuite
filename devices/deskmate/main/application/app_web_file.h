@@ -1,6 +1,6 @@
 /**
  * @file app_web_file.h
- * @brief 网页文件管理产品流程的异步意图与状态快照接口
+ * @brief 网页文件管理产品流程的异步意图与运行摘要接口
  */
 #pragma once
 
@@ -25,7 +25,7 @@ extern "C"
         APP_WEB_FILE_STATE_ERROR,             /**< 启动或停止失败，详情见 last_error */
     } app_web_file_state_t;
 
-    /** @brief 网页文件管理按值复制的完整有界状态 */
+    /** @brief 网页文件管理的完整有界运行摘要 */
     typedef struct
     {
         app_web_file_state_t state;          /**< 当前产品流程状态 */
@@ -45,7 +45,7 @@ extern "C"
      *
      * @return ESP_OK 初始化完成或已安全初始化；ESP_ERR_NO_MEM 无法创建展示推送互斥量；
      *         ESP_ERR_INVALID_STATE 已初始化但产品状态仍活动，或下层 Service 状态不允许接管；
-     *         其他值为 Service 状态快照错误
+     *         其他值为 Service 运行摘要读取错误
      */
     esp_err_t app_web_file_init(void);
 
@@ -55,7 +55,7 @@ extern "C"
      * 本函数只在短临界区内防止重复启动、切换受保护状态并创建或通知唯一一次性 Application
      * Task；返回时不等待 SD 查询、网络租约、HTTPD 启动或上传事务恢复完成。最终结果通过
      * `app_web_file_get_status_copy()` 读取，并由 Presentation 状态更新事件通知 UI。返回
-     * 非 `ESP_OK` 表示命令未被异步接受，调用方必须直接读取当前快照并处理同步错误，不等待
+     * 非 `ESP_OK` 表示命令未被异步接受，调用方必须直接读取当前运行摘要并处理同步错误，不等待
      * 后续 Presentation 事件。
      *
      * @return ESP_OK 启动意图已提交；ESP_ERR_INVALID_STATE 尚未初始化、流程已活动、错误状态
@@ -70,7 +70,7 @@ extern "C"
      * 本函数只设置受保护的停止请求并通知一次性 Application Task，不等待 HTTPD、handler、
      * 文件传输或网络租约释放。Service 清理失败或超时时保留租约并进入可再次提交停止意图的
      * `ERROR` 状态；只有 HTTPD 已安全停止、Service 已反初始化且租约释放成功后才发布
-     * `STOPPED`。返回非 `ESP_OK` 表示本次命令未被异步接受，调用方必须直接读取当前快照并
+     * `STOPPED`。返回非 `ESP_OK` 表示本次命令未被异步接受，调用方必须直接读取当前运行摘要并
      * 处理同步错误；若仍保留资源且一次性清理 Task 创建失败，所有权保持不变，后续停止请求
      * 可以重试。
      *
@@ -85,11 +85,11 @@ extern "C"
      * 所有字段都在短临界区内整结构复制，不返回内部指针，也不在 Getter 中访问网络、
      * Service 或文件系统。启动 Task 会在 Service 成功后一次性写入真实 URL、六位访问码和
      * `RUNNING`；运行期间由网络 Application 的合并变化通知唤醒同一 Task 更新 URL。
-     * 暂时失去关联或 IPv4 时保持 `RUNNING` 但 URL 为空，重连或地址变化后自动发布新快照；
+     * 暂时失去关联或 IPv4 时保持 `RUNNING` 但 URL 为空，重连或地址变化后自动发布新运行摘要；
      * 访问码保持不变，且仅供设备本地呈现，调用方不得记录或远程转发。
      *
      * @param[out] out_status 调用方提供的状态输出，成功时完整写入
-     * @return ESP_OK 快照有效；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE
+     * @return ESP_OK 运行摘要有效；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE
      *         Application 尚未初始化
      */
     esp_err_t app_web_file_get_status_copy(app_web_file_status_t *out_status);

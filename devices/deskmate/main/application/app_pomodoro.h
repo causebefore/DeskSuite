@@ -43,7 +43,7 @@ extern "C"
         uint8_t long_break_interval; /**< 长休间隔，2..8 轮 */
     } app_pomodoro_settings_t;
 
-    /** @brief 番茄钟完整状态快照 */
+    /** @brief 番茄钟完整领域快照 */
     typedef struct
     {
         app_pomodoro_settings_t  settings;               /**< 当前完整设置 */
@@ -63,7 +63,7 @@ extern "C"
         bool                     expected_end_valid;     /**< expected_end_utc 是否可展示 */
         time_t                   expected_end_utc;       /**< 可信 UTC 下预计结束时间 */
         esp_err_t                last_error;             /**< 最近一次存储或 Timer 错误 */
-    } app_pomodoro_status_t;
+    } app_pomodoro_snapshot_t;
 
     /** @brief Light-sleep 返回后的番茄钟补算结果 */
     typedef enum
@@ -79,7 +79,7 @@ extern "C"
      * 本函数不创建业务 Task；运行中阶段不会从 NVS 恢复，初始化快照固定为 IDLE。
      *
      * @return ESP_OK 已初始化；ESP_ERR_INVALID_STATE 已初始化；ESP_ERR_NO_MEM 资源不足；
-     *         或 NVS、Timer、系统时钟监听注册错误
+     *         或 NVS、Timer、系统时钟回调注册错误
      */
     esp_err_t app_pomodoro_init(void);
 
@@ -93,6 +93,9 @@ extern "C"
 
     /**
      * @brief 协作停止番茄钟 Application Task
+     *
+     * 超时返回时 Task 仍在后台收敛，调用方应再次调用本函数；成功返回才表示 Task
+     * 已退出并且队列已复位。
      *
      * @param[in] timeout_ms 等待 Task 退出的上限，单位毫秒，必须大于 0
      * @return ESP_OK 已停止；ESP_ERR_INVALID_ARG 超时为 0；ESP_ERR_INVALID_STATE 未运行；
@@ -130,12 +133,12 @@ extern "C"
     esp_err_t app_pomodoro_request_update_settings_copy(const app_pomodoro_settings_t *settings);
 
     /**
-     * @brief 按值读取最新番茄钟状态
+     * @brief 复制最新番茄钟快照
      *
-     * @param[out] out_status 调用方提供的完整快照输出
+     * @param[out] out_snapshot 调用方提供的完整快照输出
      * @return ESP_OK 已复制；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_STATE 尚未初始化
      */
-    esp_err_t app_pomodoro_get_status_copy(app_pomodoro_status_t *out_status);
+    esp_err_t app_pomodoro_get_snapshot_copy(app_pomodoro_snapshot_t *out_snapshot);
 
     /**
      * @brief 查询当前是否需要保持番茄钟前台秒级刷新

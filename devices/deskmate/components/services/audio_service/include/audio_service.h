@@ -21,13 +21,13 @@ extern "C"
         AUDIO_SERVICE_STATE_CLEANUP_FAILED,    /*!< 关闭不完整，只允许继续 stop 收敛 */
     } audio_service_state_t;
 
-    /** @brief 音频 Service 只读状态快照。 */
+    /** @brief 音频 Service 的有界运行摘要。 */
     typedef struct
     {
-        audio_service_state_t state;          /*!< 生命周期状态 */
-        bool                  input_active;   /*!< 麦克风输入链路是否开启 */
-        bool                  output_active;  /*!< 扬声器输出链路是否开启 */
-        esp_err_t             last_error;     /*!< 最近一次生命周期错误 */
+        audio_service_state_t state;         /*!< 生命周期状态 */
+        bool                  input_active;  /*!< 麦克风输入链路是否开启 */
+        bool                  output_active; /*!< 扬声器输出链路是否开启 */
+        esp_err_t             last_error;    /*!< 最近一次生命周期错误 */
     } audio_service_status_t;
 
     /**
@@ -76,9 +76,9 @@ extern "C"
     esp_err_t audio_service_stop(void);
 
     /**
-     * @brief 复制音频 Service 完整状态
+     * @brief 复制音频 Service 完整运行摘要
      *
-     * @param[out] out_status 状态输出
+     * @param[out] out_status 运行摘要输出
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
      */
     esp_err_t audio_service_get_status_copy(audio_service_status_t *out_status);

@@ -249,8 +249,8 @@ static void button_service_scan_timer_callback(void *context)
 
         if (wake_to_resolve != 0U)
         {
-            device_button_pressed_state_t pressed_state = { 0 };
-            const esp_err_t               pressed_error = device_button_get_pressed_state_copy(&pressed_state);
+            device_button_pressed_snapshot_t pressed_snapshot = { 0 };
+            const esp_err_t                  pressed_error    = device_button_read_pressed_snapshot(&pressed_snapshot);
             if (pressed_error != ESP_OK)
             {
                 report_scan_failure("读取唤醒按键物理状态失败", pressed_error);
@@ -259,13 +259,13 @@ static void button_service_scan_timer_callback(void *context)
             else
             {
                 uint8_t synthesized_mask = 0U;
-                if ((wake_to_resolve & BUTTON_WAKE_LEFT) != 0U && !pressed_state.left_pressed
+                if ((wake_to_resolve & BUTTON_WAKE_LEFT) != 0U && !pressed_snapshot.left_pressed
                     && event_count < DEVICE_BUTTON_MAX_EVENTS)
                 {
                     events[event_count++] = DEVICE_BUTTON_EVENT_LEFT_SHORT;
                     synthesized_mask |= BUTTON_WAKE_LEFT;
                 }
-                if ((wake_to_resolve & BUTTON_WAKE_RIGHT) != 0U && !pressed_state.right_pressed
+                if ((wake_to_resolve & BUTTON_WAKE_RIGHT) != 0U && !pressed_snapshot.right_pressed
                     && event_count < DEVICE_BUTTON_MAX_EVENTS)
                 {
                     events[event_count++] = DEVICE_BUTTON_EVENT_RIGHT_SHORT;
@@ -454,19 +454,19 @@ esp_err_t button_service_start(void)
     return error;
 }
 
-esp_err_t button_service_request_light_sleep_wakeup_copy(const button_service_wakeup_info_t *wakeup)
+esp_err_t button_service_request_light_sleep_wakeup_copy(const button_service_wakeup_snapshot_t *wakeup_snapshot)
 {
-    if (wakeup == NULL || (!wakeup->left_button && !wakeup->right_button))
+    if (wakeup_snapshot == NULL || (!wakeup_snapshot->left_button && !wakeup_snapshot->right_button))
     {
         return ESP_ERR_INVALID_ARG;
     }
 
     uint8_t wake_mask = 0U;
-    if (wakeup->left_button)
+    if (wakeup_snapshot->left_button)
     {
         wake_mask |= BUTTON_WAKE_LEFT;
     }
-    if (wakeup->right_button)
+    if (wakeup_snapshot->right_button)
     {
         wake_mask |= BUTTON_WAKE_RIGHT;
     }

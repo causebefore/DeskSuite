@@ -13,10 +13,10 @@ esp_err_t app_ota_init(void)
     return ESP_OK;
 }
 
-esp_err_t app_ota_check(void)
+esp_err_t app_ota_request_check(void)
 {
     ota_presenter_show_checking();
-    esp_err_t error = app_network_discard_ota_update();
+    esp_err_t error = app_network_clear_ota_update();
     if (error == ESP_OK)
     {
         error = app_network_request_ota_check(APP_NETWORK_OTA_CHECK_MANUAL);
@@ -28,7 +28,7 @@ esp_err_t app_ota_check(void)
     return error;
 }
 
-esp_err_t app_ota_install(void)
+esp_err_t app_ota_request_install(void)
 {
     const esp_err_t error = app_network_request_ota_install();
     if (error == ESP_OK)
@@ -42,9 +42,9 @@ esp_err_t app_ota_install(void)
     return error;
 }
 
-esp_err_t app_ota_discard_pending_update(void)
+esp_err_t app_ota_clear_pending_update(void)
 {
-    const esp_err_t error = app_network_discard_ota_update();
+    const esp_err_t error = app_network_clear_ota_update();
     if (error == ESP_OK)
     {
         ota_presenter_reset();

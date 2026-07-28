@@ -6,21 +6,21 @@
 
 #include "bsp.h"
 
-esp_err_t device_power_enter_light_sleep(uint32_t timer_wakeup_ms, device_power_wakeup_info_t *out_wakeup)
+esp_err_t device_power_enter_light_sleep(uint32_t timer_wakeup_ms, device_power_wakeup_result_t *out_result)
 {
-    if (timer_wakeup_ms == 0U || out_wakeup == NULL)
+    if (timer_wakeup_ms == 0U || out_result == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
 
-    bsp_power_wakeup_info_t bsp_wakeup = { 0 };
-    const esp_err_t         error      = bsp_power_enter_light_sleep(timer_wakeup_ms, &bsp_wakeup);
+    bsp_power_wakeup_result_t bsp_result = { 0 };
+    const esp_err_t           error      = bsp_power_enter_light_sleep(timer_wakeup_ms, &bsp_result);
     if (error == ESP_OK)
     {
-        *out_wakeup = (device_power_wakeup_info_t) {
-            .left_button  = bsp_wakeup.left_button,
-            .right_button = bsp_wakeup.right_button,
-            .timer        = bsp_wakeup.timer,
+        *out_result = (device_power_wakeup_result_t) {
+            .left_button  = bsp_result.left_button,
+            .right_button = bsp_result.right_button,
+            .timer        = bsp_result.timer,
         };
     }
     return error;

@@ -111,6 +111,8 @@
 | `callback` | 回调 | 被调用方反向调用调用方的函数机制 | `event`、`listener` |
 | `dispatch` | 分发 | 路由已经构造好的类型化消息或意图 | `publish`、`handle` |
 | `publish` | 发布事实 | 由事实所有者对外发布不可变事件 | `dispatch`、`emit` |
+| `consume` | 消费输入 | 当前所有者认领并解释一个输入或检测事实；返回值只说明该事实是否已消费 | `handle`、`dispatch` |
+| `navigate` | 导航 | 切换产品当前页面并发起对应呈现过渡 | `show`、`dispatch` |
 | `wait` | 等待完成 | 有界阻塞直到已提交操作完成或超时 | `poll` |
 | `cancel` | 取消请求 | 请求取消尚未完成的操作 | `stop`、`clear` |
 | `register` | 注册 | 向集合或框架加入回调、处理器或对象 | `set` |
@@ -132,6 +134,19 @@
 - 平台正式使用 Thread 而非 Task 时保留 `thread`；同一项目不混用。
 - `emit`、`notify`、`send` 不能作为 `publish/dispatch/request` 的随意近义词。
 - `process`、`execute`、`perform`、`do_work` 不进入公共 API；应选择实际动作。
+- `consume` 不隐藏异步请求结果。消费函数同时提交请求时，公共契约必须分别表达“输入已消费”
+  和“请求是否接受”，或由调用方显式记录请求失败。
+- `navigate` 只用于 Application 的产品页面迁移；UI 控件焦点、列表选择和 Presentation
+  消息路由不得借用该词。
+- 唯一、可替换的回调属性使用 `set_<event>_callback_borrow()`，允许以 `NULL` 清除时必须写明；
+  加入回调集合或禁止原位替换的长期订阅使用 `register_<event>_callback_borrow()`，并提供
+  `unregister_<event>_callback()` 或声明进程期固定生命周期。
+
+### 5.1 领域对象
+
+| 首选词 | 类别 | 中文固定译法 | 唯一含义 | 适用形式与边界 |
+| --- | --- | --- | --- | --- |
+| `chat` | 语音领域对象 | 语音对话回合 | 从录音、上传、响应到播放终态的一次完整语音事务 | 用作 `request_chat()` 的操作对象；不替代通用连接 `session`、Task 或回调 |
 
 ## 6. 状态与数据形态
 

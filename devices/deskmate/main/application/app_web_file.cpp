@@ -468,7 +468,8 @@ esp_err_t app_web_file_init(void)
         taskEXIT_CRITICAL(&s_state_lock);
         if (safely_initialized)
         {
-            const esp_err_t callback_error = app_network_set_link_change_callback_borrow(on_network_link_change, NULL);
+            const esp_err_t callback_error =
+                app_network_register_link_change_callback_borrow(on_network_link_change, NULL);
             if (callback_error != ESP_OK)
             {
                 return callback_error;
@@ -486,7 +487,7 @@ esp_err_t app_web_file_init(void)
     s_presentation_revision    = 0U;
     s_initialized              = true;
     taskEXIT_CRITICAL(&s_state_lock);
-    const esp_err_t callback_error = app_network_set_link_change_callback_borrow(on_network_link_change, NULL);
+    const esp_err_t callback_error = app_network_register_link_change_callback_borrow(on_network_link_change, NULL);
     if (callback_error != ESP_OK)
     {
         return callback_error;

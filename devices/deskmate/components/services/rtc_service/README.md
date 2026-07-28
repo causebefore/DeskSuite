@@ -7,7 +7,7 @@
 
 - 层级：Service。
 - 触发方：Composition Root 初始化并启动；RTC GPIO15 下降沿触发运行期处理。
-- 主要输出：告警成功事件、处理失败事件和可复制状态快照。
+- 主要输出：告警成功事件、处理失败事件和可复制运行摘要。
 
 ## 2. 职责边界
 
@@ -33,7 +33,7 @@ GPIO15 下降沿
     → Device ISR 回调只通知 rtc_service Task
     → Task 读取 AF；AF 置位时通过 I2C 清除
     → 失败时按有界退避重试
-    → 更新状态快照
+    → 更新运行摘要
     → 在 Service Task 上下文通知 Application
 ```
 

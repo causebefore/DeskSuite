@@ -65,8 +65,8 @@ static void on_environment_event(void *arg, esp_event_base_t base, int32_t id, v
     (void) id;
     (void) data;
 
-    environment_service_status_t snapshot;
-    const esp_err_t              error = environment_service_get_status_copy(&snapshot);
+    environment_service_snapshot_t snapshot;
+    const esp_err_t                error = environment_service_get_snapshot_copy(&snapshot);
     if (error != ESP_OK)
     {
         s_env_view.status = PRESENTATION_DATA_ERROR;
@@ -86,14 +86,14 @@ esp_err_t home_presenter_init(void)
 {
     memset(&s_env_view, 0, sizeof(s_env_view));
     s_env_view.status = PRESENTATION_DATA_EMPTY;
-    ESP_RETURN_ON_ERROR(system_clock_register_listener_borrow(on_time_event, NULL), TAG, "注册首页时间监听器失败");
+    ESP_RETURN_ON_ERROR(system_clock_register_callback_borrow(on_time_event, NULL), TAG, "注册首页时间回调失败");
     const esp_err_t environment_error = esp_event_handler_register(ENVIRONMENT_SERVICE_EVENT,
                                                                    ENVIRONMENT_SERVICE_EVENT_ENVIRONMENT_UPDATED,
                                                                    on_environment_event,
                                                                    NULL);
     if (environment_error != ESP_OK)
     {
-        (void) system_clock_unregister_listener(on_time_event, NULL);
+        (void) system_clock_unregister_callback(on_time_event, NULL);
     }
     return environment_error;
 }

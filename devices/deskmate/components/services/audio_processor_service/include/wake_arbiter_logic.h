@@ -12,23 +12,32 @@ extern "C"
 {
 #endif
 
+    /** @brief 唤醒检测认领所使用的冷却窗口运行数据 */
     typedef struct
     {
-        uint32_t cooldown_ms;     /* 命中后抑制窗口（ms） */
-        uint32_t last_trigger_ms; /* 上次「通过」的时间戳；0 表示从未通过 */
+        uint32_t cooldown_ms;     /**< 命中后的抑制窗口，单位毫秒 */
+        uint32_t last_trigger_ms; /**< 上次通过的时间戳；0 表示从未通过 */
     } wake_arbiter_t;
 
-    /* 初始化仲裁器，设置冷却窗口。last_trigger_ms 置 0（视为远古，首次必过冷却）。 */
-    void wake_arbiter_init(wake_arbiter_t *a, uint32_t cooldown_ms);
+    /**
+     * @brief 初始化唤醒仲裁器
+     *
+     * @param[out] arbiter 仲裁器运行数据
+     * @param[in] cooldown_ms 命中后的抑制窗口，单位毫秒
+     */
+    void wake_arbiter_init(wake_arbiter_t *arbiter, uint32_t cooldown_ms);
 
-    /*
- * 处理一次 raw 唤醒检测，返回是否应真正触发对话。
- * - busy 为真（录音/思考/播放中）→ 返回 false，且不更新 last_trigger。
- * - 距上次通过不足 cooldown_ms（含时间回拨）→ 返回 false。
- * - 否则更新 last_trigger_ms 并返回 true。
- * now_ms 由调用方传入（不在内部读时钟，便于 host 测试）。
- */
-    bool wake_arbiter_handle(wake_arbiter_t *a, uint32_t now_ms, bool busy);
+    /**
+     * @brief 认领并解释一次原始唤醒检测事实
+     *
+     * busy 为 true 或尚在冷却窗口内时不认领，也不更新通过时间；其余场景记录本次通过。
+     *
+     * @param[in,out] arbiter 仲裁器运行数据
+     * @param[in] now_ms 调用方提供的当前单调时间，单位毫秒
+     * @param[in] busy 当前是否已有录音、思考或播放事务
+     * @return true 应触发一次对话；false 本次检测被抑制
+     */
+    bool wake_arbiter_consume_detection(wake_arbiter_t *arbiter, uint32_t now_ms, bool busy);
 
 #ifdef __cplusplus
 }

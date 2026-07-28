@@ -20,17 +20,17 @@ typedef enum
     APP_VOICE_STATE_FAILED,            /*!< 生命周期或回滚失败 */
 } app_voice_state_t;
 
-/** @brief 语音 Application 聚合状态快照。 */
+/** @brief 语音 Application 的有界运行摘要。 */
 typedef struct
 {
-    app_voice_state_t state;               /*!< Application 生命周期状态 */
-    bool              session_busy;        /*!< 是否存在活动语音回合 */
-    bool              processor_idle;      /*!< AFE 无采集且 Task 已停泊 */
-    bool              input_active;        /*!< 麦克风输入是否开启 */
-    bool              output_active;       /*!< 扬声器输出是否开启 */
-    bool              network_lease_held;  /*!< 是否仍持有实时语音网络租约 */
-    esp_err_t         primary_error;       /*!< 最近主操作错误 */
-    esp_err_t         recovery_error;      /*!< 最近回滚错误 */
+    app_voice_state_t state;              /*!< Application 生命周期状态 */
+    bool              session_busy;       /*!< 是否存在活动语音回合 */
+    bool              processor_idle;     /*!< AFE 无采集且 Task 已停泊 */
+    bool              input_active;       /*!< 麦克风输入是否开启 */
+    bool              output_active;      /*!< 扬声器输出是否开启 */
+    bool              network_lease_held; /*!< 是否仍持有实时语音网络租约 */
+    esp_err_t         primary_error;      /*!< 最近主操作错误 */
+    esp_err_t         recovery_error;     /*!< 最近回滚错误 */
 } app_voice_status_t;
 
 /**
@@ -72,19 +72,19 @@ esp_err_t app_voice_stop(uint32_t timeout_ms);
 esp_err_t app_voice_deinit(void);
 
 /**
- * @brief 复制语音 Runtime 及下层活动状态
+ * @brief 复制语音 Application 及下层活动运行摘要
  *
- * @param[out] out_status 状态输出
+ * @param[out] out_status 运行摘要输出
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
  */
 esp_err_t app_voice_get_status_copy(app_voice_status_t *out_status);
 
 /**
- * @brief 处理语音页按键事件
+ * @brief 认领并解释语音页按键输入
  *
  * 在语音页激活时，将按键事件转换为语音业务语义（如长按触发录音）。
  *
  * @param[in] key_event 按键事件
- * @return true 已处理；false 未处理（需上报给 App 输入入口）
+ * @return true 已认领；false 应继续由全局输入所有者解释
  */
 bool app_voice_consume_input(device_button_event_t key_event);

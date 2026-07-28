@@ -55,7 +55,7 @@ deinit → 仅从 STOPPED 释放长期资源
 
 公共头文件：[`include/voice_service.h`](include/voice_service.h)
 
-`voice_service_chat()` 在返回前复制后端上下文并异步提交会话；实际完成结果由语音状态通知
+`voice_service_request_chat()` 在返回前复制后端上下文并异步提交会话；实际完成结果由语音状态通知
 返回。
 `voice_service_stop()` 不取消活动会话；会话忙时返回 `ESP_ERR_INVALID_STATE` 并保持
 `RUNNING`。`voice_service_deinit()` 仅从 `STOPPED` 释放组件长期资源，不初始化或释放所

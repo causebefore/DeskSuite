@@ -19,7 +19,8 @@ UNINITIALIZED -> INITIALIZED -> UNINITIALIZED
 
 `environment_service_sample()` 是同步联合采样；单项入口用于保留 DeskMate 原有的 2 秒电池
 周期和 30 秒温湿度周期。返回 `ESP_OK` 表示尝试结果已提交，不代表硬件采样成功，消费者
-应读取 `valid`、`last_error` 和 `updated_at_ms`。
+应通过 `environment_service_get_snapshot_copy()` 复制联合快照，再读取 `valid`、
+`last_error` 和 `updated_at_ms`。
 
 该组件保持 PhotoPainter 的按需采样与采样事务设计。DeskMate 的首页和状态栏是常驻消费者，
 所以产品周期由 `app_environment` 调用 Service，Presentation 不直接监听 Device。

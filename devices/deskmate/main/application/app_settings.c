@@ -17,7 +17,7 @@ static bool         s_menu_active;
 
 esp_err_t app_settings_request_portal(void)
 {
-    return app_network_start_portal();
+    return app_network_request_start_portal();
 }
 
 esp_err_t app_settings_reset(void)
@@ -39,7 +39,7 @@ esp_err_t app_settings_reset(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    const esp_err_t error = app_ota_discard_pending_update();
+    const esp_err_t error = app_ota_clear_pending_update();
     if (error != ESP_OK)
     {
         return error;

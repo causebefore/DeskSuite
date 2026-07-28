@@ -155,7 +155,7 @@ esp_err_t bsp_button_set_activity_callback_borrow(bsp_button_activity_callback_t
     return error;
 }
 
-esp_err_t bsp_button_get_level(bsp_button_id_t button, bool *out_high)
+esp_err_t bsp_button_read_level(bsp_button_id_t button, bool *out_high)
 {
     if (out_high == NULL || button < BSP_BUTTON_LEFT || button >= BSP_BUTTON_COUNT)
     {

@@ -74,7 +74,7 @@ if (Test-Section 'Core') {
 
 if (Test-Section 'Wake') {
     Assert-Contains 'components\services\button_service\include\button_service.h' `
-        'button_service_wakeup_info_t' 'Button Service 未声明轻睡眠唤醒事实'
+        'button_service_wakeup_snapshot_t' 'Button Service 未声明轻睡眠唤醒事实'
     Assert-Contains 'components\services\button_service\include\button_service.h' `
         'button_service_request_light_sleep_wakeup_copy' `
         'Button Service 未提供轻睡眠唤醒事实入口'

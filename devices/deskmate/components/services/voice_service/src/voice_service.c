@@ -35,14 +35,14 @@
 
 static const char *TAG = "voice_service";
 
-#define VOICE_SAMPLE_RATE       16000 /* AFE 降噪后输出采样率 */
+#define VOICE_SAMPLE_RATE   16000 /* AFE 降噪后输出采样率 */
 /* 单个 int16 样本 */
-#define VOICE_SAMPLE_SIZE       2
+#define VOICE_SAMPLE_SIZE   2
 
 /* HTTP/VAD/WebSocket 超时与缓冲、TTS 播放 ring 见 Kconfig: DeskMate Audio/Voice。 */
 
 /* HTTP 流式读取缓冲 */
-#define VOICE_HTTP_READ_BUF     2048
+#define VOICE_HTTP_READ_BUF 2048
 
 ESP_EVENT_DEFINE_BASE(VOICE_SERVICE_EVENT);
 
@@ -69,7 +69,7 @@ static portMUX_TYPE        s_session_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #define VOICE_SESSION_CANCELLED BIT0
 
-/* 语音对话用的 server 配置快照。必须在 voice_service_chat（内部 RAM 栈任务）里
+/* 语音对话用的 server 配置快照。必须在 voice_service_request_chat（内部 RAM 栈任务）里
  * 预加载——voice_chat_task 的栈在 PSRAM，不能执行 NVS/flash 读（会 disable cache，
  * PSRAM 栈不可访问，触发 esp_task_stack_is_sane_cache_disabled 断言）。 */
 static voice_session_config_t s_chat_config;
@@ -816,7 +816,7 @@ esp_err_t voice_service_deinit(void)
     return ESP_OK;
 }
 
-esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t duration_ms)
+esp_err_t voice_service_request_chat(const protocol_backend_context_t *backend, uint32_t duration_ms)
 {
     ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(backend), ESP_ERR_INVALID_ARG, TAG, "语音后端上下文无效");
     portENTER_CRITICAL(&s_session_lock);
@@ -847,13 +847,12 @@ esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t
     (void) xSemaphoreTake(s_chat_stopped, 0U);
     s_chat_config = session_config;
     xEventGroupClearBits(s_session_events, VOICE_SESSION_CANCELLED);
-    const esp_err_t task_error =
-        voice_service_task_start_chat(run_voice_chat, (void *) (uintptr_t) duration_ms);
+    const esp_err_t task_error = voice_service_task_start_chat(run_voice_chat, (void *) (uintptr_t) duration_ms);
     if (task_error != ESP_OK)
     {
         ESP_LOGE(TAG,
                  "创建 voice_chat 任务失败(需栈=%d): 内部堆=%u PSRAM=%u",
-                  12288,
+                 12288,
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         session_set_idle();
@@ -898,14 +897,14 @@ static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len)
 {
     char        url[256] = { 0 };
     const char *base     = s_chat_config.backend.base_url;
-    const char *scheme  = strncmp(base, "https://", 8) == 0 ? "wss://" : "ws://";
-    const char *host    = strstr(base, "://");
-    const int   url_len = snprintf(url,
-                                   sizeof(url),
-                                   "%s%s%sapi/v1/voice/ws",
-                                   scheme,
-                                   host != NULL ? host + 3 : base,
-                                   base[strlen(base) - 1] == '/' ? "" : "/");
+    const char *scheme   = strncmp(base, "https://", 8) == 0 ? "wss://" : "ws://";
+    const char *host     = strstr(base, "://");
+    const int   url_len  = snprintf(url,
+                                    sizeof(url),
+                                    "%s%s%sapi/v1/voice/ws",
+                                    scheme,
+                                    host != NULL ? host + 3 : base,
+                                    base[strlen(base) - 1] == '/' ? "" : "/");
     ESP_RETURN_ON_FALSE(url_len > 0 && url_len < (int) sizeof(url), ESP_ERR_INVALID_SIZE, TAG, "WebSocket URL 过长");
 
     char headers[192] = { 0 };

@@ -9,7 +9,7 @@
 - 进入理由：本组件独占 HTTPD、认证状态和文件传输共享资源，并为停止过程提供有界排空与失败
   终态。
 - 触发方：由目标 Application 或 Composition Root 按产品时机调用生命周期 API。
-- 主要输出：端口 80 的本地 HTTP 响应，以及可复制的服务、会话和传输状态快照。
+- 主要输出：端口 80 的本地 HTTP 响应，以及可复制的服务运行摘要、会话和传输事实。
 
 ## 2. 职责边界
 
@@ -185,7 +185,7 @@ ESP-IDF FatFs；FatFs 不支持符号链接，其 VFS `stat` 只将目录和常�
 | 私有调用 | `freertos` | Service 状态锁、完成信号量和一次性 HTTPD 清理 Task |
 | 私有调用 | `heap` | 分配内部 RAM 请求工作区和共享 32 KiB PSRAM 传输缓冲区 |
 | 私有调用 | `sys` | 映射固定 SD 挂载点并查询文件系统总容量和可用容量 |
-| 被调用 | 目标 Application / Composition Root | 按产品时机装配生命周期并读取状态快照 |
+| 被调用 | 目标 Application / Composition Root | 按产品时机装配生命周期并读取运行摘要 |
 
 本组件不初始化这些依赖，也不拥有 SD 卡或网络链路的生命周期。
 
@@ -238,7 +238,7 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 
 ## 7. 秘密、停止与故障恢复
 
-- 每次 `start()` 重新生成访问码；只有服务进入 `RUNNING` 后才发布到状态快照。
+- 每次 `start()` 重新生成访问码；只有服务进入 `RUNNING` 后才发布到运行摘要。
 - token 只在访问码验证成功后生成，通过 `no-store` JSON 返回，并以二进制形式保存在认证状态；
   若响应构造或发送失败，仅在当前 token 仍匹配时撤销本次会话。
 - `stop()` 进入 `STOPPING` 的同一锁范围内立即清空访问码、token、锁定计数和会话时间。

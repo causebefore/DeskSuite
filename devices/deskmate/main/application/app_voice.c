@@ -18,8 +18,8 @@
 #endif
 #include "voice_service.h"
 
-static const char *TAG          = "app_voice";
-static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
+static const char       *TAG          = "app_voice";
+static portMUX_TYPE      s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 static SemaphoreHandle_t s_control_lock;
 static app_voice_state_t s_state;
 static uint32_t          s_network_lease_generation;
@@ -47,8 +47,8 @@ static esp_err_t release_network_lease_locked(void)
     {
         return ESP_OK;
     }
-    const uint32_t generation = s_network_lease_generation;
-    const esp_err_t err       = app_network_release_realtime_voice_lease(generation, APP_VOICE_LEASE_TIMEOUT_MS);
+    const uint32_t  generation = s_network_lease_generation;
+    const esp_err_t err        = app_network_release_realtime_voice_lease(generation, APP_VOICE_LEASE_TIMEOUT_MS);
     if (err != ESP_OK)
     {
         ESP_LOGW(TAG,
@@ -120,7 +120,7 @@ static esp_err_t start_voice_chat(uint32_t duration_ms)
     }
 
     s_network_lease_generation = generation;
-    err                        = voice_service_chat(&backend, duration_ms);
+    err                        = voice_service_request_chat(&backend, duration_ms);
     if (err != ESP_OK)
     {
         (void) release_network_lease_locked();
@@ -163,7 +163,7 @@ static void on_wake_event(void *arg, esp_event_base_t base, int32_t id, void *da
     uint32_t now_ms = (uint32_t) (esp_timer_get_time() / 1000);
     bool     busy   = voice_service_is_busy();
 
-    if (!wake_arbiter_handle(&s_wake_arbiter, now_ms, busy))
+    if (!wake_arbiter_consume_detection(&s_wake_arbiter, now_ms, busy))
     {
         ESP_LOGI(TAG, "唤醒被仲裁丢弃 (busy=%d)", (int) busy);
         return;
@@ -180,7 +180,7 @@ static void on_wake_event(void *arg, esp_event_base_t base, int32_t id, void *da
     /* 租约已生效后只切换本地 UI；页面状态由设备 Application 独立拥有。 */
     if (app_page_get_current() != PRESENTATION_PAGE_VOICE)
     {
-        (void) app_page_show(PRESENTATION_PAGE_VOICE, PRESENTATION_NAV_DIR_NONE);
+        (void) app_page_navigate(PRESENTATION_PAGE_VOICE, PRESENTATION_NAV_DIR_NONE);
     }
 }
 #endif
@@ -254,11 +254,11 @@ esp_err_t app_voice_start(uint32_t timeout_ms)
     }
 
     set_state(APP_VOICE_STATE_STARTING, ESP_OK, ESP_OK);
-    const int64_t deadline_us = esp_timer_get_time() + (int64_t) timeout_ms * 1000LL;
-    bool audio_started        = false;
-    bool processor_started    = false;
-    bool voice_started        = false;
-    esp_err_t primary_error   = audio_service_start();
+    const int64_t deadline_us       = esp_timer_get_time() + (int64_t) timeout_ms * 1000LL;
+    bool          audio_started     = false;
+    bool          processor_started = false;
+    bool          voice_started     = false;
+    esp_err_t     primary_error     = audio_service_start();
     if (primary_error == ESP_OK)
     {
         audio_started = true;
@@ -344,8 +344,8 @@ esp_err_t app_voice_stop(uint32_t timeout_ms)
     }
 
     set_state(APP_VOICE_STATE_STOPPING, ESP_OK, ESP_OK);
-    const int64_t deadline_us = esp_timer_get_time() + (int64_t) timeout_ms * 1000LL;
-    esp_err_t primary_error   = voice_service_stop();
+    const int64_t deadline_us   = esp_timer_get_time() + (int64_t) timeout_ms * 1000LL;
+    esp_err_t     primary_error = voice_service_stop();
     if (primary_error != ESP_OK)
     {
         set_state(APP_VOICE_STATE_RUNNING, primary_error, ESP_OK);
@@ -459,10 +459,9 @@ esp_err_t app_voice_get_status_copy(app_voice_status_t *out_status)
     voice_service_status_t           voice_status     = { 0 };
     audio_processor_service_status_t processor_status = { 0 };
     audio_service_status_t           audio_status     = { 0 };
-    const esp_err_t voice_error = voice_service_get_status_copy(&voice_status);
-    const esp_err_t processor_error =
-        audio_processor_service_get_status_copy(&processor_status);
-    const esp_err_t audio_error = audio_service_get_status_copy(&audio_status);
+    const esp_err_t                  voice_error      = voice_service_get_status_copy(&voice_status);
+    const esp_err_t                  processor_error  = audio_processor_service_get_status_copy(&processor_status);
+    const esp_err_t                  audio_error      = audio_service_get_status_copy(&audio_status);
     if (voice_error != ESP_OK || processor_error != ESP_OK || audio_error != ESP_OK)
     {
         xSemaphoreGive(s_control_lock);
@@ -470,12 +469,12 @@ esp_err_t app_voice_get_status_copy(app_voice_status_t *out_status)
     }
 
     *out_status = (app_voice_status_t) {
-        .state              = state,
-        .session_busy       = voice_status.session_busy,
-        .processor_idle     = processor_status.capture_state == AUDIO_PROCESSOR_CAPTURE_IDLE
-                              && processor_status.feed_parked && processor_status.fetch_parked,
-        .input_active       = audio_status.input_active,
-        .output_active      = audio_status.output_active,
+        .state          = state,
+        .session_busy   = voice_status.session_busy,
+        .processor_idle = processor_status.capture_state == AUDIO_PROCESSOR_CAPTURE_IDLE && processor_status.feed_parked
+                          && processor_status.fetch_parked,
+        .input_active   = audio_status.input_active,
+        .output_active  = audio_status.output_active,
         .network_lease_held = s_network_lease_generation != 0,
         .primary_error      = primary_error,
         .recovery_error     = recovery_error,

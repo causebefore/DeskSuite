@@ -26,7 +26,7 @@ extern "C"
     {
         bool left_button;  /**< EXT1 表明左键曾拉低 */
         bool right_button; /**< EXT1 表明右键曾拉低 */
-    } button_service_wakeup_info_t;
+    } button_service_wakeup_snapshot_t;
 
     /**
      * @brief 按键事件回调
@@ -72,11 +72,11 @@ extern "C"
      *
      * ESP_OK 只表示请求已复制；最终产品事件仍通过事件回调返回。
      *
-     * @param[in] wakeup 至少包含一个按键位的唤醒事实
+     * @param[in] wakeup_snapshot 至少包含一个按键位的唤醒事实快照
      * @return ESP_OK 已接受；ESP_ERR_INVALID_ARG 参数为空或无按键事实；
      *         ESP_ERR_INVALID_STATE Service 未运行；或 Timer 调度错误码
      */
-    esp_err_t button_service_request_light_sleep_wakeup_copy(const button_service_wakeup_info_t *wakeup);
+    esp_err_t button_service_request_light_sleep_wakeup_copy(const button_service_wakeup_snapshot_t *wakeup_snapshot);
 
     /**
      * @brief 同步停止边沿监听和扫描

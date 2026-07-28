@@ -35,7 +35,7 @@ static esp_err_t ensure_wakeup_buttons_released(void)
     for (size_t index = 0; index < sizeof(s_buttons) / sizeof(s_buttons[0]); ++index)
     {
         bool            high  = false;
-        const esp_err_t error = bsp_button_get_level(s_buttons[index], &high);
+        const esp_err_t error = bsp_button_read_level(s_buttons[index], &high);
         if (error != ESP_OK)
         {
             return error;
@@ -52,13 +52,13 @@ static esp_err_t ensure_wakeup_buttons_released(void)
     return ESP_OK;
 }
 
-esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup_info_t *out_wakeup)
+esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup_result_t *out_result)
 {
-    if (timer_wakeup_ms == 0U || out_wakeup == NULL)
+    if (timer_wakeup_ms == 0U || out_result == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    *out_wakeup                  = (bsp_power_wakeup_info_t) { 0 };
+    *out_result                  = (bsp_power_wakeup_result_t) { 0 };
 
     const esp_err_t button_error = ensure_wakeup_buttons_released();
     if (button_error != ESP_OK)
@@ -107,16 +107,16 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
     {
         const uint32_t wakeup_causes      = esp_sleep_get_wakeup_causes();
         const uint64_t ext1_wakeup_status = esp_sleep_get_ext1_wakeup_status();
-        *out_wakeup                       = (bsp_power_wakeup_info_t) {
+        *out_result                       = (bsp_power_wakeup_result_t) {
             .left_button  = (ext1_wakeup_status & (1ULL << BOARD_PIN_BTN_LEFT)) != 0U,
             .right_button = (ext1_wakeup_status & (1ULL << BOARD_PIN_BTN_RIGHT)) != 0U,
             .timer        = (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) != 0U,
         };
         ESP_LOGI(TAG,
                  "轻睡眠已结束，左键=%s，右键=%s，Timer=%s，唤醒掩码=0x%lx",
-                 out_wakeup->left_button ? "是" : "否",
-                 out_wakeup->right_button ? "是" : "否",
-                 out_wakeup->timer ? "是" : "否",
+                 out_result->left_button ? "是" : "否",
+                 out_result->right_button ? "是" : "否",
+                 out_result->timer ? "是" : "否",
                  (unsigned long) wakeup_causes);
     }
 

@@ -16,9 +16,9 @@
 #define APP_POMODORO_TASK_PRIORITY    3U
 #define APP_POMODORO_START_TIMEOUT_MS 2000U
 
-static const char *TAG                = "app_pomodoro";
+static const char *TAG                        = "app_pomodoro";
 
-app_pomodoro_context_t g_app_pomodoro = {
+app_pomodoro_runtime_t g_app_pomodoro_runtime = {
     .timer_lock = portMUX_INITIALIZER_UNLOCKED,
 };
 
@@ -42,14 +42,14 @@ bool app_pomodoro_settings_are_valid(const app_pomodoro_settings_t *settings)
 static void phase_timer_callback(void *arg)
 {
     (void) arg;
-    taskENTER_CRITICAL(&g_app_pomodoro.timer_lock);
-    const uint64_t generation = g_app_pomodoro.scheduled_generation;
-    taskEXIT_CRITICAL(&g_app_pomodoro.timer_lock);
+    taskENTER_CRITICAL(&g_app_pomodoro_runtime.timer_lock);
+    const uint64_t generation = g_app_pomodoro_runtime.scheduled_generation;
+    taskEXIT_CRITICAL(&g_app_pomodoro_runtime.timer_lock);
     const app_pomodoro_command_t command = {
         .type       = APP_POMODORO_COMMAND_TICK,
         .generation = generation,
     };
-    if (g_app_pomodoro.queue != NULL && xQueueSend(g_app_pomodoro.queue, &command, 0) != pdTRUE)
+    if (g_app_pomodoro_runtime.queue != NULL && xQueueSend(g_app_pomodoro_runtime.queue, &command, 0) != pdTRUE)
     {
         ESP_EARLY_LOGW(TAG, "番茄钟节拍队列已满");
     }
@@ -62,7 +62,7 @@ static void date_timer_callback(void *arg)
     const app_pomodoro_command_t command = {
         .type = APP_POMODORO_COMMAND_NORMALIZE_DATE,
     };
-    if (g_app_pomodoro.queue != NULL && xQueueSend(g_app_pomodoro.queue, &command, 0) != pdTRUE)
+    if (g_app_pomodoro_runtime.queue != NULL && xQueueSend(g_app_pomodoro_runtime.queue, &command, 0) != pdTRUE)
     {
         ESP_EARLY_LOGW(TAG, "番茄钟日期队列已满");
     }
@@ -77,56 +77,56 @@ static void on_system_clock_updated(system_clock_event_t event, const system_clo
     const app_pomodoro_command_t command = {
         .type = APP_POMODORO_COMMAND_NORMALIZE_DATE,
     };
-    if (g_app_pomodoro.running && !g_app_pomodoro.stopping && g_app_pomodoro.queue != NULL)
+    if (g_app_pomodoro_runtime.running && !g_app_pomodoro_runtime.stopping && g_app_pomodoro_runtime.queue != NULL)
     {
-        (void) xQueueSend(g_app_pomodoro.queue, &command, 0);
+        (void) xQueueSend(g_app_pomodoro_runtime.queue, &command, 0);
     }
 }
 
 /** @brief 删除当前已创建的生命周期资源 */
 static void delete_resources(void)
 {
-    if (g_app_pomodoro.phase_timer != NULL)
+    if (g_app_pomodoro_runtime.phase_timer != NULL)
     {
-        (void) esp_timer_delete(g_app_pomodoro.phase_timer);
+        (void) esp_timer_delete(g_app_pomodoro_runtime.phase_timer);
     }
-    if (g_app_pomodoro.date_timer != NULL)
+    if (g_app_pomodoro_runtime.date_timer != NULL)
     {
-        (void) esp_timer_delete(g_app_pomodoro.date_timer);
+        (void) esp_timer_delete(g_app_pomodoro_runtime.date_timer);
     }
-    if (g_app_pomodoro.reconcile_sem != NULL)
+    if (g_app_pomodoro_runtime.reconcile_sem != NULL)
     {
-        vSemaphoreDelete(g_app_pomodoro.reconcile_sem);
+        vSemaphoreDelete(g_app_pomodoro_runtime.reconcile_sem);
     }
-    if (g_app_pomodoro.reconcile_lock != NULL)
+    if (g_app_pomodoro_runtime.reconcile_lock != NULL)
     {
-        vSemaphoreDelete(g_app_pomodoro.reconcile_lock);
+        vSemaphoreDelete(g_app_pomodoro_runtime.reconcile_lock);
     }
-    if (g_app_pomodoro.stopped_sem != NULL)
+    if (g_app_pomodoro_runtime.stopped_sem != NULL)
     {
-        vSemaphoreDelete(g_app_pomodoro.stopped_sem);
+        vSemaphoreDelete(g_app_pomodoro_runtime.stopped_sem);
     }
-    if (g_app_pomodoro.ready_sem != NULL)
+    if (g_app_pomodoro_runtime.ready_sem != NULL)
     {
-        vSemaphoreDelete(g_app_pomodoro.ready_sem);
+        vSemaphoreDelete(g_app_pomodoro_runtime.ready_sem);
     }
-    if (g_app_pomodoro.state_lock != NULL)
+    if (g_app_pomodoro_runtime.state_lock != NULL)
     {
-        vSemaphoreDelete(g_app_pomodoro.state_lock);
+        vSemaphoreDelete(g_app_pomodoro_runtime.state_lock);
     }
-    if (g_app_pomodoro.queue != NULL)
+    if (g_app_pomodoro_runtime.queue != NULL)
     {
-        vQueueDelete(g_app_pomodoro.queue);
+        vQueueDelete(g_app_pomodoro_runtime.queue);
     }
-    const app_pomodoro_context_t empty = {
+    const app_pomodoro_runtime_t empty = {
         .timer_lock = portMUX_INITIALIZER_UNLOCKED,
     };
-    g_app_pomodoro = empty;
+    g_app_pomodoro_runtime = empty;
 }
 
 esp_err_t app_pomodoro_init(void)
 {
-    if (g_app_pomodoro.initialized)
+    if (g_app_pomodoro_runtime.initialized)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -143,15 +143,15 @@ esp_err_t app_pomodoro_init(void)
         return error;
     }
 
-    g_app_pomodoro.queue          = xQueueCreate(APP_POMODORO_QUEUE_LENGTH, sizeof(app_pomodoro_command_t));
-    g_app_pomodoro.state_lock     = xSemaphoreCreateMutex();
-    g_app_pomodoro.ready_sem      = xSemaphoreCreateBinary();
-    g_app_pomodoro.stopped_sem    = xSemaphoreCreateBinary();
-    g_app_pomodoro.reconcile_lock = xSemaphoreCreateMutex();
-    g_app_pomodoro.reconcile_sem  = xSemaphoreCreateBinary();
-    if (g_app_pomodoro.queue == NULL || g_app_pomodoro.state_lock == NULL || g_app_pomodoro.ready_sem == NULL
-        || g_app_pomodoro.stopped_sem == NULL || g_app_pomodoro.reconcile_lock == NULL
-        || g_app_pomodoro.reconcile_sem == NULL)
+    g_app_pomodoro_runtime.queue          = xQueueCreate(APP_POMODORO_QUEUE_LENGTH, sizeof(app_pomodoro_command_t));
+    g_app_pomodoro_runtime.state_lock     = xSemaphoreCreateMutex();
+    g_app_pomodoro_runtime.ready_sem      = xSemaphoreCreateBinary();
+    g_app_pomodoro_runtime.stopped_sem    = xSemaphoreCreateBinary();
+    g_app_pomodoro_runtime.reconcile_lock = xSemaphoreCreateMutex();
+    g_app_pomodoro_runtime.reconcile_sem  = xSemaphoreCreateBinary();
+    if (g_app_pomodoro_runtime.queue == NULL || g_app_pomodoro_runtime.state_lock == NULL
+        || g_app_pomodoro_runtime.ready_sem == NULL || g_app_pomodoro_runtime.stopped_sem == NULL
+        || g_app_pomodoro_runtime.reconcile_lock == NULL || g_app_pomodoro_runtime.reconcile_sem == NULL)
     {
         delete_resources();
         return ESP_ERR_NO_MEM;
@@ -161,7 +161,7 @@ esp_err_t app_pomodoro_init(void)
         .callback = phase_timer_callback,
         .name     = "pomodoro_phase",
     };
-    error = esp_timer_create(&phase_timer_args, &g_app_pomodoro.phase_timer);
+    error = esp_timer_create(&phase_timer_args, &g_app_pomodoro_runtime.phase_timer);
     if (error != ESP_OK)
     {
         delete_resources();
@@ -171,15 +171,15 @@ esp_err_t app_pomodoro_init(void)
         .callback = date_timer_callback,
         .name     = "pomodoro_date",
     };
-    error = esp_timer_create(&date_timer_args, &g_app_pomodoro.date_timer);
+    error = esp_timer_create(&date_timer_args, &g_app_pomodoro_runtime.date_timer);
     if (error != ESP_OK)
     {
         delete_resources();
         return error;
     }
 
-    app_pomodoro_state_t initial = { 0 };
-    initial.status.settings = stored.settings_valid
+    app_pomodoro_runtime_data_t initial = { 0 };
+    initial.snapshot.settings = stored.settings_valid
                                   ? (app_pomodoro_settings_t) {
                                         .focus_minutes       = stored.settings.focus_minutes,
                                         .short_break_minutes = stored.settings.short_break_minutes,
@@ -187,18 +187,18 @@ esp_err_t app_pomodoro_init(void)
                                         .long_break_interval = stored.settings.long_break_interval,
                                     }
                                   : DEFAULT_SETTINGS;
-    initial.status.phase                  = APP_POMODORO_PHASE_NONE;
-    initial.status.next_phase             = APP_POMODORO_PHASE_FOCUS;
-    initial.status.run_state              = APP_POMODORO_RUN_STATE_IDLE;
-    initial.status.remaining_seconds      = (uint32_t) initial.status.settings.focus_minutes * 60U;
-    initial.status.phase_duration_seconds = initial.status.remaining_seconds;
-    initial.status.settings_saved         = stored.schema_valid && stored.settings_valid && stored.counts_valid;
-    initial.status.generation             = 1U;
+    initial.snapshot.phase                  = APP_POMODORO_PHASE_NONE;
+    initial.snapshot.next_phase             = APP_POMODORO_PHASE_FOCUS;
+    initial.snapshot.run_state              = APP_POMODORO_RUN_STATE_IDLE;
+    initial.snapshot.remaining_seconds      = (uint32_t) initial.snapshot.settings.focus_minutes * 60U;
+    initial.snapshot.phase_duration_seconds = initial.snapshot.remaining_seconds;
+    initial.snapshot.settings_saved         = stored.schema_valid && stored.settings_valid && stored.counts_valid;
+    initial.snapshot.generation             = 1U;
     if (stored.schema_valid && stored.counts_valid)
     {
-        initial.today_date                 = stored.today_date;
-        initial.status.today_focus_count   = stored.today_count;
-        initial.status.pending_focus_count = stored.pending_count;
+        initial.today_date                   = stored.today_date;
+        initial.snapshot.today_focus_count   = stored.today_count;
+        initial.snapshot.pending_focus_count = stored.pending_count;
     }
 
     if (!stored.settings_valid)
@@ -210,9 +210,9 @@ esp_err_t app_pomodoro_init(void)
             .long_break_minutes  = DEFAULT_SETTINGS.long_break_minutes,
             .long_break_interval = DEFAULT_SETTINGS.long_break_interval,
         };
-        error                         = pomodoro_store_save_settings_copy(&defaults);
-        initial.status.settings_saved = error == ESP_OK;
-        initial.status.last_error     = error;
+        error                           = pomodoro_store_save_settings_copy(&defaults);
+        initial.snapshot.settings_saved = error == ESP_OK;
+        initial.snapshot.last_error     = error;
         if (error != ESP_OK)
         {
             ESP_LOGW(TAG, "恢复默认番茄钟设置失败: %s", esp_err_to_name(error));
@@ -223,9 +223,9 @@ esp_err_t app_pomodoro_init(void)
         ESP_LOGW(TAG, "番茄钟完成计数字段无效，已从零恢复");
     }
 
-    g_app_pomodoro.state       = initial;
-    g_app_pomodoro.initialized = true;
-    error                      = system_clock_register_listener_borrow(on_system_clock_updated, NULL);
+    g_app_pomodoro_runtime.runtime_data = initial;
+    g_app_pomodoro_runtime.initialized  = true;
+    error                               = system_clock_register_callback_borrow(on_system_clock_updated, NULL);
     if (error != ESP_OK)
     {
         delete_resources();
@@ -233,37 +233,37 @@ esp_err_t app_pomodoro_init(void)
     }
     ESP_LOGI(TAG,
              "番茄钟已初始化，专注=%u 分钟，长休间隔=%u 轮",
-             (unsigned) initial.status.settings.focus_minutes,
-             (unsigned) initial.status.settings.long_break_interval);
+             (unsigned) initial.snapshot.settings.focus_minutes,
+             (unsigned) initial.snapshot.settings.long_break_interval);
     return ESP_OK;
 }
 
 esp_err_t app_pomodoro_start(void)
 {
-    if (!g_app_pomodoro.initialized || g_app_pomodoro.running || g_app_pomodoro.task != NULL)
+    if (!g_app_pomodoro_runtime.initialized || g_app_pomodoro_runtime.running || g_app_pomodoro_runtime.task != NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    while (xSemaphoreTake(g_app_pomodoro.ready_sem, 0) == pdTRUE)
+    while (xSemaphoreTake(g_app_pomodoro_runtime.ready_sem, 0) == pdTRUE)
     {
     }
-    while (xSemaphoreTake(g_app_pomodoro.stopped_sem, 0) == pdTRUE)
+    while (xSemaphoreTake(g_app_pomodoro_runtime.stopped_sem, 0) == pdTRUE)
     {
     }
-    g_app_pomodoro.running  = true;
-    g_app_pomodoro.stopping = false;
+    g_app_pomodoro_runtime.running  = true;
+    g_app_pomodoro_runtime.stopping = false;
     if (xTaskCreate(app_pomodoro_task,
                     "app_pomodoro_task",
                     APP_POMODORO_TASK_STACK_SIZE,
                     NULL,
                     APP_POMODORO_TASK_PRIORITY,
-                    &g_app_pomodoro.task)
+                    &g_app_pomodoro_runtime.task)
         != pdPASS)
     {
-        g_app_pomodoro.running = false;
+        g_app_pomodoro_runtime.running = false;
         return ESP_ERR_NO_MEM;
     }
-    if (xSemaphoreTake(g_app_pomodoro.ready_sem, pdMS_TO_TICKS(APP_POMODORO_START_TIMEOUT_MS)) != pdTRUE)
+    if (xSemaphoreTake(g_app_pomodoro_runtime.ready_sem, pdMS_TO_TICKS(APP_POMODORO_START_TIMEOUT_MS)) != pdTRUE)
     {
         return ESP_ERR_TIMEOUT;
     }
@@ -276,40 +276,40 @@ esp_err_t app_pomodoro_stop(uint32_t timeout_ms)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!g_app_pomodoro.initialized || !g_app_pomodoro.running)
+    if (!g_app_pomodoro_runtime.initialized || !g_app_pomodoro_runtime.running)
     {
         return ESP_ERR_INVALID_STATE;
     }
     const TickType_t started = xTaskGetTickCount();
     const TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
-    if (!g_app_pomodoro.stopping)
+    if (!g_app_pomodoro_runtime.stopping)
     {
         const app_pomodoro_command_t command = { .type = APP_POMODORO_COMMAND_STOP };
-        if (xQueueSend(g_app_pomodoro.queue, &command, timeout) != pdTRUE)
+        if (xQueueSend(g_app_pomodoro_runtime.queue, &command, timeout) != pdTRUE)
         {
             return ESP_ERR_TIMEOUT;
         }
-        g_app_pomodoro.stopping = true;
+        g_app_pomodoro_runtime.stopping = true;
     }
     const TickType_t elapsed   = xTaskGetTickCount() - started;
     const TickType_t remaining = elapsed < timeout ? timeout - elapsed : 0U;
-    if (xSemaphoreTake(g_app_pomodoro.stopped_sem, remaining) != pdTRUE)
+    if (xSemaphoreTake(g_app_pomodoro_runtime.stopped_sem, remaining) != pdTRUE)
     {
         return ESP_ERR_TIMEOUT;
     }
-    g_app_pomodoro.running  = false;
-    g_app_pomodoro.stopping = false;
-    (void) xQueueReset(g_app_pomodoro.queue);
+    g_app_pomodoro_runtime.running  = false;
+    g_app_pomodoro_runtime.stopping = false;
+    (void) xQueueReset(g_app_pomodoro_runtime.queue);
     return ESP_OK;
 }
 
 esp_err_t app_pomodoro_deinit(void)
 {
-    if (!g_app_pomodoro.initialized || g_app_pomodoro.running || g_app_pomodoro.task != NULL)
+    if (!g_app_pomodoro_runtime.initialized || g_app_pomodoro_runtime.running || g_app_pomodoro_runtime.task != NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    const esp_err_t error = system_clock_unregister_listener(on_system_clock_updated, NULL);
+    const esp_err_t error = system_clock_unregister_callback(on_system_clock_updated, NULL);
     if (error != ESP_OK)
     {
         return error;
@@ -324,11 +324,11 @@ static esp_err_t enqueue_command(const app_pomodoro_command_t *command)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!g_app_pomodoro.running || g_app_pomodoro.stopping || g_app_pomodoro.queue == NULL)
+    if (!g_app_pomodoro_runtime.running || g_app_pomodoro_runtime.stopping || g_app_pomodoro_runtime.queue == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    return xQueueSend(g_app_pomodoro.queue, command, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+    return xQueueSend(g_app_pomodoro_runtime.queue, command, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 #define DEFINE_SIMPLE_REQUEST(function_name, command_type)               \
@@ -357,31 +357,31 @@ esp_err_t app_pomodoro_request_update_settings_copy(const app_pomodoro_settings_
     return enqueue_command(&command);
 }
 
-esp_err_t app_pomodoro_get_status_copy(app_pomodoro_status_t *out_status)
+esp_err_t app_pomodoro_get_snapshot_copy(app_pomodoro_snapshot_t *out_snapshot)
 {
-    if (out_status == NULL)
+    if (out_snapshot == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!g_app_pomodoro.initialized || g_app_pomodoro.state_lock == NULL)
+    if (!g_app_pomodoro_runtime.initialized || g_app_pomodoro_runtime.state_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    xSemaphoreTake(g_app_pomodoro.state_lock, portMAX_DELAY);
-    *out_status = g_app_pomodoro.state.status;
-    if (out_status->run_state == APP_POMODORO_RUN_STATE_RUNNING)
+    xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
+    *out_snapshot = g_app_pomodoro_runtime.runtime_data.snapshot;
+    if (out_snapshot->run_state == APP_POMODORO_RUN_STATE_RUNNING)
     {
-        const int64_t remaining_us    = g_app_pomodoro.state.phase_deadline_us - esp_timer_get_time();
-        out_status->remaining_seconds = remaining_us > 0 ? (uint32_t) ((remaining_us + 999999LL) / 1000000LL) : 0U;
+        const int64_t remaining_us      = g_app_pomodoro_runtime.runtime_data.phase_deadline_us - esp_timer_get_time();
+        out_snapshot->remaining_seconds = remaining_us > 0 ? (uint32_t) ((remaining_us + 999999LL) / 1000000LL) : 0U;
     }
-    xSemaphoreGive(g_app_pomodoro.state_lock);
+    xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     return ESP_OK;
 }
 
 bool app_pomodoro_requires_live_display(void)
 {
-    app_pomodoro_status_t status = { 0 };
-    return app_pomodoro_get_status_copy(&status) == ESP_OK && status.run_state == APP_POMODORO_RUN_STATE_RUNNING
+    app_pomodoro_snapshot_t snapshot = { 0 };
+    return app_pomodoro_get_snapshot_copy(&snapshot) == ESP_OK && snapshot.run_state == APP_POMODORO_RUN_STATE_RUNNING
            && app_page_get_current() == PRESENTATION_PAGE_POMODORO;
 }
 
@@ -391,18 +391,18 @@ esp_err_t app_pomodoro_get_next_wakeup_interval_ms(uint32_t *out_interval_ms)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!g_app_pomodoro.initialized || g_app_pomodoro.state_lock == NULL)
+    if (!g_app_pomodoro_runtime.initialized || g_app_pomodoro_runtime.state_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    xSemaphoreTake(g_app_pomodoro.state_lock, portMAX_DELAY);
-    if (g_app_pomodoro.state.status.run_state != APP_POMODORO_RUN_STATE_RUNNING)
+    xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
+    if (g_app_pomodoro_runtime.runtime_data.snapshot.run_state != APP_POMODORO_RUN_STATE_RUNNING)
     {
-        xSemaphoreGive(g_app_pomodoro.state_lock);
+        xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
         return ESP_ERR_NOT_FOUND;
     }
-    const int64_t remaining_us = g_app_pomodoro.state.phase_deadline_us - esp_timer_get_time();
-    xSemaphoreGive(g_app_pomodoro.state_lock);
+    const int64_t remaining_us = g_app_pomodoro_runtime.runtime_data.phase_deadline_us - esp_timer_get_time();
+    xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     if (remaining_us <= 0)
     {
         *out_interval_ms = 1U;
@@ -425,31 +425,31 @@ esp_err_t app_pomodoro_reconcile_after_wakeup(uint32_t timeout_ms, app_pomodoro_
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!g_app_pomodoro.running || g_app_pomodoro.stopping)
+    if (!g_app_pomodoro_runtime.running || g_app_pomodoro_runtime.stopping)
     {
         return ESP_ERR_INVALID_STATE;
     }
     const TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
-    if (xSemaphoreTake(g_app_pomodoro.reconcile_lock, timeout) != pdTRUE)
+    if (xSemaphoreTake(g_app_pomodoro_runtime.reconcile_lock, timeout) != pdTRUE)
     {
         return ESP_ERR_TIMEOUT;
     }
-    while (xSemaphoreTake(g_app_pomodoro.reconcile_sem, 0) == pdTRUE)
+    while (xSemaphoreTake(g_app_pomodoro_runtime.reconcile_sem, 0) == pdTRUE)
     {
     }
-    uint32_t request_id = ++g_app_pomodoro.next_request_id;
+    uint32_t request_id = ++g_app_pomodoro_runtime.next_request_id;
     if (request_id == 0U)
     {
-        request_id = ++g_app_pomodoro.next_request_id;
+        request_id = ++g_app_pomodoro_runtime.next_request_id;
     }
     const app_pomodoro_command_t command = {
         .type       = APP_POMODORO_COMMAND_RECONCILE,
         .request_id = request_id,
     };
     const TickType_t started = xTaskGetTickCount();
-    if (xQueueSend(g_app_pomodoro.queue, &command, timeout) != pdTRUE)
+    if (xQueueSend(g_app_pomodoro_runtime.queue, &command, timeout) != pdTRUE)
     {
-        xSemaphoreGive(g_app_pomodoro.reconcile_lock);
+        xSemaphoreGive(g_app_pomodoro_runtime.reconcile_lock);
         return ESP_ERR_TIMEOUT;
     }
 
@@ -457,18 +457,18 @@ esp_err_t app_pomodoro_reconcile_after_wakeup(uint32_t timeout_ms, app_pomodoro_
     for (;;)
     {
         const TickType_t elapsed = xTaskGetTickCount() - started;
-        if (elapsed >= timeout || xSemaphoreTake(g_app_pomodoro.reconcile_sem, timeout - elapsed) != pdTRUE)
+        if (elapsed >= timeout || xSemaphoreTake(g_app_pomodoro_runtime.reconcile_sem, timeout - elapsed) != pdTRUE)
         {
             break;
         }
-        if (g_app_pomodoro.completed_request_id == request_id)
+        if (g_app_pomodoro_runtime.completed_request_id == request_id)
         {
-            *out_result = g_app_pomodoro.reconcile_result;
+            *out_result = g_app_pomodoro_runtime.reconcile_result;
             result      = ESP_OK;
             break;
         }
     }
-    xSemaphoreGive(g_app_pomodoro.reconcile_lock);
+    xSemaphoreGive(g_app_pomodoro_runtime.reconcile_lock);
     return result;
 }
 
@@ -478,14 +478,14 @@ bool app_pomodoro_consume_input(device_button_event_t key_event)
     {
         return false;
     }
-    app_pomodoro_status_t status;
-    if (app_pomodoro_get_status_copy(&status) != ESP_OK)
+    app_pomodoro_snapshot_t snapshot;
+    if (app_pomodoro_get_snapshot_copy(&snapshot) != ESP_OK)
     {
         return false;
     }
     if (key_event == DEVICE_BUTTON_EVENT_LEFT_LONG)
     {
-        switch (status.run_state)
+        switch (snapshot.run_state)
         {
             case APP_POMODORO_RUN_STATE_IDLE:
                 (void) app_pomodoro_request_start();
@@ -503,7 +503,7 @@ bool app_pomodoro_consume_input(device_button_event_t key_event)
     }
     if (key_event == DEVICE_BUTTON_EVENT_RIGHT_LONG)
     {
-        switch (status.run_state)
+        switch (snapshot.run_state)
         {
             case APP_POMODORO_RUN_STATE_RUNNING:
                 (void) app_pomodoro_request_skip();

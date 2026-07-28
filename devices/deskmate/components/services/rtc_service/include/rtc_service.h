@@ -39,7 +39,7 @@ extern "C"
         uint32_t               alarm_count; /**< 本轮运行累计成功消费的告警数 */
     } rtc_service_event_t;
 
-    /** @brief RTC Service 状态快照 */
+    /** @brief RTC Service 的有界运行摘要 */
     typedef struct
     {
         rtc_service_state_t state;
@@ -88,7 +88,7 @@ extern "C"
      * @brief 请求 Service Task 检查当前告警标志
      *
      * 用于调用方需要主动核对 AF、而没有 GPIO 下降沿通知的场景。返回值只表示通知是否提交，
-     * 实际 I2C 结果通过事件和状态快照报告。
+     * 实际 I2C 结果通过事件和运行摘要报告。
      *
      * @return ESP_OK 通知已提交；ESP_ERR_INVALID_STATE Service 未运行
      */
@@ -104,8 +104,8 @@ extern "C"
     esp_err_t rtc_service_stop(uint32_t timeout_ms);
 
     /**
-     * @brief 复制 RTC Service 状态快照
-     * @param[out] out_status 快照，仅在 ESP_OK 时有效
+     * @brief 复制 RTC Service 运行摘要
+     * @param[out] out_status 运行摘要，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空
      */
     esp_err_t rtc_service_get_status_copy(rtc_service_status_t *out_status);

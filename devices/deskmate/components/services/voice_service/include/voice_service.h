@@ -46,7 +46,7 @@ extern "C"
         VOICE_SERVICE_STATE_CLEANUP_FAILED,    /*!< 停止不完整，只允许继续收敛 */
     } voice_service_state_t;
 
-    /** @brief 语音 Service 只读状态快照。 */
+    /** @brief 语音 Service 的有界运行摘要。 */
     typedef struct
     {
         voice_service_state_t state;                /*!< 生命周期状态 */
@@ -92,15 +92,15 @@ extern "C"
     esp_err_t voice_service_deinit(void);
 
     /**
-     * @brief 复制语音 Service 完整状态
+     * @brief 复制语音 Service 完整运行摘要
      *
-     * @param[out] out_status 状态输出
+     * @param[out] out_status 运行摘要输出
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
      */
     esp_err_t voice_service_get_status_copy(voice_service_status_t *out_status);
 
     /**
-     * @brief 触发一次完整的语音对话回合
+     * @brief 请求异步执行一次完整的语音对话回合
      *
      * 录音 duration_ms → 上传 → 播放回复。整个流程在后台任务执行，立即返回 ESP_OK。
      * 调用方必须先确认网络在线，并持有覆盖本轮会话的产品网络租约；链路中途断开时，
@@ -108,9 +108,10 @@ extern "C"
      *
      * @param[in] backend 本轮完整后端上下文，函数返回前按值复制
      * @param[in] duration_ms 录音时长（毫秒），范围 1000~10000
-     * @return ESP_OK 成功，其他值表示失败
+     * @return ESP_OK 请求已接受；ESP_ERR_INVALID_ARG 参数无效；
+     *         ESP_ERR_INVALID_STATE Service 未运行或已有会话；或资源创建错误码
      */
-    esp_err_t voice_service_chat(const protocol_backend_context_t *backend, uint32_t duration_ms);
+    esp_err_t voice_service_request_chat(const protocol_backend_context_t *backend, uint32_t duration_ms);
 
     /** @brief 取消正在进行的语音回合。幂等；由后台任务完成资源回收。 */
     esp_err_t voice_service_cancel(void);

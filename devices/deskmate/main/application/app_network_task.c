@@ -2043,7 +2043,7 @@ esp_err_t app_network_init(void)
     return ESP_OK;
 }
 
-esp_err_t app_network_set_link_change_callback_borrow(app_network_link_change_callback_t callback, void *context)
+esp_err_t app_network_register_link_change_callback_borrow(app_network_link_change_callback_t callback, void *context)
 {
     ESP_RETURN_ON_FALSE(callback != NULL, ESP_ERR_INVALID_ARG, TAG, "网络链路变化回调为空");
 
@@ -2282,7 +2282,7 @@ esp_err_t app_network_request_ota_install(void)
     return request_ota_command(NETWORK_COMMAND_OTA_INSTALL, mode);
 }
 
-esp_err_t app_network_discard_ota_update(void)
+esp_err_t app_network_clear_ota_update(void)
 {
     ESP_RETURN_ON_FALSE(s_command_queue != NULL, ESP_ERR_INVALID_STATE, TAG, "网络任务未初始化");
 
@@ -2405,14 +2405,14 @@ esp_err_t app_network_release_web_file_lease(uint32_t generation, uint32_t timeo
     return release_network_lease(APP_NETWORK_LEASE_WEB_FILE, generation, timeout_ms);
 }
 
-void app_network_get_lease_snapshot(app_network_lease_snapshot_t *out)
+void app_network_get_lease_snapshot_copy(app_network_lease_snapshot_t *out_snapshot)
 {
-    if (out == NULL)
+    if (out_snapshot == NULL)
     {
         return;
     }
     taskENTER_CRITICAL(&s_state_lock);
-    *out = (app_network_lease_snapshot_t) {
+    *out_snapshot = (app_network_lease_snapshot_t) {
         .type       = s_active_lease_type,
         .active     = s_active_lease_type != APP_NETWORK_LEASE_NONE,
         .generation = s_active_lease_generation,
@@ -2420,7 +2420,7 @@ void app_network_get_lease_snapshot(app_network_lease_snapshot_t *out)
     taskEXIT_CRITICAL(&s_state_lock);
 }
 
-esp_err_t app_network_start_portal(void)
+esp_err_t app_network_request_start_portal(void)
 {
     ESP_RETURN_ON_FALSE(s_command_queue != NULL, ESP_ERR_INVALID_STATE, TAG, "网络任务未初始化");
     taskENTER_CRITICAL(&s_state_lock);

@@ -1,6 +1,6 @@
 /**
  * @file web_file_service.h
- * @brief 网页文件服务的公共生命周期与状态快照接口
+ * @brief 网页文件服务的公共生命周期与运行摘要接口
  */
 #pragma once
 
@@ -28,7 +28,7 @@ extern "C"
     } web_file_service_state_t;
 
     /**
- * @brief 网页文件服务的有界状态快照
+ * @brief 网页文件服务的有界运行摘要
  */
     typedef struct
     {
@@ -57,7 +57,7 @@ extern "C"
  * 本同步函数仅接受 `INITIALIZED` 状态。HTTPD 及当前 URI handler 全部注册成功后才进入
  * `RUNNING`；启动失败会在固定六秒总期限内回滚到 `INITIALIZED`，超时或清理 HTTPD 失败时
  * 保留一次性清理 Task 与服务器所有权进入 `CLEANUP_FAILED`，并拒绝再次启动，直到后续
- * `stop()` 完成收敛。访问码仅在成功进入 `RUNNING` 后发布到状态快照，并在 `stop()` 开始
+ * `stop()` 完成收敛。访问码仅在成功进入 `RUNNING` 后发布到运行摘要，并在 `stop()` 开始
  * 时失效；会话 token 仅在访问码校验成功后生成，不由本函数创建或对外暴露。本函数调用
  * HTTPD 外部 API，只能从普通 Task 上下文同步调用。
  *
@@ -90,16 +90,16 @@ extern "C"
     esp_err_t web_file_service_stop(uint32_t timeout_ms);
 
     /**
- * @brief 复制网页文件服务的完整有界状态快照
+ * @brief 复制网页文件服务的完整有界运行摘要
  *
  * 本同步函数只在 Service 状态锁内复制内存，不返回内部指针。未初始化时返回
- * `UNINITIALIZED` 零值快照；成功返回后快照由调用方独立持有，即使 Service 状态随后变化也
- * 不会修改该副本。快照从不包含会话 token；`access_code` 是仅供本地呈现的秘密副本，调用方
+ * `UNINITIALIZED` 零值摘要；成功返回后副本由调用方独立持有，即使 Service 状态随后变化也
+ * 不会修改该副本。运行摘要从不包含会话 token；`access_code` 是仅供本地呈现的秘密副本，调用方
  * 不得记录或远程转发，并应在使用完毕后覆盖。函数可能短暂等待状态锁，只能从普通 Task
  * 上下文调用。
  *
- * @param[out] out_status 调用方提供的状态快照输出，成功时完整写入
- * @return ESP_OK 快照有效；ESP_ERR_INVALID_ARG `out_status` 为空
+ * @param[out] out_status 调用方提供的运行摘要输出，成功时完整写入
+ * @return ESP_OK 运行摘要有效；ESP_ERR_INVALID_ARG `out_status` 为空
  */
     esp_err_t web_file_service_get_status_copy(web_file_service_status_t *out_status);
 

@@ -34,7 +34,7 @@ esp_err_t device_rtc_init(void)
     return error;
 }
 
-esp_err_t device_rtc_get_snapshot_copy(device_rtc_snapshot_t *out_snapshot)
+esp_err_t device_rtc_read_snapshot(device_rtc_snapshot_t *out_snapshot)
 {
     if (out_snapshot == NULL)
     {
@@ -45,7 +45,7 @@ esp_err_t device_rtc_get_snapshot_copy(device_rtc_snapshot_t *out_snapshot)
         return ESP_ERR_INVALID_STATE;
     }
     bsp_rtc_datetime_t datetime;
-    const esp_err_t    error = bsp_rtc_get_datetime(&datetime);
+    const esp_err_t    error = bsp_rtc_read_datetime(&datetime);
     if (error != ESP_OK)
     {
         return error;
@@ -57,10 +57,10 @@ esp_err_t device_rtc_get_snapshot_copy(device_rtc_snapshot_t *out_snapshot)
     out_snapshot->datetime.minute = datetime.minute;
     out_snapshot->datetime.second = datetime.second;
     out_snapshot->weekday         = calculate_weekday(&out_snapshot->datetime);
-    return bsp_rtc_get_voltage_low(&out_snapshot->voltage_low);
+    return bsp_rtc_read_voltage_low(&out_snapshot->voltage_low);
 }
 
-esp_err_t device_rtc_get_voltage_low(bool *out_voltage_low)
+esp_err_t device_rtc_read_voltage_low(bool *out_voltage_low)
 {
     if (out_voltage_low == NULL)
     {
@@ -70,7 +70,7 @@ esp_err_t device_rtc_get_voltage_low(bool *out_voltage_low)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    return bsp_rtc_get_voltage_low(out_voltage_low);
+    return bsp_rtc_read_voltage_low(out_voltage_low);
 }
 
 esp_err_t device_rtc_set_datetime(const device_rtc_datetime_t *datetime)
@@ -115,7 +115,7 @@ esp_err_t device_rtc_set_alarm(const device_rtc_alarm_t *alarm)
     return bsp_rtc_set_alarm(&bsp_alarm);
 }
 
-esp_err_t device_rtc_get_alarm(device_rtc_alarm_t *out_alarm)
+esp_err_t device_rtc_read_alarm(device_rtc_alarm_t *out_alarm)
 {
     if (out_alarm == NULL)
     {
@@ -126,7 +126,7 @@ esp_err_t device_rtc_get_alarm(device_rtc_alarm_t *out_alarm)
         return ESP_ERR_INVALID_STATE;
     }
     bsp_rtc_alarm_t bsp_alarm;
-    const esp_err_t error = bsp_rtc_get_alarm(&bsp_alarm);
+    const esp_err_t error = bsp_rtc_read_alarm(&bsp_alarm);
     if (error == ESP_OK)
     {
         *out_alarm = (device_rtc_alarm_t) {
@@ -146,22 +146,22 @@ esp_err_t device_rtc_enable_alarm_interrupt(bool enabled)
     return s_initialized ? bsp_rtc_enable_alarm_interrupt(enabled) : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t device_rtc_get_alarm_interrupt_enabled(bool *out_enabled)
+esp_err_t device_rtc_read_alarm_interrupt_enabled(bool *out_enabled)
 {
     if (out_enabled == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    return s_initialized ? bsp_rtc_get_alarm_interrupt_enabled(out_enabled) : ESP_ERR_INVALID_STATE;
+    return s_initialized ? bsp_rtc_read_alarm_interrupt_enabled(out_enabled) : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t device_rtc_get_alarm_flag(bool *out_pending)
+esp_err_t device_rtc_read_alarm_flag(bool *out_pending)
 {
     if (out_pending == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    return s_initialized ? bsp_rtc_get_alarm_flag(out_pending) : ESP_ERR_INVALID_STATE;
+    return s_initialized ? bsp_rtc_read_alarm_flag(out_pending) : ESP_ERR_INVALID_STATE;
 }
 
 esp_err_t device_rtc_clear_alarm_flag(void)
@@ -169,13 +169,13 @@ esp_err_t device_rtc_clear_alarm_flag(void)
     return s_initialized ? bsp_rtc_clear_alarm_flag() : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t device_rtc_get_interrupt_asserted(bool *out_asserted)
+esp_err_t device_rtc_read_interrupt_asserted(bool *out_asserted)
 {
     if (out_asserted == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    return s_initialized ? bsp_rtc_get_interrupt_asserted(out_asserted) : ESP_ERR_INVALID_STATE;
+    return s_initialized ? bsp_rtc_read_interrupt_asserted(out_asserted) : ESP_ERR_INVALID_STATE;
 }
 
 esp_err_t device_rtc_set_interrupt_callback_borrow(device_rtc_interrupt_callback_t callback, void *context)

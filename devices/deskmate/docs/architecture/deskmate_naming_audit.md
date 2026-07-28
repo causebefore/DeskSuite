@@ -1,77 +1,69 @@
 # DeskMate 命名迁移审计
 
-> 状态：审阅清单，更新于 2026-07-28。
+> 状态：已执行，更新于 2026-07-28。
 >
-> 本文只记录 DeskMate 当前代码相对
+> 本文记录 DeskMate 当前代码相对
 > [嵌入式 C/C++ 术语与命名规范](../../../../docs/standards/c_cpp_naming_conventions.md)和
-> [受控术语表](../../../../docs/standards/c_cpp_terminology.md)的迁移候选，不定义通用规则。
+> [受控术语表](../../../../docs/standards/c_cpp_terminology.md)的迁移结果与剩余边界，不定义
+> 通用规则。
 
 ## 1. 审计范围
 
-- `main/` 与 `components/` 中项目自有 C/C++ 头文件和实现。
+- 本轮执行范围：`main/application/`、`components/services/`、`components/device/`、
+  `components/bsp/`、`components/drivers/` 及其直接调用方、测试和组件文档。
 - 不修改 ESP-IDF、FreeRTOS、LVGL、第三方代码和生成文件的既有名称。
-- `shared/` 公共 API 需要跨设备评审，不纳入 DeskMate 单项目机械改名。
+- `shared/` 公共 API 需要跨设备评审，不纳入 DeskMate 单项目改名。
+- Data 与 UI / Presentation 候选保留在“后续独立迁移”，不混入本轮 Services / Application
+  公共 API 变更。
 
-## 2. 可机械收敛的候选
+## 2. 本轮已收敛
 
-| 当前名称 | 拟统一名称 | 原因 |
+| 语义组 | 已采用名称或规则 | 说明 |
 | --- | --- | --- |
-| `UI_RUNTIME_STATE_UNINIT` | `UI_RUNTIME_STATE_UNINITIALIZED` | 公共生命周期状态不使用局部缩写 |
-| `calendar_get_snapshot()` | `calendar_get_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
-| `mail_get_snapshot()` | `mail_get_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
-| `quota_get_snapshot()` | `quota_get_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
-| `weather_get_snapshot()` | `weather_get_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
-| `dashboard_store_get_snapshot()` | `dashboard_store_get_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
-| `app_network_get_lease_snapshot()` | `app_network_get_lease_snapshot_copy()` | 返回所有者缓存的完整快照副本 |
-| `device_button_pressed_state_t` | `device_button_pressed_snapshot_t` | 复合物理电平数据，不是离散阶段 |
-| `device_button_get_pressed_state_copy()` | `device_button_read_pressed_snapshot()` | 直接读取 GPIO，不是读取所有者缓存 |
-| `app_pomodoro_context_t` | `app_pomodoro_runtime_t` | 实际拥有 Task、锁、Timer 和工作数据 |
-| `app_pomodoro_state_t` | `app_pomodoro_runtime_data_t` | 私有可变数据，不是离散状态枚举 |
-| `app_pomodoro_status_t` | `app_pomodoro_snapshot_t` | 完整番茄钟领域数据；现有 Doxygen 已称为快照 |
-| `app_pomodoro_get_status_copy()` | `app_pomodoro_get_snapshot_copy()` | Getter 与输出类型语义一致 |
-| `presentation_data_status_t` | `presentation_data_state_t` | `EMPTY/OK/STALE/ERROR` 是单一呈现阶段 |
-| `ui_platform_font_status_t` | `ui_platform_font_state_t` | `READY/FALLBACK/UNAVAILABLE` 是单一阶段 |
-| `rlcd_font_container_status_t` | `rlcd_font_container_result_t` | `OK/INVALID_*` 描述单次解析结果 |
-| `environment_service_environment_status_t` | `environment_service_environment_snapshot_t` | 温湿度领域值及质量信息 |
-| `environment_service_battery_status_t` | `environment_service_battery_snapshot_t` | 电池领域值及质量信息 |
-| `environment_service_status_t` | `environment_service_snapshot_t` | 两类采样数据的完整时点副本 |
-| `environment_service_get_status_copy()` | `environment_service_get_snapshot_copy()` | Getter 与输出类型语义一致 |
-| `pcf85063_interrupt_status_t` | `pcf85063_interrupt_snapshot_t` | 一次寄存器读取产生的硬件标志 |
-| `pcf85063_driver_get_interrupt_status_copy()` | `pcf85063_driver_read_interrupt_snapshot()` | 直接执行 I2C 读取 |
+| 异步提交 | `request_<operation>()` | Portal、OTA、语音对话和显示刷新返回成功时只表示请求已接受 |
+| 长期回调 | `_callback_t`、`register_*_callback_borrow()` | `listener` 不再作为 callback 的同义词；唯一可替换槽仍使用 `set_*_callback_borrow()` |
+| 缓存快照 | `get_*_snapshot_copy()` | 网络租约、环境联合数据和番茄钟领域数据均返回完整内存副本 |
+| 硬件快照 | `read_*_snapshot()` | 按键、RTC 和 PCF85063 路径会直接执行 GPIO 或 I2C 读取 |
+| 私有运行数据 | `_runtime_t` / `_runtime_data_t` | 番茄钟 Task、锁、Timer 与可变数据不再命名为复合 `_state_t` |
+| 运行摘要 | `_status_t` + `get_status_copy()` | Doxygen 统一称“有界运行摘要”，不再与领域快照混称 |
+| 操作结果 | `_result_t` | Light-sleep 唤醒来源属于一次阻塞事务的返回结果，不命名为快照 |
+| 输入认领 | `consume_*()` | 只表达当前所有者是否认领输入；异步请求失败必须单独记录 |
+| 页面迁移 | `navigate_*()` | 只用于 Application 顶层页面迁移；Presentation 消息路由继续使用 `dispatch` |
+| 清除目标 | `clear_*()` | 清除尚未安装的 OTA 目标，不引入未登记的 `discard` 公共动作词 |
 
-`dashboard_store_get_weather/calendar/mail/quota()` 如果实现均为整结构复制，也应分别增加
-`_copy`。
+本轮同时删除了没有调用方的 `app_page_set_current()` 与
+`app_page_dispatch_current()`，避免保留绕过页面迁移契约的公共入口。
 
-## 3. 需要按完整调用链收敛
+## 3. 已确认不应机械修改
 
-| 当前词组 | 拟统一词组 | 说明 |
+- `button_service_set_event_callback_borrow()`、`device_button_set_activity_callback_borrow()` 等
+  管理唯一可替换回调槽，并明确允许 `NULL` 清除，继续使用 `set`；`register` 只用于加入集合、
+  禁止原位替换或具有显式注销对偶的订阅。
+- `app_network_suspend_for_power_save()` 与 `app_network_resume_from_power_save()` 等待 Task
+  回执后才返回，是同步完成 API，不添加 `request_`。
+- `NETWORK_COMMAND_START_*`、`STOP`、`SUSPEND` 是所有者 Task 已接收后的内部执行动作，不把
+  公共提交阶段的 `request` 前缀机械复制到内部命令。
+- `app_power_state_t` 等离散阶段 enum 和 `app_power_status_t` 等复合运行摘要原命名正确；
+  只修正文档中的形态称谓。
+- 局部 `ctx`、`cb` 已在受控短缩写表登记，不进行无收益的全量展开。
+
+## 4. 后续独立迁移
+
+以下候选不属于本轮 Services / Application 审查范围，应各自按完整调用链单独处理：
+
+| 当前名称或边界 | 候选方向 | 原因 |
 | --- | --- | --- |
-| Dashboard `sync` | Dashboard `refresh` | 当前是服务端到设备的单向拉取 |
-| `*_flush_async()` | `*_request_flush()` | 返回只表示异步提交成功 |
-| `_listener_t` | `_callback_t` 或 `_cb_t` | `listener` 不作为回调同义词；最终拼写取决于组件缩写配置 |
-| `emit_user_intent` | `dispatch_user_intent` | UI 将已构造意图路由给 Application |
-| 公共 `handle_*` / `*_handle` | 具体动作词 | 按实际行为改为 `apply`、`dispatch` 或领域动词 |
-| 产品层 `screen` | `page` | `screen` 只保留给 LVGL 根对象 |
-
-## 4. 需要先澄清语义
-
-- DeskMate 尚未统一选择回调、上下文、配置和消息的完整或紧凑拼写。开始批量改名前，应先确定
-  全项目配置或按组件记录例外；现有 `button_service_event_cb_t` 本身不再视为错误。
-- `UI_USER_INTENT_SCREEN_LOADED` 是 UI 已完成加载的事实，不是用户意图。应先拆分用户动作和
-  UI 生命周期事件类型。
-- `app_page_notify_screen_loaded()`、`app_page_publish_initial_ui()`、
-  `app_page_dispatch_current()` 和 `app_key_dispatch_event()` 混合事实接收、状态迁移与
-  Presentation 路由，不能全局替换动词。
-- `consume_input()` 返回 `bool` 时需要同时说明“输入已消费”和“异步命令是否成功接受”；
-  两者不相同时应改为显式结果。
-- `device_rtc_get_snapshot_copy()` 等函数需要核对实现是否直接执行 I/O；直接 I/O 应使用
-  `read_*_snapshot()`。
+| `calendar_get_snapshot()` 等 Data Getter | 增加 `_copy` | 返回所有者缓存的完整快照副本 |
+| `dashboard_store_get_snapshot()` | `dashboard_store_get_snapshot_copy()` | 与其他缓存快照 Getter 对齐 |
+| `presentation_data_status_t` | 核对为 `_state_t` | `EMPTY/OK/STALE/ERROR` 可能是单一呈现阶段 |
+| `ui_platform_font_status_t` | 核对为 `_state_t` | `READY/FALLBACK/UNAVAILABLE` 可能是单一阶段 |
+| `rlcd_font_container_status_t` | 核对为 `_result_t` | 值描述一次容器解析结果 |
+| `UI_USER_INTENT_SCREEN_LOADED` | 拆分 UI 生命周期事实 | Screen 加载完成不是用户意图，需跨 UI/Application 协议迁移 |
+| Dashboard `sync` | 产品确认后决定是否改为 `refresh` | 当前实现接近单向拉取，但名称涉及既有产品协议与文档 |
 
 ## 5. 迁移约束
 
 1. 按“公共声明 → 实现 → 调用方 → 测试 → README/架构描述”修改完整调用链。
-2. 每个提交只收敛一个可独立回滚的术语组。
-3. 不在命名提交中改变业务行为、线程模型、错误码、队列策略或持久化语义。
-4. DeskMate 自有且无外部消费者的旧名不保留兼容包装、宏别名或 deprecated 转发函数。
-5. 修改后使用静态搜索检查旧术语残留，并解释确需保留的外部名称。
-6. 需要使用受控术语表中不存在的词时，先新增术语并按术语表流程向用户说明理由。
+2. DeskMate 自有且无外部消费者的旧名不保留兼容包装、宏别名或 deprecated 转发函数。
+3. 修改后静态搜索旧术语，并解释确需保留的外部名称。
+4. 受控术语表不存在的公共动作词，必须先登记定义、边界和反例。

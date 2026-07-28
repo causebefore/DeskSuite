@@ -73,18 +73,20 @@ extern "C"
     esp_err_t device_rtc_init(void);
 
     /**
-     * @brief 复制设备 RTC 当前时间和可信状态
+     * @brief 从硬件读取设备 RTC 当前时间和可信状态快照
+     *
+     * 本函数执行 I2C 读取，不是内存副本 Getter。
      * @param[out] out_snapshot 快照，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t device_rtc_get_snapshot_copy(device_rtc_snapshot_t *out_snapshot);
+    esp_err_t device_rtc_read_snapshot(device_rtc_snapshot_t *out_snapshot);
 
     /**
      * @brief 单独读取设备 RTC 的电压过低状态
      * @param[out] out_voltage_low true 表示 RTC 时间不可信，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t device_rtc_get_voltage_low(bool *out_voltage_low);
+    esp_err_t device_rtc_read_voltage_low(bool *out_voltage_low);
 
     /**
      * @brief 写入设备 RTC 日历时间
@@ -105,7 +107,7 @@ extern "C"
      * @param[out] out_alarm 告警配置，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t device_rtc_get_alarm(device_rtc_alarm_t *out_alarm);
+    esp_err_t device_rtc_read_alarm(device_rtc_alarm_t *out_alarm);
 
     /**
      * @brief 启用或关闭 RTC 告警中断输出
@@ -119,14 +121,14 @@ extern "C"
      * @param[out] out_enabled true 表示已启用，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t device_rtc_get_alarm_interrupt_enabled(bool *out_enabled);
+    esp_err_t device_rtc_read_alarm_interrupt_enabled(bool *out_enabled);
 
     /**
      * @brief 读取 RTC 告警标志
      * @param[out] out_pending true 表示 AF 已置位，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t device_rtc_get_alarm_flag(bool *out_pending);
+    esp_err_t device_rtc_read_alarm_flag(bool *out_pending);
 
     /**
      * @brief 清除 RTC 告警标志并释放低电平 INT
@@ -139,7 +141,7 @@ extern "C"
      * @param[out] out_asserted true 表示 INT 当前有效，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
-    esp_err_t device_rtc_get_interrupt_asserted(bool *out_asserted);
+    esp_err_t device_rtc_read_interrupt_asserted(bool *out_asserted);
 
     /**
      * @brief 设置长期借用的 RTC INT ISR 回调

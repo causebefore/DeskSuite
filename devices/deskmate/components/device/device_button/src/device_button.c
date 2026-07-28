@@ -101,7 +101,7 @@ esp_err_t device_button_scan(uint32_t now_ms, device_button_scan_result_t *out_r
     {
         const bsp_button_id_t button   = (bsp_button_id_t) button_value;
         bool                  raw_high = false;
-        ESP_RETURN_ON_ERROR(bsp_button_get_level(button, &raw_high), TAG, "读取按键电平失败");
+        ESP_RETURN_ON_ERROR(bsp_button_read_level(button, &raw_high), TAG, "读取按键电平失败");
         const device_button_event_t event = update_button(button, &s_context.states[button], raw_high, now_ms);
         if (event != DEVICE_BUTTON_EVENT_NONE)
         {
@@ -119,16 +119,16 @@ esp_err_t device_button_set_activity_callback_borrow(device_button_activity_call
     return bsp_button_set_activity_callback_borrow(callback, callback != NULL ? context : NULL);
 }
 
-esp_err_t device_button_get_pressed_state_copy(device_button_pressed_state_t *out_state)
+esp_err_t device_button_read_pressed_snapshot(device_button_pressed_snapshot_t *out_snapshot)
 {
-    ESP_RETURN_ON_FALSE(out_state != NULL, ESP_ERR_INVALID_ARG, TAG, "按键状态输出为空");
+    ESP_RETURN_ON_FALSE(out_snapshot != NULL, ESP_ERR_INVALID_ARG, TAG, "按键快照输出为空");
     ESP_RETURN_ON_FALSE(s_context.initialized, ESP_ERR_INVALID_STATE, TAG, "按键能力未初始化");
 
     bool left_high  = false;
     bool right_high = false;
-    ESP_RETURN_ON_ERROR(bsp_button_get_level(BSP_BUTTON_LEFT, &left_high), TAG, "读取左键电平失败");
-    ESP_RETURN_ON_ERROR(bsp_button_get_level(BSP_BUTTON_RIGHT, &right_high), TAG, "读取右键电平失败");
-    *out_state = (device_button_pressed_state_t) {
+    ESP_RETURN_ON_ERROR(bsp_button_read_level(BSP_BUTTON_LEFT, &left_high), TAG, "读取左键电平失败");
+    ESP_RETURN_ON_ERROR(bsp_button_read_level(BSP_BUTTON_RIGHT, &right_high), TAG, "读取右键电平失败");
+    *out_snapshot = (device_button_pressed_snapshot_t) {
         .left_pressed  = !left_high,
         .right_pressed = !right_high,
     };

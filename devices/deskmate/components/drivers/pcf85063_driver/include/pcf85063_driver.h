@@ -58,7 +58,7 @@ extern "C"
         uint8_t match_fields; /**< `pcf85063_alarm_match_t` 位组合 */
     } pcf85063_alarm_t;
 
-    /** @brief PCF85063 中断控制与标志快照 */
+    /** @brief PCF85063 中断控制寄存器与标志的硬件快照 */
     typedef struct
     {
         uint8_t control2_raw;                  /**< Control_2 原始寄存器值 */
@@ -70,7 +70,7 @@ extern "C"
         bool    timer_flag;                    /**< TF 已置位 */
         bool    timer_enabled;                 /**< TE 已置位 */
         bool    timer_interrupt_enabled;       /**< TIE 已置位 */
-    } pcf85063_interrupt_status_t;
+    } pcf85063_interrupt_snapshot_t;
 
     /**
      * @brief 初始化 Driver，并关闭未支持的分钟与计时器中断源
@@ -86,16 +86,16 @@ extern "C"
     esp_err_t pcf85063_driver_init(pcf85063_driver_t *driver, i2c_master_dev_handle_t i2c_device, uint32_t timeout_ms);
 
     /**
-     * @brief 复制读取 RTC 中断控制与标志快照
+     * @brief 读取 RTC 中断控制与标志快照
      *
      * Control_2 与 Timer_mode 按顺序读取；本函数不修改任何寄存器。
      *
      * @param[in] driver Driver 实例
-     * @param[out] out_status 中断状态，仅在 ESP_OK 时有效
+     * @param[out] out_snapshot 中断寄存器快照，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；或 I2C 错误
      */
-    esp_err_t pcf85063_driver_get_interrupt_status_copy(pcf85063_driver_t           *driver,
-                                                        pcf85063_interrupt_status_t *out_status);
+    esp_err_t pcf85063_driver_read_interrupt_snapshot(pcf85063_driver_t             *driver,
+                                                      pcf85063_interrupt_snapshot_t *out_snapshot);
 
     /**
      * @brief 读取并解码 RTC 日历寄存器
@@ -103,14 +103,15 @@ extern "C"
      * @param[out] out 日历时间，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_RESPONSE 寄存器值非法；或 I2C 错误
      */
-    esp_err_t pcf85063_driver_get_datetime(pcf85063_driver_t *driver, pcf85063_datetime_t *out);
+    esp_err_t pcf85063_driver_read_datetime(pcf85063_driver_t *driver, pcf85063_datetime_t *out);
 
     /**
      * @brief 读取振荡停止/电压过低标志
      * @param[in] driver Driver 实例
      * @param[out] out_voltage_low true 表示 RTC 时间不可信
+     * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；或 I2C 错误
      */
-    esp_err_t pcf85063_driver_get_voltage_low(pcf85063_driver_t *driver, bool *out_voltage_low);
+    esp_err_t pcf85063_driver_read_voltage_low(pcf85063_driver_t *driver, bool *out_voltage_low);
 
     /**
      * @brief 校验并写入 RTC 日历寄存器
@@ -133,7 +134,7 @@ extern "C"
      * @param[out] out_alarm 告警配置，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_RESPONSE 寄存器值非法；或 I2C 错误
      */
-    esp_err_t pcf85063_driver_get_alarm(pcf85063_driver_t *driver, pcf85063_alarm_t *out_alarm);
+    esp_err_t pcf85063_driver_read_alarm(pcf85063_driver_t *driver, pcf85063_alarm_t *out_alarm);
 
     /**
      * @brief 启用或关闭 RTC 告警中断输出
@@ -152,15 +153,15 @@ extern "C"
      * @param[out] out_enabled true 表示 AIE 已置位，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；或 I2C 错误
      */
-    esp_err_t pcf85063_driver_get_alarm_interrupt_enabled(pcf85063_driver_t *driver, bool *out_enabled);
+    esp_err_t pcf85063_driver_read_alarm_interrupt_enabled(pcf85063_driver_t *driver, bool *out_enabled);
 
     /**
      * @brief 读取 RTC 告警标志
      * @param[in] driver Driver 实例
-     * @param[out] pending true 表示 AF 已置位，仅在 ESP_OK 时有效
+     * @param[out] out_pending true 表示 AF 已置位，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；或 I2C 错误
      */
-    esp_err_t pcf85063_driver_get_alarm_flag(pcf85063_driver_t *driver, bool *pending);
+    esp_err_t pcf85063_driver_read_alarm_flag(pcf85063_driver_t *driver, bool *out_pending);
 
     /**
      * @brief 清除 RTC 告警标志

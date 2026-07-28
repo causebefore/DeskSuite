@@ -55,8 +55,14 @@ extern "C"
     esp_err_t device_display_write_i1_area(int x1, int y1, int x2, int y2, const uint8_t *pixels,
                                            uint32_t stride_bytes);
 
-    /** @brief 异步提交一次显示刷新 */
-    esp_err_t device_display_flush_async(void);
+    /**
+     * @brief 请求异步执行一次显示刷新
+     *
+     * ESP_OK 只表示请求已提交；最终结果由 `device_display_wait_flush_done()` 返回。
+     *
+     * @return ESP_OK 请求已提交；ESP_ERR_INVALID_STATE 显示设备未运行；或 BSP 错误码
+     */
+    esp_err_t device_display_request_flush(void);
 
     /** @brief 有界等待已经提交的显示刷新完成 */
     esp_err_t device_display_wait_flush_done(uint32_t timeout_ms);

@@ -18,9 +18,9 @@
 #define APP_WEB_FILE_NETWORK_WAIT_MS          ((uint32_t) CONFIG_DESKMATE_WEB_FILE_NETWORK_WAIT_MS)
 #define APP_WEB_FILE_NETWORK_POLL_MS          100U
 #define APP_WEB_FILE_STOP_TIMEOUT_MS          6000U
-#define APP_WEB_FILE_TASK_STACK_SIZE       4096U
-#define APP_WEB_FILE_TASK_PRIORITY         4U
-#define APP_WEB_FILE_PRESENTATION_RETRY_MS 50U
+#define APP_WEB_FILE_TASK_STACK_SIZE          4096U
+#define APP_WEB_FILE_TASK_PRIORITY            4U
+#define APP_WEB_FILE_PRESENTATION_RETRY_MS    50U
 
 static const char *TAG          = "app_web_file";
 
@@ -73,7 +73,7 @@ static void consume_stop_requests_for_round(void)
 /**
  * @brief 读取 Service 生命周期快照并记录读取错误
  *
- * @param[out] out_status Service 状态快照
+ * @param[out] out_status Service 运行摘要
  * @return ESP_OK 快照有效；其他值为 Service 状态读取错误
  */
 static esp_err_t get_service_status(web_file_service_status_t *out_status)
@@ -165,7 +165,7 @@ static esp_err_t wait_for_network_online(uint32_t timeout_ms)
         }
 
         network_manager_status_t status{};
-        const esp_err_t          error  = network_manager_get_status_copy(&status);
+        const esp_err_t          error = network_manager_get_status_copy(&status);
         if (error != ESP_OK)
         {
             return error;

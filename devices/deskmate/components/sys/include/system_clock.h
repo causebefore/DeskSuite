@@ -47,23 +47,30 @@ extern "C"
     } system_clock_snapshot_t;
 
     /**
-     * @brief 系统时钟监听回调
+     * @brief 系统时钟变化回调
      *
      * 回调在接受可信时间的调用者上下文执行。snapshot 只在回调期间有效，回调不得保存其
      * 地址或执行无界阻塞。
      */
-    typedef void (*system_clock_listener_t)(system_clock_event_t event, const system_clock_snapshot_t *snapshot,
+    typedef void (*system_clock_callback_t)(system_clock_event_t event, const system_clock_snapshot_t *snapshot,
                                             void *ctx);
 
     /**
-     * @brief 注册长期借用的系统时钟监听器
-     * @param[in] listener 监听函数
-     * @param[in] ctx 原样传回监听函数的上下文，由调用方保证有效期
+     * @brief 注册长期借用的系统时钟变化回调
+     * @param[in] callback 回调函数
+     * @param[in] context 原样传回回调函数的上下文，由调用方保证有效期
+     * @return ESP_OK 已注册或原本已注册；ESP_ERR_INVALID_ARG 回调为空；
+     *         ESP_ERR_INVALID_STATE 系统时钟尚未初始化；ESP_ERR_NO_MEM 回调槽已满
      */
-    esp_err_t system_clock_register_listener_borrow(system_clock_listener_t listener, void *ctx);
+    esp_err_t system_clock_register_callback_borrow(system_clock_callback_t callback, void *context);
 
-    /** @brief 注销此前注册的系统时钟监听器 */
-    esp_err_t system_clock_unregister_listener(system_clock_listener_t listener, void *ctx);
+    /**
+     * @brief 注销此前注册的系统时钟变化回调
+     * @param[in] callback 回调函数
+     * @param[in] context 注册时借用的上下文
+     * @return ESP_OK 已注销；ESP_ERR_INVALID_ARG 回调为空；ESP_ERR_NOT_FOUND 未注册
+     */
+    esp_err_t system_clock_unregister_callback(system_clock_callback_t callback, void *context);
 
     /**
  * @brief 初始化系统时钟

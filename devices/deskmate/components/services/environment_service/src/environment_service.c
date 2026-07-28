@@ -18,12 +18,12 @@ static const char *TAG = "environment_service";
 
 ESP_EVENT_DEFINE_BASE(ENVIRONMENT_SERVICE_EVENT);
 
-static SemaphoreHandle_t            s_status_mutex;
-static SemaphoreHandle_t            s_sample_mutex;
-static environment_service_status_t s_status;
-static bool                         s_initialized;
-static bool                         s_environment_error_reported;
-static bool                         s_battery_error_reported;
+static SemaphoreHandle_t              s_snapshot_mutex;
+static SemaphoreHandle_t              s_sample_mutex;
+static environment_service_snapshot_t s_snapshot;
+static bool                           s_initialized;
+static bool                           s_environment_error_reported;
+static bool                           s_battery_error_reported;
 
 static uint64_t monotonic_time_ms(void)
 {
@@ -99,38 +99,38 @@ static esp_err_t sample_selected(bool sample_environment, bool sample_battery)
     }
 
     const uint64_t completed_at_ms = monotonic_time_ms();
-    if (xSemaphoreTake(s_status_mutex, portMAX_DELAY) != pdTRUE)
+    if (xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY) != pdTRUE)
     {
         (void) xSemaphoreGive(s_sample_mutex);
         return ESP_FAIL;
     }
 
-    s_status.last_attempt_at_ms = attempt_at_ms;
-    s_status.sample_count += 1ULL;
+    s_snapshot.last_attempt_at_ms = attempt_at_ms;
+    s_snapshot.sample_count += 1ULL;
     if (sample_environment)
     {
-        s_status.environment.last_error = environment_error;
+        s_snapshot.environment.last_error = environment_error;
         if (environment_error == ESP_OK)
         {
-            s_status.environment.temperature_centi = environment_snapshot.temperature_centi;
-            s_status.environment.humidity_centi    = environment_snapshot.humidity_centi;
-            s_status.environment.valid             = environment_snapshot.valid;
-            s_status.environment.updated_at_ms     = completed_at_ms;
+            s_snapshot.environment.temperature_centi = environment_snapshot.temperature_centi;
+            s_snapshot.environment.humidity_centi    = environment_snapshot.humidity_centi;
+            s_snapshot.environment.valid             = environment_snapshot.valid;
+            s_snapshot.environment.updated_at_ms     = completed_at_ms;
         }
     }
     if (sample_battery)
     {
-        s_status.battery.last_error = battery_error;
+        s_snapshot.battery.last_error = battery_error;
         if (battery_error == ESP_OK)
         {
-            s_status.battery.voltage_mv    = battery_snapshot.voltage_mv;
-            s_status.battery.percent       = battery_snapshot.percent;
-            s_status.battery.low           = battery_snapshot.low;
-            s_status.battery.valid         = battery_snapshot.valid;
-            s_status.battery.updated_at_ms = completed_at_ms;
+            s_snapshot.battery.voltage_mv    = battery_snapshot.voltage_mv;
+            s_snapshot.battery.percent       = battery_snapshot.percent;
+            s_snapshot.battery.low           = battery_snapshot.low;
+            s_snapshot.battery.valid         = battery_snapshot.valid;
+            s_snapshot.battery.updated_at_ms = completed_at_ms;
         }
     }
-    (void) xSemaphoreGive(s_status_mutex);
+    (void) xSemaphoreGive(s_snapshot_mutex);
 
     if (sample_environment)
     {
@@ -160,25 +160,25 @@ esp_err_t environment_service_init(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    s_status_mutex = xSemaphoreCreateMutex();
-    if (s_status_mutex == NULL)
+    s_snapshot_mutex = xSemaphoreCreateMutex();
+    if (s_snapshot_mutex == NULL)
     {
         return ESP_ERR_NO_MEM;
     }
     s_sample_mutex = xSemaphoreCreateMutex();
     if (s_sample_mutex == NULL)
     {
-        vSemaphoreDelete(s_status_mutex);
-        s_status_mutex = NULL;
+        vSemaphoreDelete(s_snapshot_mutex);
+        s_snapshot_mutex = NULL;
         return ESP_ERR_NO_MEM;
     }
 
-    memset(&s_status, 0, sizeof(s_status));
-    s_status.environment.last_error = ESP_ERR_NOT_FOUND;
-    s_status.battery.last_error     = ESP_ERR_NOT_FOUND;
-    s_initialized                   = true;
-    s_environment_error_reported    = false;
-    s_battery_error_reported        = false;
+    memset(&s_snapshot, 0, sizeof(s_snapshot));
+    s_snapshot.environment.last_error = ESP_ERR_NOT_FOUND;
+    s_snapshot.battery.last_error     = ESP_ERR_NOT_FOUND;
+    s_initialized                     = true;
+    s_environment_error_reported      = false;
+    s_battery_error_reported          = false;
     ESP_LOGI(TAG, "环境联合采样 Service 初始化完成");
     return ESP_OK;
 }
@@ -198,9 +198,9 @@ esp_err_t environment_service_sample_battery(void)
     return sample_selected(false, true);
 }
 
-esp_err_t environment_service_get_status_copy(environment_service_status_t *out_status)
+esp_err_t environment_service_get_snapshot_copy(environment_service_snapshot_t *out_snapshot)
 {
-    if (out_status == NULL)
+    if (out_snapshot == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -208,12 +208,12 @@ esp_err_t environment_service_get_status_copy(environment_service_status_t *out_
     {
         return ESP_ERR_INVALID_STATE;
     }
-    if (xSemaphoreTake(s_status_mutex, portMAX_DELAY) != pdTRUE)
+    if (xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY) != pdTRUE)
     {
         return ESP_FAIL;
     }
-    *out_status = s_status;
-    (void) xSemaphoreGive(s_status_mutex);
+    *out_snapshot = s_snapshot;
+    (void) xSemaphoreGive(s_snapshot_mutex);
     return ESP_OK;
 }
 
@@ -225,12 +225,12 @@ esp_err_t environment_service_deinit(void)
     }
 
     vSemaphoreDelete(s_sample_mutex);
-    vSemaphoreDelete(s_status_mutex);
+    vSemaphoreDelete(s_snapshot_mutex);
     s_sample_mutex               = NULL;
-    s_status_mutex               = NULL;
+    s_snapshot_mutex             = NULL;
     s_initialized                = false;
     s_environment_error_reported = false;
     s_battery_error_reported     = false;
-    memset(&s_status, 0, sizeof(s_status));
+    memset(&s_snapshot, 0, sizeof(s_snapshot));
     return ESP_OK;
 }

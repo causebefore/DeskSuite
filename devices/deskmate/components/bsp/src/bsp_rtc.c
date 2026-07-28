@@ -94,14 +94,14 @@ static esp_err_t sample_interrupt_asserted(bool *out_asserted)
  * 仅当 AIE 已启用且芯片没有任何已知告警、分钟或计时器中断源时允许恢复，
  * 避免把真实中断误当成输出异常。
  *
- * @param[in] status RTC 中断控制与标志快照
+ * @param[in] snapshot RTC 中断控制与标志快照
  * @return true 可以执行 AIE 门控恢复；false 应保留当前输出状态
  */
-static bool stale_alarm_output_recovery_is_applicable(const pcf85063_interrupt_status_t *status)
+static bool stale_alarm_output_recovery_is_applicable(const pcf85063_interrupt_snapshot_t *snapshot)
 {
-    return status->alarm_interrupt_enabled && !status->alarm_flag && !status->minute_interrupt_enabled
-           && !status->half_minute_interrupt_enabled && !status->timer_flag && !status->timer_enabled
-           && !status->timer_interrupt_enabled;
+    return snapshot->alarm_interrupt_enabled && !snapshot->alarm_flag && !snapshot->minute_interrupt_enabled
+           && !snapshot->half_minute_interrupt_enabled && !snapshot->timer_flag && !snapshot->timer_enabled
+           && !snapshot->timer_interrupt_enabled;
 }
 
 /**
@@ -118,9 +118,9 @@ static esp_err_t try_recover_stale_alarm_output(bool *out_recovered)
     *out_recovered = false;
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 输出恢复事务锁超时");
 
-    pcf85063_interrupt_status_t initial_status;
-    esp_err_t                   error = pcf85063_driver_get_interrupt_status_copy(&s_driver, &initial_status);
-    if (error != ESP_OK || !stale_alarm_output_recovery_is_applicable(&initial_status))
+    pcf85063_interrupt_snapshot_t initial_snapshot;
+    esp_err_t                     error = pcf85063_driver_read_interrupt_snapshot(&s_driver, &initial_snapshot);
+    if (error != ESP_OK || !stale_alarm_output_recovery_is_applicable(&initial_snapshot))
     {
         xSemaphoreGive(s_mutex);
         return error;
@@ -137,18 +137,18 @@ static esp_err_t try_recover_stale_alarm_output(bool *out_recovered)
      * 即使关闭事务报错也尝试恢复 AIE：I2C 错误可能发生在设备已经接收字节之后，
      * 不能把“返回失败”等同于寄存器一定未改变。
      */
-    const esp_err_t restore_error              = pcf85063_driver_enable_alarm_interrupt(&s_driver, true);
-    error                                      = disable_error != ESP_OK ? disable_error : restore_error;
+    const esp_err_t restore_error                = pcf85063_driver_enable_alarm_interrupt(&s_driver, true);
+    error                                        = disable_error != ESP_OK ? disable_error : restore_error;
 
-    bool                        still_asserted = true;
-    pcf85063_interrupt_status_t final_status   = { 0 };
+    bool                          still_asserted = true;
+    pcf85063_interrupt_snapshot_t final_snapshot = { 0 };
     if (error == ESP_OK)
     {
         error = sample_interrupt_asserted(&still_asserted);
     }
     if (error == ESP_OK)
     {
-        error = pcf85063_driver_get_interrupt_status_copy(&s_driver, &final_status);
+        error = pcf85063_driver_read_interrupt_snapshot(&s_driver, &final_snapshot);
     }
     xSemaphoreGive(s_mutex);
     if (error != ESP_OK)
@@ -162,7 +162,7 @@ static esp_err_t try_recover_stale_alarm_output(bool *out_recovered)
         *out_recovered = true;
         ESP_LOGW(TAG, "RTC INT 无标志低电平已通过重置 AIE 门控恢复");
     }
-    else if (!final_status.alarm_flag)
+    else if (!final_snapshot.alarm_flag)
     {
         if (released_while_disabled)
         {
@@ -212,15 +212,15 @@ static void log_unexpected_asserted_interrupt(void)
         return;
     }
 
-    pcf85063_interrupt_status_t status;
-    const esp_err_t             error = pcf85063_driver_get_interrupt_status_copy(&s_driver, &status);
+    pcf85063_interrupt_snapshot_t snapshot;
+    const esp_err_t               error = pcf85063_driver_read_interrupt_snapshot(&s_driver, &snapshot);
     xSemaphoreGive(s_mutex);
     if (error != ESP_OK)
     {
         ESP_LOGW(TAG, "RTC INT 已拉低，但读取中断状态失败: %s", esp_err_to_name(error));
         return;
     }
-    if (status.alarm_flag)
+    if (snapshot.alarm_flag)
     {
         return;
     }
@@ -229,14 +229,14 @@ static void log_unexpected_asserted_interrupt(void)
              "RTC INT GPIO%d 持续为低但 AF 未置位: Control_2=0x%02x, Timer_mode=0x%02x, "
              "AIE=%d, MI=%d, HMI=%d, TF=%d, TE=%d, TIE=%d",
              BOARD_RTC_PIN_INT,
-             status.control2_raw,
-             status.timer_mode_raw,
-             (int) status.alarm_interrupt_enabled,
-             (int) status.minute_interrupt_enabled,
-             (int) status.half_minute_interrupt_enabled,
-             (int) status.timer_flag,
-             (int) status.timer_enabled,
-             (int) status.timer_interrupt_enabled);
+             snapshot.control2_raw,
+             snapshot.timer_mode_raw,
+             (int) snapshot.alarm_interrupt_enabled,
+             (int) snapshot.minute_interrupt_enabled,
+             (int) snapshot.half_minute_interrupt_enabled,
+             (int) snapshot.timer_flag,
+             (int) snapshot.timer_enabled,
+             (int) snapshot.timer_interrupt_enabled);
 }
 
 esp_err_t bsp_rtc_init(void)
@@ -311,7 +311,7 @@ esp_err_t bsp_rtc_init(void)
     return ESP_OK;
 }
 
-esp_err_t bsp_rtc_get_datetime(bsp_rtc_datetime_t *out)
+esp_err_t bsp_rtc_read_datetime(bsp_rtc_datetime_t *out)
 {
     if (out == NULL)
     {
@@ -324,7 +324,7 @@ esp_err_t bsp_rtc_get_datetime(bsp_rtc_datetime_t *out)
 
     pcf85063_datetime_t value;
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    const esp_err_t error = pcf85063_driver_get_datetime(&s_driver, &value);
+    const esp_err_t error = pcf85063_driver_read_datetime(&s_driver, &value);
     xSemaphoreGive(s_mutex);
     ESP_RETURN_ON_ERROR(error, TAG, "读取 RTC 时间失败");
     *out = (bsp_rtc_datetime_t) {
@@ -338,7 +338,7 @@ esp_err_t bsp_rtc_get_datetime(bsp_rtc_datetime_t *out)
     return ESP_OK;
 }
 
-esp_err_t bsp_rtc_get_voltage_low(bool *out_voltage_low)
+esp_err_t bsp_rtc_read_voltage_low(bool *out_voltage_low)
 {
     if (out_voltage_low == NULL)
     {
@@ -349,7 +349,7 @@ esp_err_t bsp_rtc_get_voltage_low(bool *out_voltage_low)
         return ESP_ERR_INVALID_STATE;
     }
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    const esp_err_t error = pcf85063_driver_get_voltage_low(&s_driver, out_voltage_low);
+    const esp_err_t error = pcf85063_driver_read_voltage_low(&s_driver, out_voltage_low);
     xSemaphoreGive(s_mutex);
     return error;
 }
@@ -395,7 +395,7 @@ esp_err_t bsp_rtc_set_alarm(const bsp_rtc_alarm_t *alarm)
     return error;
 }
 
-esp_err_t bsp_rtc_get_alarm(bsp_rtc_alarm_t *out_alarm)
+esp_err_t bsp_rtc_read_alarm(bsp_rtc_alarm_t *out_alarm)
 {
     if (out_alarm == NULL)
     {
@@ -407,7 +407,7 @@ esp_err_t bsp_rtc_get_alarm(bsp_rtc_alarm_t *out_alarm)
     }
     pcf85063_alarm_t driver_alarm;
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    const esp_err_t error = pcf85063_driver_get_alarm(&s_driver, &driver_alarm);
+    const esp_err_t error = pcf85063_driver_read_alarm(&s_driver, &driver_alarm);
     xSemaphoreGive(s_mutex);
     if (error == ESP_OK)
     {
@@ -435,7 +435,7 @@ esp_err_t bsp_rtc_enable_alarm_interrupt(bool enabled)
     return error;
 }
 
-esp_err_t bsp_rtc_get_alarm_interrupt_enabled(bool *out_enabled)
+esp_err_t bsp_rtc_read_alarm_interrupt_enabled(bool *out_enabled)
 {
     if (out_enabled == NULL)
     {
@@ -446,7 +446,7 @@ esp_err_t bsp_rtc_get_alarm_interrupt_enabled(bool *out_enabled)
         return ESP_ERR_INVALID_STATE;
     }
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    const esp_err_t error = pcf85063_driver_get_alarm_interrupt_enabled(&s_driver, out_enabled);
+    const esp_err_t error = pcf85063_driver_read_alarm_interrupt_enabled(&s_driver, out_enabled);
     xSemaphoreGive(s_mutex);
     return error;
 }
@@ -463,23 +463,23 @@ esp_err_t bsp_rtc_clear_alarm_flag(void)
     return error;
 }
 
-esp_err_t bsp_rtc_get_alarm_flag(bool *pending)
+esp_err_t bsp_rtc_read_alarm_flag(bool *out_pending)
 {
     if (!s_ready)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    if (pending == NULL)
+    if (out_pending == NULL)
     {
         return ESP_ERR_INVALID_ARG;
     }
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    const esp_err_t error = pcf85063_driver_get_alarm_flag(&s_driver, pending);
+    const esp_err_t error = pcf85063_driver_read_alarm_flag(&s_driver, out_pending);
     xSemaphoreGive(s_mutex);
     return error;
 }
 
-esp_err_t bsp_rtc_get_interrupt_asserted(bool *out_asserted)
+esp_err_t bsp_rtc_read_interrupt_asserted(bool *out_asserted)
 {
     if (out_asserted == NULL)
     {

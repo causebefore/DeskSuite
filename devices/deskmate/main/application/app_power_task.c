@@ -122,7 +122,7 @@ static void keep_primary_error(esp_err_t error)
 }
 
 /** @brief 把 Device 唤醒事实转换为 Application 枚举，按键优先于同时命中的 Timer */
-static app_power_wakeup_source_t map_wakeup_source(const device_power_wakeup_info_t *wakeup)
+static app_power_wakeup_source_t map_wakeup_source(const device_power_wakeup_result_t *wakeup)
 {
     if (wakeup->left_button && wakeup->right_button)
     {
@@ -153,10 +153,9 @@ static bool wakeup_is_button(app_power_wakeup_source_t source)
 /** @brief 读取不会改变其他组件状态的产品睡眠阻止条件 */
 static uint32_t collect_runtime_blockers(void)
 {
-    uint32_t blockers = APP_POWER_BLOCKER_NONE;
-    app_voice_status_t voice = { 0 };
-    if (app_voice_get_status_copy(&voice) != ESP_OK || voice.state == APP_VOICE_STATE_FAILED
-        || voice.session_busy)
+    uint32_t           blockers = APP_POWER_BLOCKER_NONE;
+    app_voice_status_t voice    = { 0 };
+    if (app_voice_get_status_copy(&voice) != ESP_OK || voice.state == APP_VOICE_STATE_FAILED || voice.session_busy)
     {
         blockers |= APP_POWER_BLOCKER_VOICE;
     }
@@ -178,7 +177,7 @@ static uint32_t collect_runtime_blockers(void)
     }
 
     app_network_lease_snapshot_t lease = { 0 };
-    app_network_get_lease_snapshot(&lease);
+    app_network_get_lease_snapshot_copy(&lease);
     if (lease.active)
     {
         blockers |= APP_POWER_BLOCKER_NETWORK_LEASE;
@@ -684,7 +683,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
     }
     voice_stopped = true;
 
-    result = stop_ui_for_sleep(expected_generation);
+    result        = stop_ui_for_sleep(expected_generation);
     if (result != ESP_OK)
     {
         goto restore_awake;
@@ -707,9 +706,9 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         }
 
         set_state_step(APP_POWER_STATE_SLEEPING, APP_POWER_STEP_DEVICE_SLEEP);
-        device_power_wakeup_info_t wakeup             = { 0 };
-        app_power_timer_reason_t   timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
-        const uint32_t             wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
+        device_power_wakeup_result_t wakeup             = { 0 };
+        app_power_timer_reason_t     timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
+        const uint32_t               wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
         log_next_wakeup(wakeup_interval_ms, timer_reason);
         const esp_err_t sleep_error = device_power_enter_light_sleep(wakeup_interval_ms, &wakeup);
 
@@ -765,21 +764,21 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             }
             network_suspended = false;
 
-            result = resume_voice_runtime();
+            result            = resume_voice_runtime();
             if (result != ESP_OK)
             {
                 goto restore_awake;
             }
             voice_stopped = false;
 
-            result = resume_ui_runtime();
+            result        = resume_ui_runtime();
             if (result != ESP_OK)
             {
                 goto restore_awake;
             }
-            ui_stopped = false;
+            ui_stopped                                           = false;
 
-            const button_service_wakeup_info_t button_wakeup = {
+            const button_service_wakeup_snapshot_t button_wakeup = {
                 .left_button  = wakeup.left_button,
                 .right_button = wakeup.right_button,
             };
@@ -866,8 +865,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
     }
 
 restore_awake: {
-    const esp_err_t recovery_error =
-        restore_awake_runtime(&network_suspended, &voice_stopped, &ui_stopped);
+    const esp_err_t recovery_error = restore_awake_runtime(&network_suspended, &voice_stopped, &ui_stopped);
     if (recovery_error != ESP_OK)
     {
         return result == ESP_OK ? recovery_error : result;

@@ -108,7 +108,7 @@ UI 用户意图 → app_main → app_settings / app_ota / app_web_file → app_n
 ```
 
 焦点、菜单历史和子页位置只属于 LVGL。`app_settings` 不复制这些状态；离开设置页、UI
-重建或轻睡眠准备时，先非阻塞提交网页文件管理停止意图，再读取 Application 状态快照；只有
+重建或轻睡眠准备时，先非阻塞提交网页文件管理停止意图，再读取 Application 运行摘要；只有
 明确到达 `STOPPED` 才清除菜单门控与尚未安装的 OTA 目标。仍在启动、运行、停止或保留资源的
 错误态一律关闭失败并保持当前导航门，不能把任意 `ESP_ERR_INVALID_STATE` 当作安全终态。
 手动 OTA 检查始终要求用户确认，即使持久化自动安装策略已开启；自动检查来源才允许继续应用
@@ -157,7 +157,7 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
-`app_web_file.cpp` 拥有产品阶段、Web 文件租约代次、是否仍需清理 Service 的事实以及状态快照
+`app_web_file.cpp` 拥有产品阶段、Web 文件租约代次、是否仍需清理 Service 的事实以及运行摘要
 边界；`app_web_file_task.cpp` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
 `web_file_service` 独占 HTTPD、认证、handler、文件事务和传输资源。
 Application 在授予租约后还会复核 Network Manager `ONLINE` 与当前 STA IPv4；它不因 STA

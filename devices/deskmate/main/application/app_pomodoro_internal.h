@@ -36,11 +36,11 @@ typedef struct
 
 typedef struct
 {
-    app_pomodoro_status_t status;
-    int64_t               phase_deadline_us;
-    int64_t               paused_remaining_us;
-    uint32_t              today_date;
-} app_pomodoro_state_t;
+    app_pomodoro_snapshot_t snapshot;
+    int64_t                 phase_deadline_us;
+    int64_t                 paused_remaining_us;
+    uint32_t                today_date;
+} app_pomodoro_runtime_data_t;
 
 typedef struct
 {
@@ -55,16 +55,16 @@ typedef struct
     esp_timer_handle_t           date_timer;
     portMUX_TYPE                 timer_lock;
     uint64_t                     scheduled_generation;
-    app_pomodoro_state_t         state;
+    app_pomodoro_runtime_data_t  runtime_data;
     uint32_t                     next_request_id;
     uint32_t                     completed_request_id;
     app_pomodoro_wakeup_result_t reconcile_result;
     bool                         initialized;
     bool                         running;
     bool                         stopping;
-} app_pomodoro_context_t;
+} app_pomodoro_runtime_t;
 
-extern app_pomodoro_context_t g_app_pomodoro;
+extern app_pomodoro_runtime_t g_app_pomodoro_runtime;
 
 /** @brief 番茄钟唯一业务 Task 入口 */
 void app_pomodoro_task(void *arg);

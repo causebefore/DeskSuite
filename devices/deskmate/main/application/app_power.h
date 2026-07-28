@@ -73,7 +73,7 @@ extern "C"
         uint32_t retry_delay_ms;                /*!< 暂时不可睡眠时的重试间隔，单位毫秒 */
     } app_power_config_t;
 
-    /** @brief 电源 Application 只读状态快照 */
+    /** @brief 电源 Application 的有界运行摘要 */
     typedef struct
     {
         app_power_state_t         state;                         /*!< 当前主状态 */
@@ -122,9 +122,9 @@ extern "C"
     esp_err_t app_power_notify_activity(void);
 
     /**
-     * @brief 复制完整电源 Application 状态
+     * @brief 复制完整电源 Application 运行摘要
      *
-     * @param[out] out_status 状态输出
+     * @param[out] out_status 运行摘要输出
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_STATE 尚未初始化
      */
     esp_err_t app_power_get_status_copy(app_power_status_t *out_status);

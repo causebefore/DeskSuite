@@ -53,7 +53,7 @@
 #define APP_ENVIRONMENT_STOP_TIMEOUT_MS 1000
 #define APP_POWER_STOP_TIMEOUT_MS       1000
 #define APP_VOICE_LIFECYCLE_TIMEOUT_MS  3000
-#define APP_POMODORO_STOP_TIMEOUT_MS     1000
+#define APP_POMODORO_STOP_TIMEOUT_MS    1000
 
 static const char *TAG = "app_main";
 
@@ -68,18 +68,18 @@ static esp_err_t app_main_ui_user_intent_callback(const ui_user_intent_t *intent
     switch (intent->id)
     {
         case UI_USER_INTENT_SCREEN_LOADED:
-            app_page_notify_screen_loaded(intent->page);
+            app_page_reconcile_screen_loaded(intent->page);
             return ESP_OK;
         case UI_USER_INTENT_SETTINGS_MENU_CLOSED:
             return app_settings_reset();
         case UI_USER_INTENT_SETTINGS_START_PORTAL:
             return app_settings_request_portal();
         case UI_USER_INTENT_SETTINGS_OTA_CHECK:
-            return app_ota_check();
+            return app_ota_request_check();
         case UI_USER_INTENT_SETTINGS_OTA_INSTALL:
-            return app_ota_install();
+            return app_ota_request_install();
         case UI_USER_INTENT_SETTINGS_OTA_DISCARD:
-            return app_ota_discard_pending_update();
+            return app_ota_clear_pending_update();
         case UI_USER_INTENT_SETTINGS_START_WEB_FILE:
             return app_web_file_request_start();
         case UI_USER_INTENT_SETTINGS_STOP_WEB_FILE:
@@ -463,7 +463,7 @@ esp_err_t app_main_init(void)
         goto cleanup;
     }
     pomodoro_initialized = true;
-    error = app_environment_init();
+    error                = app_environment_init();
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "初始化环境 Application 失败: %s", esp_err_to_name(error));
@@ -575,7 +575,7 @@ esp_err_t app_main_start(void)
         return error;
     }
 
-    error = app_page_publish_initial_ui();
+    error = app_page_dispatch_initial_presentation();
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "派发首屏 UI 失败: %s", esp_err_to_name(error));

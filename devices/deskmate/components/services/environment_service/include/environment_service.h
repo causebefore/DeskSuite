@@ -24,7 +24,7 @@ extern "C"
         ENVIRONMENT_SERVICE_EVENT_BATTERY_UPDATED,
     } environment_service_event_t;
 
-    /** @brief 环境采样状态 */
+    /** @brief 最近一次环境采样快照 */
     typedef struct
     {
         int16_t   temperature_centi; /*!< 温度，单位 0.01°C */
@@ -32,9 +32,9 @@ extern "C"
         bool      valid;             /*!< 是否存在最近成功值 */
         esp_err_t last_error;        /*!< 最近一次环境采样结果 */
         uint64_t  updated_at_ms;     /*!< 最近成功更新时间 */
-    } environment_service_environment_status_t;
+    } environment_service_environment_snapshot_t;
 
-    /** @brief 电池采样状态 */
+    /** @brief 最近一次电池采样快照 */
     typedef struct
     {
         uint16_t  voltage_mv;    /*!< 电池电压，单位毫伏 */
@@ -43,16 +43,16 @@ extern "C"
         bool      valid;         /*!< 是否存在最近成功值 */
         esp_err_t last_error;    /*!< 最近一次电池采样结果 */
         uint64_t  updated_at_ms; /*!< 最近成功更新时间 */
-    } environment_service_battery_status_t;
+    } environment_service_battery_snapshot_t;
 
     /** @brief 最近一次完整 Service 快照 */
     typedef struct
     {
-        environment_service_environment_status_t environment;
-        environment_service_battery_status_t     battery;
-        uint64_t                                 last_attempt_at_ms;
-        uint64_t                                 sample_count;
-    } environment_service_status_t;
+        environment_service_environment_snapshot_t environment;
+        environment_service_battery_snapshot_t     battery;
+        uint64_t                                   last_attempt_at_ms;
+        uint64_t                                   sample_count;
+    } environment_service_snapshot_t;
 
     /**
      * @brief 创建快照锁与采样事务锁
@@ -75,8 +75,13 @@ extern "C"
     /** @brief 在调用者上下文同步执行一次电池采样 */
     esp_err_t environment_service_sample_battery(void);
 
-    /** @brief 复制最近快照，不触发硬件 I/O */
-    esp_err_t environment_service_get_status_copy(environment_service_status_t *out_status);
+    /**
+     * @brief 复制最近快照，不触发硬件 I/O
+     *
+     * @param[out] out_snapshot 完整快照，仅在 ESP_OK 时有效
+     * @return ESP_OK 已复制；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
+     */
+    esp_err_t environment_service_get_snapshot_copy(environment_service_snapshot_t *out_snapshot);
 
     /**
      * @brief 释放 Service 自身锁与快照

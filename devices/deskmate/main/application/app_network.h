@@ -14,30 +14,30 @@ extern "C"
 {
 #endif
 
-/** @brief OTA 检查的产品来源，用于决定完成后的自动安装策略 */
-typedef enum
-{
-    APP_NETWORK_OTA_CHECK_MANUAL = 0, /*!< 用户从设置菜单手动发起，禁止自动安装 */
-    APP_NETWORK_OTA_CHECK_AUTOMATIC,  /*!< 周期策略自动发起，可应用持久化自动安装设置 */
-} app_network_ota_check_mode_t;
+    /** @brief OTA 检查的产品来源，用于决定完成后的自动安装策略 */
+    typedef enum
+    {
+        APP_NETWORK_OTA_CHECK_MANUAL = 0, /*!< 用户从设置菜单手动发起，禁止自动安装 */
+        APP_NETWORK_OTA_CHECK_AUTOMATIC,  /*!< 周期策略自动发起，可应用持久化自动安装设置 */
+    } app_network_ota_check_mode_t;
 
-/** @brief 网络 Application Task 当前支持的互斥网络产品租约类型 */
-typedef enum
-{
-    APP_NETWORK_LEASE_NONE = 0,       /*!< 未持有租约 */
-    APP_NETWORK_LEASE_REALTIME_VOICE, /*!< 实时语音网络租约 */
-    APP_NETWORK_LEASE_WEB_FILE,       /*!< Web 文件管理网络租约 */
-} app_network_lease_type_t;
+    /** @brief 网络 Application Task 当前支持的互斥网络产品租约类型 */
+    typedef enum
+    {
+        APP_NETWORK_LEASE_NONE = 0,       /*!< 未持有租约 */
+        APP_NETWORK_LEASE_REALTIME_VOICE, /*!< 实时语音网络租约 */
+        APP_NETWORK_LEASE_WEB_FILE,       /*!< Web 文件管理网络租约 */
+    } app_network_lease_type_t;
 
-/** @brief 互斥网络产品租约只读值快照 */
-typedef struct
-{
-    app_network_lease_type_t type;       /*!< 当前租约类型 */
-    bool                     active;     /*!< 是否正在持有 */
-    uint32_t                 generation; /*!< 当前租约代次 */
-} app_network_lease_snapshot_t;
+    /** @brief 互斥网络产品租约只读值快照 */
+    typedef struct
+    {
+        app_network_lease_type_t type;       /*!< 当前租约类型 */
+        bool                     active;     /*!< 是否正在持有 */
+        uint32_t                 generation; /*!< 当前租约代次 */
+    } app_network_lease_snapshot_t;
 
-/**
+    /**
  * @brief Network Manager 最新变化已由网络 Application Task 收敛后的借用通知回调
  *
  * 回调运行于 `app_network_task`，不携带 Manager 内部指针。实现必须有界且快速，只能合并
@@ -46,18 +46,18 @@ typedef struct
  *
  * @param[in] context 注册时借用的静态上下文
  */
-typedef void (*app_network_link_change_callback_t)(void *context);
+    typedef void (*app_network_link_change_callback_t)(void *context);
 
-/**
+    /**
  * @brief 初始化网络任务、命令队列和周期定时器
  *
  * 重复调用时保持幂等；成功返回后即可投递网络命令。
  *
  * @return ESP_OK 初始化成功；其他值表示资源创建失败
  */
-esp_err_t app_network_init(void);
+    esp_err_t app_network_init(void);
 
-/**
+    /**
  * @brief 注册唯一的 Network Manager 收敛后链路变化借用回调
  *
  * 网络 Application 在现有耐久 Manager pending 标志完成状态收敛后，于锁外调用该回调。
@@ -70,9 +70,10 @@ esp_err_t app_network_init(void);
  * @return ESP_OK 已注册或原本就是同一订阅；ESP_ERR_INVALID_ARG callback 为空；
  *         ESP_ERR_INVALID_STATE 网络 Application 未初始化或已经注册其他订阅
  */
-esp_err_t app_network_set_link_change_callback_borrow(app_network_link_change_callback_t callback, void *context);
+    esp_err_t app_network_register_link_change_callback_borrow(app_network_link_change_callback_t callback,
+                                                               void                              *context);
 
-/**
+    /**
  * @brief 请求执行一次 Dashboard 同步
  *
  * 命令按值投递，不在调用者上下文执行网络访问。
@@ -80,9 +81,9 @@ esp_err_t app_network_set_link_change_callback_borrow(app_network_link_change_ca
  * @return ESP_OK 已入队；ESP_ERR_INVALID_STATE 任务未初始化、同步已排队/运行或存在产品冲突；
  *         ESP_ERR_TIMEOUT 命令队列已满
  */
-esp_err_t app_network_request_sync(void);
+    esp_err_t app_network_request_sync(void);
 
-/**
+    /**
  * @brief 请求由网络任务切换到配网 Portal
  *
  * 网络 Application Task 在向 Network Manager 提交异步请求前原子占用 Portal 过渡状态；
@@ -91,16 +92,16 @@ esp_err_t app_network_request_sync(void);
  * @return ESP_OK 命令已入队；ESP_ERR_INVALID_STATE 任务未初始化或存在产品冲突；
  *         ESP_ERR_TIMEOUT 命令队列已满
  */
-esp_err_t app_network_start_portal(void);
+    esp_err_t app_network_request_start_portal(void);
 
-/**
+    /**
  * @brief 取消已排队或正在运行的 Dashboard 同步
  *
  * @return ESP_OK 已记录取消请求
  */
-esp_err_t app_network_cancel_sync(void);
+    esp_err_t app_network_cancel_sync(void);
 
-/**
+    /**
  * @brief 在低功耗维护窗口同步执行一次 Dashboard 拉取
  *
  * 调用前必须先通过 app_network_resume_from_power_save() 恢复网络策略。本函数等待唯一网络
@@ -112,9 +113,9 @@ esp_err_t app_network_cancel_sync(void);
  *         ESP_ERR_INVALID_STATE 网络仍暂停或存在同步、OTA、租约冲突；ESP_ERR_TIMEOUT
  *         命令未及时认领；或联网、传输、协议和 Dashboard Store 错误码
  */
-esp_err_t app_network_sync_for_power_save(uint32_t timeout_ms);
+    esp_err_t app_network_sync_for_power_save(uint32_t timeout_ms);
 
-/**
+    /**
  * @brief 复制当前有效的下一次 Dashboard 自动同步 UTC 截止
  *
  * 成功场景返回最近响应的 `next_refresh_at_utc`；完整同步失败后返回本地失败退避截止。
@@ -123,9 +124,9 @@ esp_err_t app_network_sync_for_power_save(uint32_t timeout_ms);
  * @return ESP_OK 已复制；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE
  *         尚无服务端截止且没有可换算为 UTC 的失败退避截止
  */
-esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp);
+    esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp);
 
-/**
+    /**
  * @brief 从当前持久化设置构造完整后端连接上下文
  *
  * 产品 ID 与固件目标来自构建生成头，设备 ID 由共享 protocols 组件基于 Wi-Fi Station
@@ -135,9 +136,9 @@ esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp)
  * @return ESP_OK 已构造；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 服务地址为空；
  *         或设置读取、配置校验、硬件身份错误码
  */
-esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_context);
+    esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_context);
 
-/**
+    /**
  * @brief 同步暂停网络策略与底层连接，进入无网络低功耗状态
  *
  * 命令在唯一网络 Application Task 中串行处理：停止同步、OTA、会话退避和校时 Timer，
@@ -149,9 +150,9 @@ esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_c
  *         ESP_ERR_INVALID_STATE 任务未初始化或当前有冲突；ESP_ERR_TIMEOUT 未及时处理；
  *         或回执资源、底层停机错误码
  */
-esp_err_t app_network_suspend_for_power_save(uint32_t timeout_ms);
+    esp_err_t app_network_suspend_for_power_save(uint32_t timeout_ms);
 
-/**
+    /**
  * @brief 同步恢复低功耗期间暂停的网络连接与周期策略
  *
  * 本函数只保证连接策略已经重新启动，不等待 STA 真正联网；重复恢复保持幂等。
@@ -161,27 +162,27 @@ esp_err_t app_network_suspend_for_power_save(uint32_t timeout_ms);
  *         ESP_ERR_INVALID_STATE 任务未初始化；ESP_ERR_TIMEOUT 未及时处理；
  *         或回执资源、命令投递错误码
  */
-esp_err_t app_network_resume_from_power_save(uint32_t timeout_ms);
+    esp_err_t app_network_resume_from_power_save(uint32_t timeout_ms);
 
-/**
+    /**
  * @brief 启用或停用 Dashboard 自动同步
  *
  * 启用后，成功场景按服务端 `next_refresh_at_utc` 安排一次性同步；失败场景按本地退避重试。
  *
  * @param[in] enabled true 启用；false 停用并停止自动同步 Timer
  */
-void app_network_set_dashboard_auto_sync_enabled(bool enabled);
+    void app_network_set_dashboard_auto_sync_enabled(bool enabled);
 
-/**
+    /**
  * @brief 启用或停用 OTA 自动检查
  *
  * 周期由持久化设置中的 ota_check_interval_sec 决定；定时器只投递命令。
  *
  * @param[in] enabled true 启用；false 停用
  */
-void app_network_set_ota_auto_check_enabled(bool enabled);
+    void app_network_set_ota_auto_check_enabled(bool enabled);
 
-/**
+    /**
  * @brief 按明确来源请求执行一次 OTA 检查
  *
  * 检查来源随异步事务传递到完成策略；手动检查始终禁止自动安装。
@@ -190,18 +191,18 @@ void app_network_set_ota_auto_check_enabled(bool enabled);
  * @return ESP_OK 已入队；ESP_ERR_INVALID_STATE OTA 状态不允许、已排队/运行或存在产品冲突；
  *         ESP_ERR_INVALID_ARG mode 无效；ESP_ERR_TIMEOUT 命令队列已满；或 OTA 状态读取错误码
  */
-esp_err_t app_network_request_ota_check(app_network_ota_check_mode_t mode);
+    esp_err_t app_network_request_ota_check(app_network_ota_check_mode_t mode);
 
-/**
+    /**
  * @brief 请求安装最近一次检查发现的固件
  *
  * @return ESP_OK 已入队；ESP_ERR_INVALID_STATE 没有待安装目标、OTA 已排队/运行或存在产品冲突；
  *         ESP_ERR_TIMEOUT 命令队列已满；或 OTA 状态读取错误码
  */
-esp_err_t app_network_request_ota_install(void);
+    esp_err_t app_network_request_ota_install(void);
 
-/**
- * @brief 幂等丢弃尚未开始安装的 OTA 目标
+    /**
+ * @brief 幂等清除尚未开始安装的 OTA 目标
  *
  * 本操作同时清除 Firmware OTA 工具缓存与网络 Application 的待安装标记。检查、下载或
  * 安装命令已排队时拒绝执行，避免把正在使用的目标清掉。
@@ -209,18 +210,18 @@ esp_err_t app_network_request_ota_install(void);
  * @return ESP_OK 两处待安装状态均已清除；ESP_ERR_INVALID_STATE 当前事务不可取消；
  *         或 Firmware OTA 返回的错误码
  */
-esp_err_t app_network_discard_ota_update(void);
+    esp_err_t app_network_clear_ota_update(void);
 
-/**
+    /**
  * @brief 查询 OTA 检查、下载或重启切换事务是否正在占用整机资源
  *
  * 已发现但尚未确认安装的目标不视为忙碌，不阻止语音或轻睡眠。
  *
  * @return true OTA 事务已排队或执行中；false 当前没有活动 OTA 事务
  */
-bool app_network_is_ota_busy(void);
+    bool app_network_is_ota_busy(void);
 
-/**
+    /**
  * @brief 请求实时语音网络租约并等待有限时间回执
  *
  * 命令只携带内部响应槽索引、租约类型和代次，不跨线程传递调用者指针。
@@ -234,9 +235,9 @@ bool app_network_is_ota_busy(void);
  *         ESP_ERR_TIMEOUT 未及时处理；
  *         或网络状态、回执资源错误码
  */
-esp_err_t app_network_acquire_realtime_voice_lease(uint32_t timeout_ms, uint32_t *out_generation);
+    esp_err_t app_network_acquire_realtime_voice_lease(uint32_t timeout_ms, uint32_t *out_generation);
 
-/**
+    /**
  * @brief 按代次释放实时语音网络租约
  *
  * 类型或代次不匹配时不能释放当前租约；重复释放已经结束的租约返回 ESP_OK。
@@ -247,9 +248,9 @@ esp_err_t app_network_acquire_realtime_voice_lease(uint32_t timeout_ms, uint32_t
  * @param[in] timeout_ms 命令被网络 Task 认领前的截止时间，单位毫秒
  * @return ESP_OK 已释放或此前已释放；其他值表示参数、代次或超时错误
  */
-esp_err_t app_network_release_realtime_voice_lease(uint32_t generation, uint32_t timeout_ms);
+    esp_err_t app_network_release_realtime_voice_lease(uint32_t generation, uint32_t timeout_ms);
 
-/**
+    /**
  * @brief 请求 Web 文件管理网络租约并等待有限时间回执
  *
  * 命令只携带内部响应槽索引、租约类型和代次，不跨线程传递调用者指针。
@@ -264,9 +265,9 @@ esp_err_t app_network_release_realtime_voice_lease(uint32_t generation, uint32_t
  *         ESP_ERR_TIMEOUT 未及时处理；
  *         或网络状态、回执资源错误码
  */
-esp_err_t app_network_acquire_web_file_lease(uint32_t timeout_ms, uint32_t *out_generation);
+    esp_err_t app_network_acquire_web_file_lease(uint32_t timeout_ms, uint32_t *out_generation);
 
-/**
+    /**
  * @brief 按代次释放 Web 文件管理网络租约
  *
  * 只有类型和代次均匹配时才释放；错误类型或旧代次不能释放当前租约。
@@ -278,16 +279,16 @@ esp_err_t app_network_acquire_web_file_lease(uint32_t timeout_ms, uint32_t *out_
  * @param[in] timeout_ms 命令被网络 Task 认领前的截止时间，单位毫秒
  * @return ESP_OK 已释放或此前已释放；其他值表示参数、类型、代次或超时错误
  */
-esp_err_t app_network_release_web_file_lease(uint32_t generation, uint32_t timeout_ms);
+    esp_err_t app_network_release_web_file_lease(uint32_t generation, uint32_t timeout_ms);
 
-/**
+    /**
  * @brief 获取互斥网络产品租约状态的只读值快照
  *
  * 返回整结构副本，不暴露内部锁、回执槽或其他可变所有权。
  *
- * @param[out] out 输出快照；NULL 时不执行操作
+ * @param[out] out_snapshot 输出快照；NULL 时不执行操作
  */
-void app_network_get_lease_snapshot(app_network_lease_snapshot_t *out);
+    void app_network_get_lease_snapshot_copy(app_network_lease_snapshot_t *out_snapshot);
 
 #ifdef __cplusplus
 }

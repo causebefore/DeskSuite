@@ -236,7 +236,7 @@ static void flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t *px_m
 
     if (lv_display_flush_is_last(display))
     {
-        err = device_display_flush_async();
+        err = device_display_request_flush();
         if (err != ESP_OK)
         {
             ESP_LOGE(TAG, "刷新 RLCD 失败: %s", esp_err_to_name(err));
