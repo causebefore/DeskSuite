@@ -1,6 +1,6 @@
 /**
  * @file settings_store.c
- * @brief 保留 DeskMate 原有 NVS schema 的产品设置兼容实现
+ * @brief DeskMate 产品设置与通用网络配置的聚合实现
  */
 #include "settings_store.h"
 
@@ -136,12 +136,15 @@ esp_err_t settings_store_load_copy(device_settings_t *out)
     ESP_RETURN_ON_FALSE(out != NULL, ESP_ERR_INVALID_ARG, TAG, "设置输出为空");
     ESP_RETURN_ON_ERROR(settings_store_init(), TAG, "初始化设置存储失败");
     settings_store_set_defaults(out);
-    system_storage_network_config_t network          = { 0 };
-    const esp_err_t                 network_error    = system_storage_get_network_config_copy(&network);
-    const bool                      have_new_network = network_error == ESP_OK;
-    if (network_error != ESP_OK && network_error != ESP_ERR_NOT_FOUND)
+    system_storage_network_config_t network       = { 0 };
+    const esp_err_t                 network_error = system_storage_get_network_config_copy(&network);
+    if (network_error == ESP_OK)
     {
-        ESP_LOGW(TAG, "读取通用网络配置失败，继续尝试旧 schema: %s", esp_err_to_name(network_error));
+        copy_network_from_system_storage(out, &network);
+    }
+    else if (network_error != ESP_ERR_NOT_FOUND)
+    {
+        return network_error;
     }
 
     xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -150,10 +153,6 @@ esp_err_t settings_store_load_copy(device_settings_t *out)
     if (error == ESP_ERR_NVS_NOT_FOUND)
     {
         xSemaphoreGive(s_lock);
-        if (have_new_network)
-        {
-            copy_network_from_system_storage(out, &network);
-        }
         return ESP_OK;
     }
     if (error != ESP_OK)
@@ -161,15 +160,6 @@ esp_err_t settings_store_load_copy(device_settings_t *out)
         xSemaphoreGive(s_lock);
         return error;
     }
-
-    size_t length = sizeof(out->wifi_ssid);
-    (void) nvs_get_str(nvs, "ssid", out->wifi_ssid, &length);
-    length = sizeof(out->wifi_password);
-    (void) nvs_get_str(nvs, "pass", out->wifi_password, &length);
-    length = sizeof(out->service_url);
-    (void) nvs_get_str(nvs, "service", out->service_url, &length);
-    length = sizeof(out->device_token);
-    (void) nvs_get_str(nvs, "token", out->device_token, &length);
 
     uint8_t flag = 0;
     if (nvs_get_u8(nvs, "ota_en", &flag) == ESP_OK)
@@ -185,22 +175,10 @@ esp_err_t settings_store_load_copy(device_settings_t *out)
     {
         out->ota_check_interval_sec = CONFIG_DESKMATE_OTA_CHECK_INTERVAL_SEC;
     }
-    length = sizeof(out->ota_channel);
+    size_t length = sizeof(out->ota_channel);
     (void) nvs_get_str(nvs, "ota_ch", out->ota_channel, &length);
     nvs_close(nvs);
     xSemaphoreGive(s_lock);
-    if (have_new_network)
-    {
-        copy_network_from_system_storage(out, &network);
-    }
-    else if (out->wifi_ssid[0] != '\0')
-    {
-        const esp_err_t migration_error = save_network_to_system_storage(out);
-        if (migration_error != ESP_OK)
-        {
-            ESP_LOGW(TAG, "迁移旧网络配置到 system_storage 失败: %s", esp_err_to_name(migration_error));
-        }
-    }
     return ESP_OK;
 }
 
@@ -221,10 +199,6 @@ esp_err_t settings_store_save(const device_settings_t *config)
         }                         \
     }                             \
     while (0)
-    SAVE_IF_OK(nvs_set_str(nvs, "ssid", config->wifi_ssid));
-    SAVE_IF_OK(nvs_set_str(nvs, "pass", config->wifi_password));
-    SAVE_IF_OK(nvs_set_str(nvs, "service", config->service_url));
-    SAVE_IF_OK(nvs_set_str(nvs, "token", config->device_token));
     SAVE_IF_OK(nvs_set_u8(nvs, "ota_en", config->ota_enabled ? 1 : 0));
     SAVE_IF_OK(nvs_set_u8(nvs, "ota_auto", config->ota_auto_install ? 1 : 0));
     SAVE_IF_OK(nvs_set_u32(nvs, "ota_int", config->ota_check_interval_sec));

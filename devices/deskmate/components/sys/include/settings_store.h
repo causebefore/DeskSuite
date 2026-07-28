@@ -48,10 +48,19 @@ extern "C"
     /** @brief 初始化设置兼容存储和通用 system_storage */
     esp_err_t settings_store_init(void);
 
-    /** @brief 复制读取完整 DeskMate 产品设置 */
+    /**
+     * @brief 复制读取完整 DeskMate 产品设置
+     *
+     * 网络字段只从 system_storage 的通用网络配置读取，不兼容旧
+     * deskmate_settings 命名空间中的网络字段。
+     */
     esp_err_t settings_store_load_copy(device_settings_t *out_settings);
 
-    /** @brief 同步持久化完整设置，并镜像通用网络字段 */
+    /**
+     * @brief 同步持久化产品设置与唯一的通用网络配置
+     *
+     * OTA 产品字段写入 deskmate_settings，网络字段只写入 system_storage。
+     */
     esp_err_t settings_store_save(const device_settings_t *config);
 
     /** @brief 清除 DeskMate 设置和通用网络配置 */
