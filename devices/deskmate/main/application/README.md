@@ -157,8 +157,8 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
-`app_web_file.c` 拥有产品阶段、Web 文件租约代次、是否仍需清理 Service 的事实以及状态快照
-边界；`app_web_file_task.c` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
+`app_web_file.cpp` 拥有产品阶段、Web 文件租约代次、是否仍需清理 Service 的事实以及状态快照
+边界；`app_web_file_task.cpp` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
 `web_file_service` 独占 HTTPD、认证、handler、文件事务和传输资源。
 Application 在授予租约后还会复核 Network Manager `ONLINE` 与当前 STA IPv4；它不因 STA
 短暂断线停止 Service。Service 启动成功后，`app_web_file_task` 先在
@@ -217,13 +217,13 @@ Manager 快照，不使用周期轮询或额外 Task。
 | `app_power_task.c` | 无活动窗口、离线显示状态、睡眠编号、Timer 刷新计数、按键唤醒状态和失败终态 |
 | `app_environment_task.c` | 两类产品采样截止时间和采样命令 |
 | `app_network_task.c` | 网络产品命令队列、Dashboard 绝对截止与失败退避、OTA、类型化互斥租约、会话退避和策略 Timer |
-| `app_web_file_task.c` | 网页文件管理启动、运行和可失败停止的一次性产品状态机 |
+| `app_web_file_task.cpp` | 网页文件管理启动、运行和可失败停止的一次性产品状态机 |
 
 Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 API 不暴露 RTOS 句柄。
 每个 Task 通过统一工具向串口输出 `uxTaskGetStackHighWaterMark()`；常驻任务按 60 秒周期
 节流，一次性或可停止任务在退出前输出最终值。
 
-`app_web_file_task.c` 的一次性 Task 只在启动、运行和停止期间存在。它不创建命令队列：重复启动
+`app_web_file_task.cpp` 的一次性 Task 只在启动、运行和停止期间存在。它不创建命令队列：重复启动
 明确拒绝，每个有效停止意图都在 Task 锁内取得严格单调的 64 位序列并通知活动 Task；链路变化
 使用同一把 Task 锁合并为耐久 pending，并通过 Task notification 唤醒。Task 醒来始终先检查
 停止序列，只有仍处于 `RUNNING` 且没有停止请求时才刷新 URL；停止清理期间到达的链路通知在

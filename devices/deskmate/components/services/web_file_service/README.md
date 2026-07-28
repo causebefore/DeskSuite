@@ -272,16 +272,25 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - `max_open_sockets = 1`；HTTPD 另行占用 listen 和两个控制 socket。
 - recv/send timeout：各 5 秒；LRU purge 关闭；不注册 WebSocket。
 - 构建配置：无 Kconfig 开关。
-- [`src/web_file_service.c`](src/web_file_service.c)：生命周期、HTTPD、首页、会话和停止所有权。
-- [`src/web_file_service_stop_task.c`](src/web_file_service_stop_task.c)：一次性 HTTPD 销毁
+- [`src/web_file_service.cpp`](src/web_file_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
+- [`src/web_file_service_http.cpp`](src/web_file_service_http.cpp)：首页、认证会话、URI 注册与入口关闭。
+- [`src/web_file_service_stop_task.cpp`](src/web_file_service_stop_task.cpp)：一次性 HTTPD 销毁
   Task 及无界 SDK 调用隔离。
-- [`src/web_file_service_auth.c`](src/web_file_service_auth.c)：访问码锁定、单会话和 token 内核。
-- [`src/web_file_service_path.c`](src/web_file_service_path.c)：路径、JSON 和响应头编码安全内核。
-- [`src/web_file_service_transfer.c`](src/web_file_service_transfer.c)：共享鉴权传输守卫、目录
-  双遍历 JSON、32 KiB PSRAM 流式下载、原始 PUT 接收和短时文件变更。
-- [`src/web_file_service_transaction.c`](src/web_file_service_transaction.c)：固定上传产物、
+- [`src/web_file_service_auth.cpp`](src/web_file_service_auth.cpp)：访问码锁定、单会话和 token 内核。
+- [`src/web_file_service_path.cpp`](src/web_file_service_path.cpp)：路径、JSON 和响应头编码安全内核。
+- [`src/web_file_service_transfer.cpp`](src/web_file_service_transfer.cpp)：共享鉴权传输守卫与原始
+  PUT 接收。
+- [`src/web_file_service_read.cpp`](src/web_file_service_read.cpp)：目录双遍历 JSON 与 32 KiB
+  PSRAM 流式下载。
+- [`src/web_file_service_mutation.cpp`](src/web_file_service_mutation.cpp)：目录创建、常规文件移动和删除。
+- [`src/web_file_service_transaction.cpp`](src/web_file_service_transaction.cpp)：固定上传产物、
   journal 持久化、提交顺序与启动恢复矩阵。
+- [`src/web_file_service_internal.hpp`](src/web_file_service_internal.hpp) 和
+  [`src/web_file_service_transfer.hpp`](src/web_file_service_transfer.hpp)：组件私有 C++ 状态与协作接口。
 - [`src/web_file_service_web.h`](src/web_file_service_web.h)：生成的 gzip 首页符号声明。
+
+Service 手写实现均以 C++ 编译；构建期生成的 `web_file_index.generated.c` 只承载只读 gzip
+字节资源，并通过带 `extern "C"` 的符号声明与 C++ 实现连接。
 
 ## 9. 验证
 
@@ -290,9 +299,10 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
   上限；除既有目录/下载边界外，检查 500 MiB 与 1 MiB 余量、`upload.part` /
   `upload.bak`、三阶段 journal、`fflush` / `fsync` / 精确长度复核、目标不被直接删除、
   八个 URI 注册/注销、创建/移动/删除路径约束、32 KiB PSRAM 精确分配、内联 JavaScript
-  语法和补丁空白错误。
-- 未执行：网页生成器、自动化测试、固件编译和实机 HTTP 请求；不得把本轮静态核查描述为
-  编译或硬件验收通过。
+  语法、C/C++ ABI 边界、全部手写实现文件小于 1000 行和补丁空白错误。
+- 固件编译：已通过 DeskSuite 根目录统一命令 `& .\ds.ps1 build deskmate`；ESP-IDF
+  `v6.0.1` 完成网页资源生成、C++ 编译和最终链接，应用固件大小 `0x1d3580` 字节。
+- 未执行：自动化测试和实机 HTTP 请求；编译通过不代表硬件验收通过。
 
 待用户执行的硬件验收清单：
 

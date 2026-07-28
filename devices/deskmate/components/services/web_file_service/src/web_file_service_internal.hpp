@@ -1,5 +1,5 @@
 /**
- * @file web_file_service_internal.h
+ * @file web_file_service_internal.hpp
  * @brief 网页文件服务的内部安全边界接口
  */
 #pragma once
@@ -32,7 +32,7 @@
 #define WEB_FILE_TRANSACTION_JOURNAL         "/sdcard/.deskmate-web/transaction"
 #define WEB_FILE_TRANSACTION_NEW             "/sdcard/.deskmate-web/transaction.new"
 
-typedef enum
+enum web_file_auth_result_t
 {
     WEB_FILE_AUTH_OK = 0,
     WEB_FILE_AUTH_BAD_CODE,
@@ -40,9 +40,9 @@ typedef enum
     WEB_FILE_AUTH_SESSION_BUSY,
     WEB_FILE_AUTH_UNAUTHORIZED,
     WEB_FILE_AUTH_EXPIRED,
-} web_file_auth_result_t;
+};
 
-typedef struct
+struct web_file_auth_state_t
 {
     char    access_code[WEB_FILE_ACCESS_CODE_BUFFER_SIZE];
     uint8_t token[WEB_FILE_TOKEN_BYTES];
@@ -50,29 +50,29 @@ typedef struct
     uint8_t failed_attempts;
     int64_t lockout_until_us;
     int64_t last_activity_us;
-} web_file_auth_state_t;
+};
 
-typedef enum
+enum web_file_transaction_phase_t
 {
     WEB_FILE_TRANSACTION_PREPARED = 0,
     WEB_FILE_TRANSACTION_BACKUP_MOVED,
     WEB_FILE_TRANSACTION_TARGET_COMMITTED,
-} web_file_transaction_phase_t;
+};
 
-typedef enum
+enum web_file_recovery_action_t
 {
     WEB_FILE_RECOVERY_REMOVE_PART = 0,
     WEB_FILE_RECOVERY_RESTORE_BACKUP,
     WEB_FILE_RECOVERY_ACCEPT_COMMIT,
     WEB_FILE_RECOVERY_AMBIGUOUS,
-} web_file_recovery_action_t;
+};
 
-typedef struct
+struct web_file_transaction_t
 {
     web_file_transaction_phase_t phase;
     uint64_t                     expected_length;
     char                         target_path[WEB_FILE_LOGICAL_PATH_BUFFER_SIZE];
-} web_file_transaction_t;
+};
 
 /**
  * @brief 网页文件服务唯一运行期上下文及其资源所有权
@@ -85,7 +85,7 @@ typedef struct
  * 销毁调用，完成后通知等待方、发布结果并挂起，直到生命周期调用显式删除它。
  * `lifecycle_active` 串行化可能阻塞或失败的生命周期操作。
  */
-typedef struct
+struct web_file_service_context_t
 {
     SemaphoreHandle_t        lock;                    /**< `init()` 至 `deinit()` 持有的状态锁 */
     SemaphoreHandle_t        handlers_drained;        /**< handler 归零时发出的二值唤醒信号 */
@@ -108,7 +108,7 @@ typedef struct
     esp_err_t                httpd_stop_result;       /**< 一次性清理 Task 发布的 HTTPD 结果 */
     bool                     httpd_stop_in_progress;  /**< 是否已有 Task 独占 `server` 销毁 */
     bool                     httpd_stop_result_ready; /**< 是否有待生命周期调用收取的销毁结果 */
-} web_file_service_context_t;
+};
 
 /**
  * @brief 网页文件 Service 的唯一运行期上下文
@@ -151,6 +151,25 @@ bool web_file_handler_enter(void);
  * 在锁外发出唤醒信号；停止调用仍会在锁内复查计数，不把信号量本身视为完成条件。
  */
 void web_file_handler_leave(void);
+
+/**
+ * @brief 注册网页文件服务的全部 HTTP URI
+ *
+ * 每项注册成功后立即在 Service 上下文记录对应位，启动失败回滚据此只注销已经注册的入口。
+ *
+ * @param[in] server 已启动且由 Service 持有的 HTTPD 句柄
+ * @return ESP_OK 全部注册完成；其他错误码来自 HTTPD
+ */
+esp_err_t web_file_http_register_handlers(httpd_handle_t server);
+
+/**
+ * @brief 在绝对期限内注销全部 HTTP URI，关闭新请求入口
+ *
+ * @param[in] server Service 当前持有的 HTTPD 句柄
+ * @param[in] deadline_us 单调时钟绝对期限
+ * @return ESP_OK 入口已关闭；ESP_ERR_TIMEOUT 等待超时；其他错误码来自 HTTPD
+ */
+esp_err_t web_file_http_close_ingress(httpd_handle_t server, int64_t deadline_us);
 
 /**
  * @brief 对逻辑路径执行一次百分号解码、严格校验并映射到文件系统路径

@@ -1,8 +1,8 @@
 /**
- * @file web_file_service_stop_task.c
+ * @file web_file_service_stop_task.cpp
  * @brief 在一次性 Task 中执行无超时的 ESP-IDF HTTPD 合法销毁流程
  */
-#include "web_file_service_internal.h"
+#include "web_file_service_internal.hpp"
 
 #include "esp_log.h"
 
@@ -23,7 +23,7 @@ static const char *TAG = "web_file_service";
  */
 static void web_file_httpd_stop_task(void *argument)
 {
-    web_file_service_context_t *context = (web_file_service_context_t *) argument;
+    web_file_service_context_t *context = static_cast<web_file_service_context_t *>(argument);
 
     xSemaphoreTake(context->lock, portMAX_DELAY);
     const httpd_handle_t    server     = context->server;

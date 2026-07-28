@@ -1,8 +1,8 @@
 /**
- * @file web_file_service_auth.c
+ * @file web_file_service_auth.cpp
  * @brief 网页文件服务的访问码锁定与单会话认证实现
  */
-#include "web_file_service_internal.h"
+#include "web_file_service_internal.hpp"
 
 #include <limits.h>
 #include <string.h>
@@ -210,7 +210,7 @@ void web_file_auth_reset(web_file_auth_state_t *state, const char access_code[7]
         return;
     }
 
-    uint8_t    candidate[WEB_FILE_ACCESS_CODE_LENGTH] = { 0 };
+    uint8_t    candidate[WEB_FILE_ACCESS_CODE_LENGTH]{};
     const bool valid                                  = web_file_auth_read_code(access_code, candidate);
     memset(state, 0, sizeof(*state));
     if (valid)
@@ -246,7 +246,7 @@ web_file_auth_result_t web_file_auth_create_session(web_file_auth_state_t *state
         web_file_auth_clear_session(state);
     }
 
-    uint8_t    candidate[WEB_FILE_ACCESS_CODE_LENGTH] = { 0 };
+    uint8_t    candidate[WEB_FILE_ACCESS_CODE_LENGTH]{};
     const bool valid_format                           = web_file_auth_read_code(code, candidate);
     const bool code_matches =
         web_file_auth_constant_time_equal(candidate, (const uint8_t *) state->access_code, WEB_FILE_ACCESS_CODE_LENGTH);
@@ -279,7 +279,7 @@ web_file_auth_result_t web_file_auth_authorize(web_file_auth_state_t *state, con
         return WEB_FILE_AUTH_UNAUTHORIZED;
     }
 
-    uint8_t    candidate[WEB_FILE_TOKEN_BYTES] = { 0 };
+    uint8_t    candidate[WEB_FILE_TOKEN_BYTES]{};
     const bool valid_format                    = web_file_auth_decode_token(bearer, candidate);
     if (!state->session_active)
     {

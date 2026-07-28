@@ -1,5 +1,5 @@
 /*
- * 文件职责：声明 app_web_file 状态所有者与一次性 Task 之间的组件私有协作接口。
+ * 文件职责：声明 app_web_file C++ 状态所有者与一次性 Task 之间的组件私有协作接口。
  */
 #pragma once
 

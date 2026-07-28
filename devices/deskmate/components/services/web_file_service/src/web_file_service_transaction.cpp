@@ -1,8 +1,8 @@
 /**
- * @file web_file_service_transaction.c
+ * @file web_file_service_transaction.cpp
  * @brief 网页文件服务的上传事务提交与启动恢复实现
  */
-#include "web_file_service_internal.h"
+#include "web_file_service_internal.hpp"
 
 #include <dirent.h>
 #include <errno.h>
@@ -16,13 +16,13 @@
 
 static const char *TAG = "web_file_service";
 
-typedef struct
+struct web_file_transaction_artifacts_t
 {
     bool journal_exists;
     bool new_exists;
     bool part_exists;
     bool backup_exists;
-} web_file_transaction_artifacts_t;
+};
 
 /**
  * @brief 按事务阶段返回 journal 中的固定文本
@@ -209,18 +209,20 @@ static esp_err_t web_file_transaction_read_journal_at(const char *path, web_file
         return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
     }
 
-    esp_err_t   error      = ESP_ERR_INVALID_RESPONSE;
+    const auto close_journal = [journal](esp_err_t result) {
+        return fclose(journal) != 0 && result == ESP_OK ? ESP_FAIL : result;
+    };
+
     const int   descriptor = fileno(journal);
     struct stat journal_info;
     if (descriptor < 0 || fstat(descriptor, &journal_info) != 0)
     {
-        error = ESP_FAIL;
-        goto cleanup;
+        return close_journal(ESP_FAIL);
     }
     if (!S_ISREG(journal_info.st_mode) || journal_info.st_size <= 0
         || journal_info.st_size > (off_t) (WEB_FILE_LOGICAL_PATH_BUFFER_SIZE + 128U))
     {
-        goto cleanup;
+        return close_journal(ESP_ERR_INVALID_RESPONSE);
     }
 
     char version_line[32];
@@ -237,28 +239,28 @@ static esp_err_t web_file_transaction_read_journal_at(const char *path, web_file
         || strncmp(length_line, "length=", sizeof("length=") - 1U) != 0
         || strncmp(target_line, "target=", sizeof("target=") - 1U) != 0)
     {
-        goto cleanup;
+        return close_journal(ESP_ERR_INVALID_RESPONSE);
     }
 
     const int trailing = fgetc(journal);
     if (trailing != EOF || ferror(journal) != 0)
     {
-        goto cleanup;
+        return close_journal(ESP_ERR_INVALID_RESPONSE);
     }
 
-    web_file_transaction_t transaction = { 0 };
+    web_file_transaction_t transaction{};
     if (!web_file_transaction_parse_phase(phase_line + sizeof("phase=") - 1U, &transaction.phase)
         || !web_file_transaction_parse_length(length_line + sizeof("length=") - 1U, &transaction.expected_length)
         || transaction.expected_length > WEB_FILE_UPLOAD_MAX_SIZE_BYTES)
     {
-        goto cleanup;
+        return close_journal(ESP_ERR_INVALID_RESPONSE);
     }
 
     const char  *target      = target_line + sizeof("target=") - 1U;
     const size_t target_size = strlen(target);
     if (target_size == 0U || target_size >= sizeof(transaction.target_path))
     {
-        goto cleanup;
+        return close_journal(ESP_ERR_INVALID_RESPONSE);
     }
     memcpy(transaction.target_path, target, target_size + 1U);
 
@@ -266,18 +268,11 @@ static esp_err_t web_file_transaction_read_journal_at(const char *path, web_file
     if (strcmp(transaction.target_path, "/") == 0
         || web_file_path_map_logical(transaction.target_path, target_filesystem, sizeof(target_filesystem)) != ESP_OK)
     {
-        goto cleanup;
+        return close_journal(ESP_ERR_INVALID_RESPONSE);
     }
 
     *out_transaction = transaction;
-    error            = ESP_OK;
-
-cleanup:
-    if (fclose(journal) != 0 && error == ESP_OK)
-    {
-        error = ESP_FAIL;
-    }
-    return error;
+    return close_journal(ESP_OK);
 }
 
 /**
@@ -305,7 +300,7 @@ static esp_err_t web_file_transaction_inspect_directory(web_file_transaction_art
         return ESP_FAIL;
     }
 
-    web_file_transaction_artifacts_t artifacts = { 0 };
+    web_file_transaction_artifacts_t artifacts{};
     esp_err_t                        error     = ESP_OK;
     for (;;)
     {

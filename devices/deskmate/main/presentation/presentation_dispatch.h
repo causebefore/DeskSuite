@@ -9,6 +9,11 @@
 #include "esp_event.h"
 #include "presentation_page.h"
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 /** @brief Presentation 事件 ID */
 typedef enum
 {
@@ -90,3 +95,7 @@ esp_err_t presentation_dispatch_ota_update(void);
  * @return ESP_OK 已发布；ESP_ERR_INVALID_ARG action 无效；其他值表示事件队列错误
  */
 esp_err_t presentation_dispatch_settings_action(presentation_settings_action_t action);
+
+#ifdef __cplusplus
+}
+#endif

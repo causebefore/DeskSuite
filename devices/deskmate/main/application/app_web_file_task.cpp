@@ -1,7 +1,7 @@
 /*
  * 文件职责：拥有网页文件管理一次性 Task，并执行存储、网络租约、运行链路和 Service 生命周期。
  */
-#include "app_web_file_internal.h"
+#include "app_web_file_internal.hpp"
 
 #include "app_network.h"
 #include "connect.h"
@@ -164,7 +164,7 @@ static esp_err_t wait_for_network_online(uint32_t timeout_ms)
             return ESP_ERR_INVALID_STATE;
         }
 
-        network_manager_status_t status = { 0 };
+        network_manager_status_t status{};
         const esp_err_t          error  = network_manager_get_status_copy(&status);
         if (error != ESP_OK)
         {

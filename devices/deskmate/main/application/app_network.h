@@ -9,6 +9,11 @@
 #include "esp_err.h"
 #include "protocol_backend_context.h"
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 /** @brief OTA 检查的产品来源，用于决定完成后的自动安装策略 */
 typedef enum
 {
@@ -283,3 +288,7 @@ esp_err_t app_network_release_web_file_lease(uint32_t generation, uint32_t timeo
  * @param[out] out 输出快照；NULL 时不执行操作
  */
 void app_network_get_lease_snapshot(app_network_lease_snapshot_t *out);
+
+#ifdef __cplusplus
+}
+#endif

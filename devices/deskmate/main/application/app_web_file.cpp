@@ -1,5 +1,5 @@
 /*
- * 文件职责：提供网页文件管理公共 API，并拥有产品状态与 Presenter 推送边界。
+ * 文件职责：提供网页文件管理公共 C ABI，并拥有产品状态与 Presenter 推送边界。
  */
 #include "app_web_file.h"
 
@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "app_network.h"
-#include "app_web_file_internal.h"
+#include "app_web_file_internal.hpp"
 #include "connect.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -341,7 +341,7 @@ void app_web_file_internal_publish_synchronous_rejection(esp_err_t error)
 
 esp_err_t app_web_file_internal_publish_running_snapshot(void)
 {
-    char url[sizeof(s_status.url)] = { 0 };
+    char url[sizeof(s_status.url)]{};
     make_current_url(url);
 
     web_file_service_status_t service_status;
@@ -376,7 +376,7 @@ esp_err_t app_web_file_internal_publish_running_snapshot(void)
 
 esp_err_t app_web_file_internal_refresh_running_link(void)
 {
-    char url[sizeof(s_status.url)] = { 0 };
+    char url[sizeof(s_status.url)]{};
     make_current_url(url);
 
     bool changed = false;
