@@ -51,8 +51,9 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 
 ## 关键流程
 
-- 启动：`main/app_main()` 明确顶层顺序，`app_main_init()` 装配产品能力，
-  `app_main_start()` 启动长期运行组件。
+- 启动：`main/app_main()` 明确顶层顺序，`app_main_init()` 先装配本地数据、输入和 UI 固定
+  资源；`app_main_start()` 优先启动 UI 并派发首屏，再初始化音频/AFE、启动其余运行期能力，
+  最后开放按键，确保输入只进入已经就绪的页面依赖。
 - 输入：`button_service` 产生不可变按键事实，Application 决定页面、语音或 OTA 等产品动作。
 - 环境：Application 调度环境采样，`environment_service` 通过稳定 Device API 完成采样事务。
 - 网络：`app_network` 拥有 DeskMate 的 Dashboard、OTA、语音租约和会话退避策略；

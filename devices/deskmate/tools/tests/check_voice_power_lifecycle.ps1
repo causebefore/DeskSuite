@@ -140,9 +140,12 @@ Assert-InOrder $appVoiceSource @(
     'voice_service_start()'
 )
 Assert-InOrder $appMain @(
-    'rtc_service_start()',
-    'app_voice_start(APP_VOICE_LIFECYCLE_TIMEOUT_MS)',
     'ui_runtime_start(APP_UI_START_TIMEOUT_MS)',
+    'app_page_dispatch_initial_presentation()',
+    'rtc_service_start()',
+    'app_pomodoro_start()',
+    'init_audio_runtime()',
+    'app_voice_start(APP_VOICE_LIFECYCLE_TIMEOUT_MS)',
     'app_power_start()',
     'button_service_start()'
 )

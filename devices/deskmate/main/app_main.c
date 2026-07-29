@@ -287,7 +287,15 @@ static esp_err_t init_input_environment_runtime(void)
     }
     button_device_initialized = true;
 
-    ret                       = device_battery_init();
+    ret                       = button_service_init(&button_config);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "初始化按键 Service 失败: %s", esp_err_to_name(ret));
+        goto cleanup;
+    }
+    button_service_initialized = true;
+
+    ret                        = device_battery_init();
     if (ret != ESP_OK)
     {
         ESP_LOGE(TAG, "初始化电池 Device 失败: %s", esp_err_to_name(ret));
@@ -303,15 +311,7 @@ static esp_err_t init_input_environment_runtime(void)
     }
     environment_device_initialized = true;
 
-    ret                            = button_service_init(&button_config);
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE(TAG, "初始化按键 Service 失败: %s", esp_err_to_name(ret));
-        goto cleanup;
-    }
-    button_service_initialized = true;
-
-    ret                        = environment_service_init();
+    ret                            = environment_service_init();
     if (ret != ESP_OK)
     {
         ESP_LOGE(TAG, "初始化环境 Service 失败: %s", esp_err_to_name(ret));
@@ -325,10 +325,6 @@ cleanup:
     {
         (void) environment_service_deinit();
     }
-    if (button_service_initialized)
-    {
-        (void) button_service_deinit();
-    }
     if (environment_device_initialized)
     {
         (void) device_environment_deinit();
@@ -336,6 +332,10 @@ cleanup:
     if (battery_device_initialized)
     {
         (void) device_battery_deinit();
+    }
+    if (button_service_initialized)
+    {
+        (void) button_service_deinit();
     }
     if (button_device_initialized)
     {
@@ -361,7 +361,6 @@ static esp_err_t init_runtime_capabilities(void)
     ESP_RETURN_ON_ERROR(rtc_service_set_event_callback_borrow(app_main_rtc_event_callback, NULL),
                         TAG,
                         "注册 RTC Service 事件回调失败");
-    ESP_RETURN_ON_ERROR(init_audio_runtime(), TAG, "初始化音频与语音运行时失败");
     return ESP_OK;
 }
 
@@ -535,41 +534,15 @@ cleanup:
 
 esp_err_t app_main_start(void)
 {
-    esp_err_t error = rtc_service_start();
-    if (error != ESP_OK)
-    {
-        ESP_LOGE(TAG, "启动 RTC Service 失败: %s", esp_err_to_name(error));
-        return error;
-    }
-
-    error = app_pomodoro_start();
-    if (error != ESP_OK)
-    {
-        ESP_LOGE(TAG, "启动番茄钟 Task 失败: %s", esp_err_to_name(error));
-        rollback_pomodoro_runtime();
-        (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
-        return error;
-    }
-
-    error = app_voice_start(APP_VOICE_LIFECYCLE_TIMEOUT_MS);
-    if (error != ESP_OK)
-    {
-        ESP_LOGE(TAG, "启动语音 Runtime 失败: %s", esp_err_to_name(error));
-        (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
-        rollback_pomodoro_runtime();
-        (void) app_power_deinit();
-        (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
-        return error;
-    }
-
-    error = ui_runtime_start(APP_UI_START_TIMEOUT_MS);
+    /*
+     * 先让 UI Runtime 和首屏进入运行态，再初始化模型、AFE 等耗时能力。
+     * 按键 Service 仍在全部页面依赖就绪后开放，避免输入进入未启动的产品能力。
+     */
+    esp_err_t error = ui_runtime_start(APP_UI_START_TIMEOUT_MS);
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "UI Task 启动失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
-        rollback_voice_runtime();
-        rollback_pomodoro_runtime();
-        (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
@@ -580,9 +553,53 @@ esp_err_t app_main_start(void)
     {
         ESP_LOGE(TAG, "派发首屏 UI 失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
-        rollback_voice_runtime();
+        (void) app_power_deinit();
+        (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
+        return error;
+    }
+    ESP_LOGI(TAG, "UI Runtime 已启动且首屏已派发，继续初始化后台运行期能力");
+
+    error = rtc_service_start();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "启动 RTC Service 失败: %s", esp_err_to_name(error));
+        rollback_ui_runtime();
+        (void) app_power_deinit();
+        (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
+        return error;
+    }
+
+    error = app_pomodoro_start();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "启动番茄钟 Task 失败: %s", esp_err_to_name(error));
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        rollback_ui_runtime();
+        (void) app_power_deinit();
+        (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
+        return error;
+    }
+
+    error = init_audio_runtime();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "初始化音频与语音运行时失败: %s", esp_err_to_name(error));
+        rollback_pomodoro_runtime();
+        (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        rollback_ui_runtime();
+        (void) app_power_deinit();
+        (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
+        return error;
+    }
+
+    error = app_voice_start(APP_VOICE_LIFECYCLE_TIMEOUT_MS);
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "启动语音 Runtime 失败: %s", esp_err_to_name(error));
+        rollback_pomodoro_runtime();
+        (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        rollback_ui_runtime();
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
@@ -592,10 +609,10 @@ esp_err_t app_main_start(void)
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "启动轻睡眠 Application 失败: %s", esp_err_to_name(error));
-        rollback_ui_runtime();
         rollback_voice_runtime();
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        rollback_ui_runtime();
         (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
@@ -607,10 +624,10 @@ esp_err_t app_main_start(void)
         ESP_LOGE(TAG, "启动按键 Service 失败: %s", esp_err_to_name(error));
         (void) app_power_stop(APP_POWER_STOP_TIMEOUT_MS);
         (void) app_power_deinit();
-        rollback_ui_runtime();
         rollback_voice_runtime();
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
+        rollback_ui_runtime();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }

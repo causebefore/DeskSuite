@@ -10,8 +10,9 @@
 /**
  * @brief 初始化产品各层及其运行时依赖
  *
- * 该入口由顶层 main.c 调用，按依赖顺序初始化下层能力、Application、Presentation 和 UI
- * Runtime。函数只完成初始化阶段，显式启动阶段由 app_main_start() 完成。
+ * 该入口由顶层 main.c 调用，按依赖顺序初始化本地数据、输入、Application、Presentation
+ * 和 UI Runtime 固定资源。为缩短首屏等待，音频 Device、AFE 和语音 Service 延后到
+ * app_main_start() 的首屏派发之后初始化。
  *
  * @return ESP_OK 初始化成功；其他错误来自业务服务或 ui_main。
  */
@@ -20,7 +21,8 @@ esp_err_t app_main_init(void);
 /**
  * @brief 启动产品运行期组件
  *
- * 该入口会启动 UI、轻睡眠 Application、按键扫描和网络周期策略。
+ * 该入口先启动 UI 并派发首屏，再完成 RTC、番茄钟、音频/语音运行时、轻睡眠 Application
+ * 和按键扫描。按键只在全部页面依赖就绪后开放，避免输入进入未启动的产品能力。
  *
  * @return ESP_OK 启动成功；其他错误来自 ui_main 或首屏派发。
  */
