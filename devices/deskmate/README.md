@@ -66,9 +66,10 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
   由 `pomodoro_store` 保存，系统 UTC 只负责本地日期归一化和预计结束时间。
 - 低功耗：`app_power` 在 60 秒无按键活动且产品事务空闲时先选择模式。运行中的番茄钟页进入
   `OFFLINE_DISPLAY`，只停止 Network Manager 和 Wi-Fi Driver，保留 UI 与一秒刷新；其他场景
-  可逆停止 UI Runtime，再通过 `device_power`/BSP 配置左右键 EXT1 与 ESP32 内部 Timer 并进入
-  Light-sleep。左右键唤醒恢复正常交互；内部 Timer 取屏幕维护、Dashboard 截止和番茄钟阶段
-  截止中的最近值。唤醒后先同步补算番茄钟，再恢复 UI，阶段完成会重新开启正常清醒窗口。
+  可逆停止 UI Runtime，再通过 `device_power`/BSP 进入 Light-sleep。普通模式使用左右键 EXT1
+  与 ESP32 内部 Timer；`DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 测试模式改用左右键与 GPIO15
+  RTC INT EXT1，并完全禁用内部 Timer。左右键唤醒恢复正常交互；维护源唤醒后先同步补算
+  番茄钟，再恢复 UI，阶段完成会重新开启正常清醒窗口。
 
 网页文件管理的完整流程为：
 

@@ -104,6 +104,7 @@ extern "C"
     {
         bool left_button;  /**< 左键 GPIO 导致唤醒 */
         bool right_button; /**< 右键 GPIO 导致唤醒 */
+        bool rtc_alarm;    /**< RTC INT GPIO 导致唤醒 */
         bool timer;        /**< ESP32 内部 Timer 导致唤醒 */
     } bsp_power_wakeup_result_t;
 
@@ -134,13 +135,14 @@ extern "C"
     esp_err_t bsp_button_set_activity_callback_borrow(bsp_button_activity_callback_t callback, void *context);
 
     /**
-     * @brief 以左右按键和内部 Timer 为唤醒源执行一次完整轻睡眠事务
+     * @brief 按编译配置执行一次完整轻睡眠事务
      *
-     * 本函数先确认左右按键均已释放，再配置 EXT1 低电平与内部 Timer 唤醒并阻塞当前调用
-     * Task。任一唤醒源命中后从原调用点返回，不发生芯片复位，也不会重新执行 app_main()。
-     * 函数返回前会清理本轮临时唤醒配置，不向调用方暴露半准备状态。
+     * 本函数先确认左右按键均已释放，再按编译配置执行一次同步 Light-sleep 事务。普通模式
+     * 配置双按键 EXT1 与内部 Timer；RTC INT 唤醒测试模式改为双按键与 RTC INT EXT1，
+     * 且不启用内部 Timer。任一唤醒源命中后从原调用点返回，不发生芯片复位，也不会重新执行
+     * app_main()。函数返回前会清理本轮临时唤醒配置，不向调用方暴露半准备状态。
      *
-     * @param[in] timer_wakeup_ms Timer 唤醒间隔，单位毫秒，必须大于 0
+     * @param[in] timer_wakeup_ms Timer 唤醒间隔，单位毫秒，必须大于 0；RTC INT 测试模式忽略该间隔
      * @param[out] out_result 本次事务的唤醒结果，仅在 ESP_OK 时有效
      * @return ESP_OK 已从轻睡眠唤醒且清理完成；ESP_ERR_INVALID_ARG 参数无效；
      *         ESP_ERR_INVALID_STATE 按键尚未释放；或底层配置、睡眠及清理错误码

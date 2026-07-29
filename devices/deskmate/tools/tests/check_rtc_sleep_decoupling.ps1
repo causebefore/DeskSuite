@@ -29,7 +29,7 @@ function Assert-NotContains {
         return
     }
     if ((Get-Content -Raw -LiteralPath $path) -match $Pattern) {
-        $failures.Add("仍存在 RTC 睡眠耦合: $RelativePath / $Pattern")
+        $failures.Add("仍存在禁止的 RTC 睡眠耦合: $RelativePath / $Pattern")
     }
 }
 
@@ -57,10 +57,6 @@ Assert-NotContains 'main\app_main.c' 'app_rtc_alarm'
 Assert-NotContains 'main\application\app_power_task.c' `
     'rtc_service_pause_interrupt_consumption|rtc_service_resume_interrupt_consumption'
 Assert-NotContains 'main\app_main.c' 'app_power_notify_activity'
-Assert-NotContains 'components\bsp\src\bsp_power.c' 'BOARD_RTC_PIN_INT|rtc_interrupt'
-Assert-NotContains 'components\bsp\include\bsp.h' 'bool\s+rtc_interrupt'
-Assert-NotContains 'components\device\device_power\include\device_power.h' 'bool\s+rtc_interrupt'
-Assert-NotContains 'components\device\device_power\src\device_power.c' '\.rtc_interrupt'
 Assert-NotContains 'components\services\rtc_service\include\rtc_service.h' `
     'RTC_SERVICE_STATE_PAUSED|pause_interrupt_consumption|resume_interrupt_consumption'
 Assert-NotContains 'components\services\rtc_service\src\rtc_service_task.c' `
@@ -68,7 +64,21 @@ Assert-NotContains 'components\services\rtc_service\src\rtc_service_task.c' `
 
 Assert-Contains 'components\bsp\src\bsp_power.c' 'BOARD_PIN_BTN_LEFT'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'BOARD_PIN_BTN_RIGHT'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'BOARD_RTC_PIN_INT'
+Assert-Contains 'components\bsp\src\bsp_power.c' '\.rtc_alarm'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'esp_sleep_enable_timer_wakeup'
+Assert-Contains 'components\bsp\src\bsp_power.c' `
+    '#ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]*esp_sleep_enable_timer_wakeup'
+Assert-Contains 'components\bsp\include\bsp.h' 'bool\s+rtc_alarm'
+Assert-Contains 'components\device\device_power\include\device_power.h' 'bool\s+rtc_alarm'
+Assert-Contains 'components\device\device_power\src\device_power.c' '\.rtc_alarm'
+Assert-Contains 'main\application\app_power.h' 'APP_POWER_WAKEUP_RTC_ALARM'
+Assert-Contains 'main\application\app_power_task.c' 'RTC INT 唤醒已刷新屏幕'
+Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
+Assert-Contains 'main\Kconfig.projbuild' `
+    'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,160}default y'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED=y'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC=60'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC'
@@ -81,11 +91,11 @@ Assert-Contains 'components\services\rtc_service\include\rtc_service.h' `
     '调用方可再次调用本函数继续等待'
 
 if ($failures.Count -gt 0) {
-    Write-Host 'RTC INT 与轻睡眠解耦契约检查失败：' -ForegroundColor Red
+    Write-Host 'RTC INT 独占维护唤醒测试契约检查失败：' -ForegroundColor Red
     foreach ($failure in $failures) {
         Write-Host " - $failure" -ForegroundColor Red
     }
     exit 1
 }
 
-Write-Host 'RTC INT 与轻睡眠解耦契约检查通过。' -ForegroundColor Green
+Write-Host 'RTC INT 独占维护唤醒测试契约检查通过。' -ForegroundColor Green

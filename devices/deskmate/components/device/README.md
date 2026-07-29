@@ -15,8 +15,9 @@
 - `device_rtc`：封装 RTC 日历、星期、电压过低状态、告警比较配置、AF/AIE 和 INT 快速通知。
 - `device_display`：封装显示尺寸、帧写入和刷新。
 - `device_audio`：封装音频输入、输出、音量和 PCM。
-- `device_power`：以单个同步事务封装双按键 EXT1、内部 Timer 唤醒 Light-sleep 及临时
-  配置清理；Timer 间隔由上层传入，本组件不拥有刷新周期、停机顺序或产品重试。
+- `device_power`：以单个同步事务封装 Light-sleep 唤醒和临时配置清理；普通模式使用双按键
+  EXT1 与内部 Timer，RTC INT 测试模式使用双按键与 RTC 告警中断并禁用内部 Timer。Timer
+  间隔仍由上层传入，本组件不拥有刷新周期、停机顺序或产品重试。
 - `device_storage`：封装外部 SD 卡的同步块设备信息、就绪检查和串行扇区读写。
 
 上层只能包含 `device_xxx.h`。GPIO、I2C、SPI、I2S、Codec、具体芯片类型和

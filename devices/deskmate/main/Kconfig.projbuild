@@ -15,13 +15,23 @@ endmenu
 menu "DeskMate Power"
 
 config DESKMATE_LIGHT_SLEEP_ENABLED
-    bool "Enable button and timer wakeup light sleep"
+    bool "Enable light sleep"
     default y
     depends on !DESKMATE_WAKE_WORD_ENABLE
     help
         启用后，设备在用户无活动窗口结束且产品事务空闲时进入不复位芯片的
-        Light-sleep。UI 会可逆停止；左右按键恢复交互，内部 Timer 周期唤醒刷新一次屏幕。
+        Light-sleep。UI 会可逆停止；左右按键恢复交互，维护唤醒源负责刷新一次屏幕。
         WakeNet 常驻监听启用时自动禁用本功能，因为 CPU 轻睡后无法继续处理麦克风数据。
+
+config DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+    bool "Use RTC INT as exclusive light sleep maintenance wakeup source"
+    default y
+    depends on DESKMATE_LIGHT_SLEEP_ENABLED
+    help
+        用于验证 RTC INT GPIO15 硬件连线。启用后，左右按键与 RTC INT 共同作为 EXT1
+        低电平唤醒源，并完全禁用 ESP32 内部 Timer 唤醒，避免两个定时来源重复命中。
+        软件不会在入睡前读取或判断 RTC INT 当前电平。测试前必须由 RTC Service 安排告警；
+        若 RTC INT 不生效且没有按键输入，设备会一直保持 Light-sleep。
 
 config DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC
     int "Light sleep idle timeout (seconds)"
@@ -43,8 +53,9 @@ config DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC
     range 10 3600
     depends on DESKMATE_LIGHT_SLEEP_ENABLED
     help
-        进入 Light-sleep 后，ESP32 内部 Timer 周期唤醒的间隔。每次 Timer 唤醒会恢复 UI、
-        同步刷新一次屏幕，再次停止 UI 并继续睡眠；默认 60 秒。
+        普通模式下进入 Light-sleep 后，ESP32 内部 Timer 周期唤醒的间隔。每次 Timer 唤醒
+        会恢复 UI、同步刷新一次屏幕，再次停止 UI 并继续睡眠；默认 60 秒。RTC INT 唤醒
+        测试模式保留该配置兼容上层接口，但不会启用内部 Timer。
 
 endmenu
 

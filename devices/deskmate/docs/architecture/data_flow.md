@@ -164,13 +164,15 @@ ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保�
              → app_environment 协作停止
              → UI Runtime Task 停止
              → button_service 停止扫描
-             → Device / BSP 配置双按键 EXT1 与内部 Timer 唤醒并进入 Light-sleep
-    → Timer 唤醒后恢复 UI、同步刷新屏幕，再次停止 UI 并继续睡眠
+             → Device / BSP 按编译配置选择双按键 + 内部 Timer，
+               或双按键 + RTC INT 独占维护唤醒并进入 Light-sleep
+    → 维护源唤醒后恢复 UI、同步刷新屏幕，再次停止 UI 并继续睡眠
     → 按键唤醒后按相反产品顺序恢复并重新开始活动窗口
 ```
 
 无活动截止时间、准备顺序、重试和失败阻断由 `app_power` 的唯一 Application Task 拥有。
-Device/BSP 只提供一次带 Timer 间隔参数的同步轻睡眠事务，不拥有周期刷新策略；
+Device/BSP 只提供一次同步轻睡眠事务，并按编译配置锁存 Timer 或 RTC INT 维护唤醒事实，
+不拥有周期刷新策略；RTC INT 测试模式保留 Timer 间隔参数以维持稳定接口，但不启用内部 Timer。
 `app_network` 提供不依赖 UI 或 Light-sleep 的低功耗停网/恢复握手。番茄钟前台离线显示期间
 Dashboard 截止到达时临时恢复网络完成维护，再次停网；用户活动或离开运行中的番茄钟页时恢复
 正常网络策略。详细产品流程见

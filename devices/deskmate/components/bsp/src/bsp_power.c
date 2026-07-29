@@ -1,6 +1,6 @@
 /**
  * @file bsp_power.c
- * @brief 配置当前板型的双按键与内部 Timer 轻睡眠唤醒
+ * @brief 按编译配置执行双按键与维护源轻睡眠唤醒
  */
 #include "bsp.h"
 
@@ -14,7 +14,13 @@
 
 static const char *TAG = "bsp_power";
 
-#define BSP_POWER_WAKEUP_MASK ((1ULL << BOARD_PIN_BTN_LEFT) | (1ULL << BOARD_PIN_BTN_RIGHT))
+#define BSP_POWER_BUTTON_WAKEUP_MASK ((1ULL << BOARD_PIN_BTN_LEFT) | (1ULL << BOARD_PIN_BTN_RIGHT))
+
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+    #define BSP_POWER_WAKEUP_MASK (BSP_POWER_BUTTON_WAKEUP_MASK | (1ULL << BOARD_RTC_PIN_INT))
+#else
+    #define BSP_POWER_WAKEUP_MASK BSP_POWER_BUTTON_WAKEUP_MASK
+#endif
 
 static const bsp_button_id_t s_buttons[] = {
     BSP_BUTTON_LEFT,
@@ -24,6 +30,11 @@ static const bsp_button_id_t s_buttons[] = {
 _Static_assert(BOARD_PIN_BTN_LEFT >= 0 && BOARD_PIN_BTN_LEFT < GPIO_NUM_MAX, "左键 GPIO 必须是有效数字 IO");
 _Static_assert(BOARD_PIN_BTN_RIGHT >= 0 && BOARD_PIN_BTN_RIGHT < GPIO_NUM_MAX, "右键 GPIO 必须是有效数字 IO");
 _Static_assert(BOARD_PIN_BTN_LEFT != BOARD_PIN_BTN_RIGHT, "左右按键不能共用 GPIO");
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+_Static_assert(BOARD_RTC_PIN_INT >= 0 && BOARD_RTC_PIN_INT < GPIO_NUM_MAX, "RTC INT GPIO 必须是有效数字 IO");
+_Static_assert(BOARD_RTC_PIN_INT != BOARD_PIN_BTN_LEFT && BOARD_RTC_PIN_INT != BOARD_PIN_BTN_RIGHT,
+               "RTC INT 不能与按键共用 GPIO");
+#endif
 
 /**
  * @brief 确认左右按键均处于释放高电平
@@ -69,10 +80,11 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
     esp_err_t operation_error = esp_sleep_enable_ext1_wakeup_io(BSP_POWER_WAKEUP_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
     if (operation_error != ESP_OK)
     {
-        ESP_LOGE(TAG, "配置按键 EXT1 轻睡眠唤醒失败: %s", esp_err_to_name(operation_error));
+        ESP_LOGE(TAG, "配置 EXT1 轻睡眠唤醒失败: %s", esp_err_to_name(operation_error));
         return operation_error;
     }
 
+#ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
     operation_error = esp_sleep_enable_timer_wakeup((uint64_t) timer_wakeup_ms * 1000ULL);
     if (operation_error != ESP_OK)
     {
@@ -84,6 +96,7 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
         }
         return operation_error;
     }
+#endif
 
     /*
      * IDF v6.0.1 默认对 console UART 采用 SUSPEND 策略：入睡前对 UART0 执行 XOFF
@@ -93,11 +106,19 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
      */
     (void) esp_sleep_set_console_uart_handling_mode(ESP_SLEEP_ALWAYS_FLUSH_UART);
 
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+    ESP_LOGI(TAG,
+             "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或 RTC INT GPIO%d 可唤醒，内部 Timer 已禁用",
+             BOARD_PIN_BTN_LEFT,
+             BOARD_PIN_BTN_RIGHT,
+             BOARD_RTC_PIN_INT);
+#else
     ESP_LOGI(TAG,
              "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或内部 Timer %lu ms 可唤醒",
              BOARD_PIN_BTN_LEFT,
              BOARD_PIN_BTN_RIGHT,
              (unsigned long) timer_wakeup_ms);
+#endif
     operation_error = esp_light_sleep_start();
     if (operation_error != ESP_OK)
     {
@@ -110,21 +131,28 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
         *out_result                       = (bsp_power_wakeup_result_t) {
             .left_button  = (ext1_wakeup_status & (1ULL << BOARD_PIN_BTN_LEFT)) != 0U,
             .right_button = (ext1_wakeup_status & (1ULL << BOARD_PIN_BTN_RIGHT)) != 0U,
-            .timer        = (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) != 0U,
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+            .rtc_alarm = (ext1_wakeup_status & (1ULL << BOARD_RTC_PIN_INT)) != 0U,
+#endif
+            .timer = (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) != 0U,
         };
         ESP_LOGI(TAG,
-                 "轻睡眠已结束，左键=%s，右键=%s，Timer=%s，唤醒掩码=0x%lx",
+                 "轻睡眠已结束，左键=%s，右键=%s，RTC INT=%s，Timer=%s，唤醒原因位图=0x%lx，"
+                 "EXT1 状态=0x%llx",
                  out_result->left_button ? "是" : "否",
                  out_result->right_button ? "是" : "否",
+                 out_result->rtc_alarm ? "是" : "否",
                  out_result->timer ? "是" : "否",
-                 (unsigned long) wakeup_causes);
+                 (unsigned long) wakeup_causes,
+                 (unsigned long long) ext1_wakeup_status);
     }
 
     esp_err_t cleanup_error = esp_sleep_disable_ext1_wakeup_io(BSP_POWER_WAKEUP_MASK);
     if (cleanup_error != ESP_OK)
     {
-        ESP_LOGE(TAG, "清理按键 EXT1 轻睡眠唤醒配置失败: %s", esp_err_to_name(cleanup_error));
+        ESP_LOGE(TAG, "清理 EXT1 轻睡眠唤醒配置失败: %s", esp_err_to_name(cleanup_error));
     }
+#ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
     const esp_err_t timer_cleanup_error = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
     if (timer_cleanup_error != ESP_OK)
     {
@@ -134,5 +162,6 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
             cleanup_error = timer_cleanup_error;
         }
     }
+#endif
     return operation_error != ESP_OK ? operation_error : cleanup_error;
 }

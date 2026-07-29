@@ -1,6 +1,6 @@
 /**
  * @file app_power_task.c
- * @brief 以单一 Application Task 编排离线显示与内部 Timer Light-sleep
+ * @brief 以单一 Application Task 编排离线显示与可配置维护源 Light-sleep
  */
 #include "app_power.h"
 
@@ -42,6 +42,7 @@ static int64_t                   s_last_activity_us;
 static uint32_t                  s_activity_generation;
 static uint32_t                  s_cycle_id;
 static uint32_t                  s_success_count;
+static uint32_t                  s_rtc_alarm_refresh_count;
 static uint32_t                  s_timer_refresh_count;
 static uint32_t                  s_blockers;
 static esp_err_t                 s_primary_error;
@@ -121,7 +122,7 @@ static void keep_primary_error(esp_err_t error)
     taskEXIT_CRITICAL(&s_lock);
 }
 
-/** @brief 把 Device 唤醒事实转换为 Application 枚举，按键优先于同时命中的 Timer */
+/** @brief 把 Device 唤醒事实转换为 Application 枚举，按键优先于同时命中的维护源 */
 static app_power_wakeup_source_t map_wakeup_source(const device_power_wakeup_result_t *wakeup)
 {
     if (wakeup->left_button && wakeup->right_button)
@@ -135,6 +136,10 @@ static app_power_wakeup_source_t map_wakeup_source(const device_power_wakeup_res
     if (wakeup->right_button)
     {
         return APP_POWER_WAKEUP_RIGHT_BUTTON;
+    }
+    if (wakeup->rtc_alarm)
+    {
+        return APP_POWER_WAKEUP_RTC_ALARM;
     }
     if (wakeup->timer)
     {
@@ -499,6 +504,7 @@ static uint32_t next_power_save_interval_ms(app_power_timer_reason_t *out_reason
     return interval_ms == 0U ? 1U : interval_ms;
 }
 
+#ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
 /**
  * @brief 在进入 Light-sleep 前输出内部 Timer 的计划唤醒时间
  *
@@ -541,6 +547,7 @@ static void log_next_wakeup(uint32_t interval_ms, app_power_timer_reason_t reaso
              (unsigned long) interval_ms,
              reason_text);
 }
+#endif
 
 /**
  * @brief 在 Timer 唤醒维护窗口恢复网络、同步 Dashboard 并再次可逆停网
@@ -709,7 +716,11 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         device_power_wakeup_result_t wakeup             = { 0 };
         app_power_timer_reason_t     timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
         const uint32_t               wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+        ESP_LOGI(TAG, "准备进入轻睡眠，RTC INT 为维护唤醒源，内部 Timer 已禁用；左右按键可提前唤醒");
+#else
         log_next_wakeup(wakeup_interval_ms, timer_reason);
+#endif
         const esp_err_t sleep_error = device_power_enter_light_sleep(wakeup_interval_ms, &wakeup);
 
         taskENTER_CRITICAL(&s_lock);
@@ -824,12 +835,27 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         ui_stopped = false;
 
         taskENTER_CRITICAL(&s_lock);
-        s_timer_refresh_count++;
-        s_primary_error              = ESP_OK;
-        s_recovery_error             = ESP_OK;
-        const uint32_t refresh_count = s_timer_refresh_count;
+        if (wakeup_source == APP_POWER_WAKEUP_RTC_ALARM)
+        {
+            s_rtc_alarm_refresh_count++;
+        }
+        else
+        {
+            s_timer_refresh_count++;
+        }
+        s_primary_error  = ESP_OK;
+        s_recovery_error = ESP_OK;
+        const uint32_t refresh_count =
+            wakeup_source == APP_POWER_WAKEUP_RTC_ALARM ? s_rtc_alarm_refresh_count : s_timer_refresh_count;
         taskEXIT_CRITICAL(&s_lock);
-        ESP_LOGI(TAG, "内部 Timer 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
+        if (wakeup_source == APP_POWER_WAKEUP_RTC_ALARM)
+        {
+            ESP_LOGI(TAG, "RTC INT 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
+        }
+        else
+        {
+            ESP_LOGI(TAG, "内部 Timer 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
+        }
 
         if (preparation_was_interrupted(expected_generation))
         {
@@ -887,7 +913,7 @@ static void wait_until_stopped(void)
     }
 }
 
-/** @brief 唯一电源 Task，拥有活动窗口、Timer 维护刷新和按键唤醒状态 */
+/** @brief 唯一电源 Task，拥有活动窗口、维护刷新和按键唤醒状态 */
 static void app_power_task(void *arg)
 {
     (void) arg;
@@ -974,21 +1000,22 @@ esp_err_t app_power_init(const app_power_config_t *config)
         return ESP_ERR_NO_MEM;
     }
 
-    s_config              = *config;
-    s_state               = APP_POWER_STATE_STOPPED;
-    s_step                = APP_POWER_STEP_NONE;
-    s_wakeup_source       = APP_POWER_WAKEUP_NONE;
-    s_last_activity_us    = 0;
-    s_activity_generation = 0U;
-    s_cycle_id            = 0U;
-    s_success_count       = 0U;
-    s_timer_refresh_count = 0U;
-    s_blockers            = APP_POWER_BLOCKER_NONE;
-    s_primary_error       = ESP_OK;
-    s_recovery_error      = ESP_OK;
-    s_initialized         = true;
-    s_started             = false;
-    s_stop_requested      = false;
+    s_config                  = *config;
+    s_state                   = APP_POWER_STATE_STOPPED;
+    s_step                    = APP_POWER_STEP_NONE;
+    s_wakeup_source           = APP_POWER_WAKEUP_NONE;
+    s_last_activity_us        = 0;
+    s_activity_generation     = 0U;
+    s_cycle_id                = 0U;
+    s_success_count           = 0U;
+    s_rtc_alarm_refresh_count = 0U;
+    s_timer_refresh_count     = 0U;
+    s_blockers                = APP_POWER_BLOCKER_NONE;
+    s_primary_error           = ESP_OK;
+    s_recovery_error          = ESP_OK;
+    s_initialized             = true;
+    s_started                 = false;
+    s_stop_requested          = false;
     return ESP_OK;
 }
 
@@ -1021,10 +1048,16 @@ esp_err_t app_power_start(void)
         return ESP_ERR_NO_MEM;
     }
 
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+    ESP_LOGI(TAG,
+             "自动低功耗流程已启动，无活动窗口=%lu ms，RTC INT 测试模式已启用，内部 Timer 已禁用",
+             (unsigned long) s_config.idle_timeout_ms);
+#else
     ESP_LOGI(TAG,
              "自动低功耗流程已启动，无活动窗口=%lu ms，Timer 刷新间隔=%lu ms",
              (unsigned long) s_config.idle_timeout_ms,
              (unsigned long) s_config.refresh_interval_ms);
+#endif
     return ESP_OK;
 }
 
@@ -1068,6 +1101,7 @@ esp_err_t app_power_get_status_copy(app_power_status_t *out_status)
         .activity_generation           = s_activity_generation,
         .cycle_id                      = s_cycle_id,
         .success_count                 = s_success_count,
+        .rtc_alarm_refresh_count       = s_rtc_alarm_refresh_count,
         .timer_refresh_count           = s_timer_refresh_count,
         .blockers                      = s_blockers,
         .primary_error                 = s_primary_error,
@@ -1111,19 +1145,20 @@ esp_err_t app_power_deinit(void)
     }
 
     vSemaphoreDelete(s_stopped_signal);
-    s_stopped_signal      = NULL;
-    s_config              = (app_power_config_t) { 0 };
-    s_state               = APP_POWER_STATE_STOPPED;
-    s_step                = APP_POWER_STEP_NONE;
-    s_wakeup_source       = APP_POWER_WAKEUP_NONE;
-    s_last_activity_us    = 0;
-    s_activity_generation = 0U;
-    s_cycle_id            = 0U;
-    s_success_count       = 0U;
-    s_timer_refresh_count = 0U;
-    s_blockers            = APP_POWER_BLOCKER_NONE;
-    s_primary_error       = ESP_OK;
-    s_recovery_error      = ESP_OK;
-    s_initialized         = false;
+    s_stopped_signal          = NULL;
+    s_config                  = (app_power_config_t) { 0 };
+    s_state                   = APP_POWER_STATE_STOPPED;
+    s_step                    = APP_POWER_STEP_NONE;
+    s_wakeup_source           = APP_POWER_WAKEUP_NONE;
+    s_last_activity_us        = 0;
+    s_activity_generation     = 0U;
+    s_cycle_id                = 0U;
+    s_success_count           = 0U;
+    s_rtc_alarm_refresh_count = 0U;
+    s_timer_refresh_count     = 0U;
+    s_blockers                = APP_POWER_BLOCKER_NONE;
+    s_primary_error           = ESP_OK;
+    s_recovery_error          = ESP_OK;
+    s_initialized             = false;
     return ESP_OK;
 }

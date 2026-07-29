@@ -1,6 +1,6 @@
 /**
  * @file app_power.h
- * @brief 编排 DeskMate 离线显示与内部 Timer Light-sleep 闭环
+ * @brief 编排 DeskMate 离线显示与可配置维护源 Light-sleep 闭环
  */
 #pragma once
 
@@ -34,7 +34,7 @@ extern "C"
         APP_POWER_STEP_VOICE_STOP,     /*!< 停止语音 Runtime 并关闭业务入口 */
         APP_POWER_STEP_UI_STOP,        /*!< 可逆停止 UI Runtime 和显示传输 */
         APP_POWER_STEP_NETWORK_STOP,   /*!< 可逆停止网络策略与 Wi-Fi Driver */
-        APP_POWER_STEP_DEVICE_SLEEP,   /*!< 执行 Device 按键与 Timer 睡眠事务 */
+        APP_POWER_STEP_DEVICE_SLEEP,   /*!< 执行 Device 轻睡眠事务 */
         APP_POWER_STEP_DEVICE_WAKE,    /*!< 锁存本轮 Light-sleep 唤醒事实 */
         APP_POWER_STEP_NETWORK_START,  /*!< 恢复网络连接策略 */
         APP_POWER_STEP_VOICE_START,    /*!< 恢复语音 Runtime 和按键语音入口 */
@@ -49,6 +49,7 @@ extern "C"
         APP_POWER_WAKEUP_LEFT_BUTTON,  /*!< 左键唤醒 */
         APP_POWER_WAKEUP_RIGHT_BUTTON, /*!< 右键唤醒 */
         APP_POWER_WAKEUP_BOTH_BUTTONS, /*!< 左右键同时命中 EXT1 状态 */
+        APP_POWER_WAKEUP_RTC_ALARM,    /*!< RTC 告警中断唤醒 */
         APP_POWER_WAKEUP_TIMER,        /*!< ESP32 内部 Timer 唤醒 */
         APP_POWER_WAKEUP_UNKNOWN,      /*!< 返回成功但没有有效唤醒来源 */
     } app_power_wakeup_source_t;
@@ -83,6 +84,7 @@ extern "C"
         uint32_t                  activity_generation;           /*!< 已接收用户活动代次 */
         uint32_t                  cycle_id;                      /*!< 睡眠尝试编号 */
         uint32_t                  success_count;                 /*!< 按键唤醒并恢复交互次数 */
+        uint32_t                  rtc_alarm_refresh_count;       /*!< RTC INT 唤醒并刷新屏幕次数 */
         uint32_t                  timer_refresh_count;           /*!< Timer 唤醒并刷新屏幕次数 */
         uint32_t                  blockers;                      /*!< app_power_blocker_t 位组合 */
         esp_err_t                 primary_error;                 /*!< 最近主操作错误 */
@@ -101,12 +103,12 @@ extern "C"
     esp_err_t app_power_init(const app_power_config_t *config);
 
     /**
-     * @brief 启动唯一的按键与内部 Timer Light-sleep 编排 Task
+     * @brief 启动唯一的 Light-sleep 编排 Task
      *
      * 无活动窗口结束后，若运行中的番茄钟页需要秒级显示，则只停止网络并保持 UI；其他场景
-     * 可逆停止 UI 与网络并进入轻睡眠。Timer 唤醒只在服务端截止时间到达时恢复网络、同步
-     * Dashboard，再停网并刷新一次屏幕后继续睡眠；左右按键唤醒则按网络、语音、UI 的顺序
-     * 恢复正常交互窗口。
+     * 可逆停止 UI 与网络并进入轻睡眠。普通模式使用内部 Timer 维护唤醒；RTC INT 测试模式
+     * 使用 RTC 告警中断维护唤醒且不启用内部 Timer。维护唤醒刷新一次屏幕后继续睡眠；左右
+     * 按键唤醒则按网络、语音、UI 的顺序恢复正常交互窗口。
      *
      * @return ESP_OK 已启动；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_NO_MEM 创建失败
      */
@@ -132,7 +134,8 @@ extern "C"
     /**
      * @brief 同步请求停止电源 Task
      *
-     * 若 Task 已进入 Light-sleep，本函数最迟等待下一次内部 Timer 唤醒后完成停止。
+     * 若 Task 已进入 Light-sleep，普通模式最迟等待下一次内部 Timer 唤醒；RTC INT 测试模式
+     * 只能等待 RTC 告警或按键唤醒，因此无外部唤醒时可能返回 ESP_ERR_TIMEOUT。
      *
      * @param[in] timeout_ms 最长等待时间，单位毫秒
      * @return ESP_OK 已停止；ESP_ERR_INVALID_ARG 超时为零；

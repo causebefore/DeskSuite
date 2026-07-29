@@ -20,6 +20,7 @@ esp_err_t device_power_enter_light_sleep(uint32_t timer_wakeup_ms, device_power_
         *out_result = (device_power_wakeup_result_t) {
             .left_button  = bsp_result.left_button,
             .right_button = bsp_result.right_button,
+            .rtc_alarm    = bsp_result.rtc_alarm,
             .timer        = bsp_result.timer,
         };
     }

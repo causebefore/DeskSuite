@@ -71,8 +71,10 @@ Assert-Contains $bspSource 'esp_sleep_enable_timer_wakeup'
 Assert-Contains $bspSource 'esp_sleep_disable_ext1_wakeup_io'
 Assert-Contains $bspSource 'esp_sleep_disable_wakeup_source\(ESP_SLEEP_WAKEUP_TIMER\)'
 Assert-Contains $bspHeader 'bool\s+timer'
+Assert-Contains $bspHeader 'bool\s+rtc_alarm'
 Assert-Contains $deviceHeader 'device_power_enter_light_sleep'
 Assert-Contains $deviceHeader 'bool\s+timer'
+Assert-Contains $deviceHeader 'bool\s+rtc_alarm'
 Assert-Contains $deviceSource 'bsp_power_enter_light_sleep'
 Assert-Contains $displayHeader 'device_display_stop'
 Assert-Contains $displayHeader 'device_display_start'
@@ -92,7 +94,9 @@ Assert-Contains $powerTask 'app_voice_start'
 Assert-Contains $powerTask 'app_voice_get_status_copy'
 Assert-Contains $powerTask 'APP_POWER_STEP_UI_STOP'
 Assert-Contains $powerTask 'APP_POWER_STEP_UI_START'
+Assert-Contains $powerTask 'APP_POWER_WAKEUP_RTC_ALARM'
 Assert-Contains $powerTask 'APP_POWER_WAKEUP_TIMER'
+Assert-Contains $powerTask 'rtc_alarm_refresh_count'
 Assert-Contains $powerTask 'timer_refresh_count'
 Assert-Contains $powerTask 'ui_runtime_stop'
 Assert-Contains $powerTask 'ui_runtime_start'
@@ -111,7 +115,9 @@ Assert-NotContains $networkTask 'esp_timer_start_periodic\(s_dashboard_timer'
 Assert-NotContains $settingsHeader 'refresh_seconds'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC=60'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC=60'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED=y'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC'
+Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 
 Assert-FileMissing 'main\application\app_power_trace.c'
 Assert-FileMissing 'main\application\app_power_trace.h'
@@ -121,11 +127,6 @@ Assert-FileMissing 'tools\tests\fixtures\power_trace_valid.jsonl'
 foreach ($relativePath in @($bspHeader, $bspSource, $deviceHeader, $deviceSource, $powerTask)) {
     Assert-NotContains $relativePath `
         'power_(prepare|cancel|start)_light_sleep'
-}
-
-foreach ($relativePath in @($bspSource, $deviceHeader, $deviceSource, $powerTask)) {
-    Assert-NotContains $relativePath `
-        'BOARD_RTC_PIN_INT|rtc_interrupt'
 }
 
 Assert-NotContains $bspHeader 'bool\s+rtc_interrupt'
