@@ -70,7 +70,7 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
 | `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
 | `app_web_file` | SD/在线前置检查、Web 文件租约、网页文件 Service 启停与安全回滚 |
-| `app_power` | 拥有 60 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、RTC 告警消费确认、可配置维护源刷新和按键唤醒闭环 |
+| `app_power` | 拥有 60 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、可配置维护源刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
 | `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和通用低功耗停网握手 |
 
@@ -251,10 +251,10 @@ Runtime；左右键唤醒则按以下链路恢复产品按键事实：
 启用 `CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 后，RTC INT GPIO15 取代内部 Timer 成为
 唯一维护唤醒源；左右键仍可唤醒，但 BSP 不调用 `esp_sleep_enable_timer_wakeup()`。该模式
 只用于验证 RTC INT 硬件连线，Application 将 RTC INT 命中作为维护刷新而不是用户活动。
-进入睡眠前 Application 复制 RTC Service 的累计告警数；RTC INT 唤醒后显式提交
-`rtc_service_request_check()`，并在有界时间内等待累计数变化，确认 AF 已消费后才补算状态、
-刷新屏幕并尝试下一轮睡眠。无法确认消费或测试模式下设备拒绝进入睡眠时恢复清醒 Runtime
-并进入 `BLOCKED`，不把该硬件/消费异常当成 10 秒暂时重试，避免 Wi-Fi、语音和 UI 反复启停。
+Application 只把固定维护间隔传入单次 Device 睡眠事务；BSP 在事务内清除旧 AF/TF、启动
+PCF85063 Timer，并在 RTC INT、按键唤醒或入口失败后停止 Timer、清除 TF。Application 不再
+轮询 RTC Service 告警累计数；测试模式下设备拒绝进入睡眠时仍恢复清醒 Runtime 并进入
+`BLOCKED`，避免 Wi-Fi、语音和 UI 反复启停。
 
 ```text
 EXT1 左右键掩码 → app_power 按网络 → 语音 → UI 恢复

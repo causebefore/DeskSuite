@@ -68,13 +68,12 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
   `OFFLINE_DISPLAY`，只停止 Network Manager 和 Wi-Fi Driver，保留 UI 与一秒刷新；其他场景
   可逆停止 UI Runtime，再通过 `device_power`/BSP 进入 Light-sleep。普通模式使用左右键 EXT1
   与 ESP32 内部 Timer；`DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 测试模式改用左右键与 GPIO15
-  RTC INT EXT1，并完全禁用内部 Timer。为缩小无外部上拉硬件上的 GPIO15 问题范围，该测试
-  模式还会显式启用 RTC 域内部上拉并在 Light-sleep 期间保持 `RTC_PERIPH` 供电。入睡前不读取
-  GPIO15；若 IDF 因唤醒源预先有效而拒绝睡眠，BSP 才在返回路径采样 GPIO15、读取 RTC
-  中断寄存器，并在没有真实中断来源时短暂关闭和恢复 AIE，以区分 RTC 主动拉低与板级拉低。
-  左右键唤醒恢复正常交互；维护源唤醒后先同步补算番茄钟，再恢复 UI，阶段完成会重新开启正常
-  清醒窗口。RTC INT 唤醒还会先显式请求 `rtc_service` 核实并清除 AF，只有累计消费数变化后
-  才允许继续本轮维护；无法确认消费或睡眠源预先有效时进入 `BLOCKED`，避免反复启停 Runtime。
+  RTC INT EXT1，并完全禁用内部 Timer。BSP 在每次睡眠事务开始时关闭旧 AIE、清除 AF/TF，
+  以 1 Hz 时钟装载 PCF85063 Timer；任一来源唤醒或睡眠入口失败后都会停止 Timer 并清除 TF。
+  为缩小无外部上拉硬件上的 GPIO15 问题范围，该模式还会显式启用 RTC 域内部上拉并在
+  Light-sleep 期间保持 `RTC_PERIPH` 供电。入睡前不读取 GPIO15；若 IDF 因唤醒源预先有效而
+  拒绝睡眠，BSP 才在返回路径采样 GPIO15 并读取 RTC 中断寄存器。左右键唤醒恢复正常交互；
+  RTC Timer 唤醒后先同步补算番茄钟，再恢复 UI，阶段完成会重新开启正常清醒窗口。
 
 网页文件管理的完整流程为：
 

@@ -104,7 +104,7 @@ extern "C"
     {
         bool left_button;  /**< 左键 GPIO 导致唤醒 */
         bool right_button; /**< 右键 GPIO 导致唤醒 */
-        bool rtc_alarm;    /**< RTC INT GPIO 导致唤醒 */
+        bool rtc_timer;    /**< PCF85063 Timer 通过 RTC INT GPIO 导致唤醒 */
         bool timer;        /**< ESP32 内部 Timer 导致唤醒 */
     } bsp_power_wakeup_result_t;
 

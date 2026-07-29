@@ -6,8 +6,7 @@
 ## 1. 定位
 
 - 层级：Service。
-- 触发方：Composition Root 初始化并启动；RTC GPIO15 下降沿或 Power Application 的唤醒后
-  显式核对请求触发运行期处理。
+- 触发方：Composition Root 初始化并启动；RTC GPIO15 下降沿或显式诊断请求触发运行期处理。
 - 主要输出：告警成功事件、处理失败事件和可复制运行摘要。
 
 ## 2. 职责边界
@@ -23,9 +22,10 @@
 - 不初始化或释放 `device_rtc`，也不访问 BSP、Board、GPIO 或芯片 Driver。
 - 不决定告警何时设置、触发后切换哪个页面、重试还是降级。
 - 不参与 RTC、系统时钟和 SNTP 之间的可信时间校准。
+- 不消费 PCF85063 Timer 的 TF；Light-sleep 测试事务由 BSP 在返回前停止 Timer 并清除 TF。
 
-Device 初始化前提是底层 Driver 已关闭项目未使用的分钟、半分钟和计时器中断源；因此 Service
-只消费 AF，不猜测芯片私有中断来源。
+Device 初始化时底层 Driver 会清理启动前遗留的分钟、半分钟和计时器中断源；因此 Service
+只消费日历告警 AF，不猜测其他芯片中断来源。
 
 ## 3. 主要流程
 
@@ -36,11 +36,6 @@ GPIO15 下降沿
     → 失败时按有界退避重试
     → 更新运行摘要
     → 在 Service Task 上下文通知 Application
-
-Light-sleep 中 GPIO ISR 边沿未重放
-    → app_power 调用 rtc_service_request_check()
-    → Task 执行同一 AF 消费事务
-    → app_power 通过运行摘要确认 alarm_count 相对睡前快照变化
 ```
 
 `start()` 还会主动触发一次 AF 检查，以消费 Service 启动前已经置位的告警。
@@ -52,7 +47,6 @@ Light-sleep 中 GPIO ISR 边沿未重放
 | 调用 | `device_rtc` | 注册快速 ISR 通知、读取和清除告警标志 |
 | 调用 | `utils` | 低频输出 RTC Task 的历史最小剩余栈 |
 | 被调用 | `main/app_main.c` | 装配生命周期并消费告警事件 |
-| 被调用 | `main/application/app_power_task.c` | RTC INT 唤醒后显式核对 AF，并读取摘要确认消费完成 |
 
 公开头文件不泄漏 FreeRTOS 类型；Task、通知和停止信号量都是私有实现资源。
 
@@ -65,7 +59,7 @@ Light-sleep 中 GPIO ISR 边沿未重放
 | `rtc_service_init()` | 同步 | 创建停止同步资源，进入 `INITIALIZED` |
 | `rtc_service_set_event_callback_borrow()` | 同步 | 在停止状态设置长期借用的事件回调 |
 | `rtc_service_start()` | 同步 | 创建 Task、注册 Device ISR 回调并检查已有 AF |
-| `rtc_service_request_check()` | 异步提交 | 通知 Task 主动检查当前 AF |
+| `rtc_service_request_check()` | 异步提交 | 供诊断流程通知 Task 主动检查当前 AF |
 | `rtc_service_stop()` | 同步有界等待 | 注销 ISR 回调并等待 Task 终止；超时后可重复调用继续收敛 |
 | `rtc_service_get_status_copy()` | 同步 | 复制生命周期、累计告警数和最后错误 |
 | `rtc_service_deinit()` | 同步 | 释放已停止 Service 的资源 |
@@ -86,9 +80,8 @@ Light-sleep 中 GPIO ISR 边沿未重放
 
 - AF 读取或清除失败会保留错误、记录中文日志并发布 `PROCESSING_FAILED`，随后以 1、2、4 秒
   进行最多三次技术性重试；重试耗尽后保留错误，等待下一次中断或显式检查。
-- GPIO15 为低但 AF 未置位时，Service 不猜测芯片私有中断来源；Driver 初始化负责清理未支持
-  来源，显式电平诊断仍由 BSP 拥有。Power Application 的显式核对若未观察到告警累计数变化，
-  会停止后续自动睡眠，而不是反复重启 Runtime。
+- GPIO15 为低但 AF 未置位时，Service 不猜测芯片私有中断来源；启动遗留来源清理由 Driver
+  完成，Light-sleep Timer 闭环与显式电平诊断由 BSP 拥有。
 - 启动或停止失败由 Composition Root/Application 决定是否降级；Service 不重启设备。
 
 ## 8. 配置与文件

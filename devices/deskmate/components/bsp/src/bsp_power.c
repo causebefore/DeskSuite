@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include "board.h"
+#include "bsp_rtc_internal.h"
 #include "driver/gpio.h"
 #include "driver/rtc_io.h"
 #include "esp_bit_defs.h"
@@ -148,6 +149,13 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
     {
         return operation_error;
     }
+    operation_error = bsp_rtc_start_wakeup_timer(timer_wakeup_ms);
+    if (operation_error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "启动 RTC 唤醒计时器失败: %s", esp_err_to_name(operation_error));
+        (void) restore_rtc_periph_auto_power_policy();
+        return operation_error;
+    }
 #else
     esp_err_t operation_error = ESP_OK;
 #endif
@@ -157,6 +165,11 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
     {
         ESP_LOGE(TAG, "配置 EXT1 轻睡眠唤醒失败: %s", esp_err_to_name(operation_error));
 #ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+        const esp_err_t rtc_timer_cleanup_error = bsp_rtc_stop_wakeup_timer();
+        if (rtc_timer_cleanup_error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "EXT1 配置失败后停止 RTC 唤醒计时器失败: %s", esp_err_to_name(rtc_timer_cleanup_error));
+        }
         (void) restore_rtc_periph_auto_power_policy();
 #endif
         return operation_error;
@@ -187,10 +200,11 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
 #ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
     ESP_LOGI(TAG,
              "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或 RTC INT GPIO%d 可唤醒，"
-             "RTC 域内部上拉已保持，内部 Timer 已禁用",
+             "PCF85063 Timer=%llu 秒，RTC 域内部上拉已保持，内部 Timer 已禁用",
              BOARD_PIN_BTN_LEFT,
              BOARD_PIN_BTN_RIGHT,
-             BOARD_RTC_PIN_INT);
+             BOARD_RTC_PIN_INT,
+             (unsigned long long) (((uint64_t) timer_wakeup_ms + 999ULL) / 1000ULL));
 #else
     ESP_LOGI(TAG,
              "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或内部 Timer %lu ms 可唤醒",
@@ -211,7 +225,7 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
             .left_button  = (ext1_wakeup_status & (1ULL << BOARD_PIN_BTN_LEFT)) != 0U,
             .right_button = (ext1_wakeup_status & (1ULL << BOARD_PIN_BTN_RIGHT)) != 0U,
 #ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-            .rtc_alarm = (ext1_wakeup_status & (1ULL << BOARD_RTC_PIN_INT)) != 0U,
+            .rtc_timer = (ext1_wakeup_status & (1ULL << BOARD_RTC_PIN_INT)) != 0U,
 #endif
             .timer = (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) != 0U,
         };
@@ -220,7 +234,7 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
                  "EXT1 状态=0x%llx",
                  out_result->left_button ? "是" : "否",
                  out_result->right_button ? "是" : "否",
-                 out_result->rtc_alarm ? "是" : "否",
+                 out_result->rtc_timer ? "是" : "否",
                  out_result->timer ? "是" : "否",
                  (unsigned long) wakeup_causes,
                  (unsigned long long) ext1_wakeup_status);
@@ -235,6 +249,15 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
     if (operation_error == ESP_ERR_SLEEP_REJECT)
     {
         diagnose_rtc_int_sleep_rejection();
+    }
+    const esp_err_t rtc_timer_cleanup_error = bsp_rtc_stop_wakeup_timer();
+    if (rtc_timer_cleanup_error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "停止 RTC 唤醒计时器并清除 TF 失败: %s", esp_err_to_name(rtc_timer_cleanup_error));
+        if (cleanup_error == ESP_OK)
+        {
+            cleanup_error = rtc_timer_cleanup_error;
+        }
     }
 #endif
 #ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED

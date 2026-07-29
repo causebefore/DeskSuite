@@ -13,10 +13,11 @@ BSP 读取 Boards 参数，创建 ESP-IDF 总线和 Driver 实例，并提供同
 VFS 挂载由 System 通过 `device_storage` 完成。当前板型未提供 Card Detect 和 Write Protect，
 不支持运行期热插拔；硬件必须使用 3.3 V 电平并为 SD SPI 信号提供必要上拉。
 
-`bsp_power` 只检查当前板型按键电平，按编译配置互斥选择内部 Timer 或 GPIO15 RTC INT
-维护唤醒源，调用芯片睡眠入口并清理本轮临时配置。RTC INT 测试模式被 IDF 拒绝睡眠时，
-它会在返回路径调用 `bsp_rtc` 完成一次电平、寄存器与安全 AIE 门控诊断，但不清除真实中断
-标志。BSP 不拥有 Timer 刷新周期、无活动窗口、网络/UI 停机顺序、重试或失败降级。
+`bsp_power` 只检查当前板型按键电平，按编译配置互斥选择 ESP32 内部 Timer，或 GPIO15
+RTC INT 与 PCF85063 Timer 组合维护唤醒。测试模式下，一次睡眠事务会先通过 `bsp_rtc`
+关闭旧 AIE、清除 AF/TF、装载秒级 Timer，再调用芯片睡眠入口；任一来源唤醒或入口失败后都
+停止 Timer 并清除 TF。若 IDF 拒绝睡眠，BSP 会在停止 Timer 前完成一次电平和寄存器诊断。
+BSP 不拥有 Timer 刷新周期、无活动窗口、网络/UI 停机顺序、重试或失败降级。
 
 当前 RLCD 的异步 DMA/TE 刷新仍使用 BSP 内部传输 Worker，它只处理硬件传输，不承载页面、
 刷新周期或产品状态机。显示 `stop()` 只关闭新帧入口、等待传输 Worker 静止、关闭 TE 中断并

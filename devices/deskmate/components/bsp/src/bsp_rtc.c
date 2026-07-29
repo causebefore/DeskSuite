@@ -1,7 +1,7 @@
 /*
  * 文件职责：创建板级 RTC I2C 设备并组合 PCF85063 Driver。
  * 主要依赖：board_rtc.h、bsp_i2c、pcf85063_driver。
- * 调用方：device_rtc。
+ * 调用方：device_rtc 与 BSP 内部轻睡眠事务。
  */
 #include "bsp.h"
 
@@ -9,6 +9,7 @@
 
 #include "board.h"
 #include "bsp_i2c_internal.h"
+#include "bsp_rtc_internal.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "esp_check.h"
@@ -236,17 +237,19 @@ static void log_asserted_interrupt_diagnosis(void)
 
     if (snapshot.alarm_interrupt_enabled && snapshot.alarm_flag)
     {
-        ESP_LOGW(TAG,
-                 "RTC INT 诊断结论: AIE=1 且 AF=1，PCF85063 闹钟正在主动拉低 GPIO%d",
-                 BOARD_RTC_PIN_INT);
+        ESP_LOGW(TAG, "RTC INT 诊断结论: AIE=1 且 AF=1，PCF85063 闹钟正在主动拉低 GPIO%d", BOARD_RTC_PIN_INT);
         return;
     }
 
-    if (snapshot.minute_interrupt_enabled || snapshot.half_minute_interrupt_enabled || snapshot.timer_flag
-        || snapshot.timer_enabled || snapshot.timer_interrupt_enabled)
+    if (snapshot.timer_interrupt_enabled && snapshot.timer_flag)
+    {
+        ESP_LOGW(TAG, "RTC INT 诊断结论: TIE=1 且 TF=1，PCF85063 计时器正在主动拉低 GPIO%d", BOARD_RTC_PIN_INT);
+        return;
+    }
+    if ((snapshot.minute_interrupt_enabled || snapshot.half_minute_interrupt_enabled) && snapshot.timer_flag)
     {
         ESP_LOGW(TAG,
-                 "RTC INT 诊断结论: 存在非闹钟中断配置或标志，PCF85063 可能正在主动拉低 GPIO%d",
+                 "RTC INT 诊断结论: 分钟中断已启用且 TF=1，PCF85063 周期源可能正在主动拉低 GPIO%d",
                  BOARD_RTC_PIN_INT);
         return;
     }
@@ -385,6 +388,70 @@ esp_err_t bsp_rtc_set_datetime(const bsp_rtc_datetime_t *value)
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
     const esp_err_t error = pcf85063_driver_set_datetime(&s_driver, &driver_value);
     xSemaphoreGive(s_mutex);
+    return error;
+}
+
+esp_err_t bsp_rtc_start_wakeup_timer(uint32_t interval_ms)
+{
+    if (interval_ms == 0U)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_ready)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const uint64_t interval_s = ((uint64_t) interval_ms + 999ULL) / 1000ULL;
+    if (interval_s == 0U || interval_s > UINT8_MAX)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
+    esp_err_t error = pcf85063_driver_enable_alarm_interrupt(&s_driver, false);
+    if (error == ESP_OK)
+    {
+        error = pcf85063_driver_clear_alarm_flag(&s_driver);
+    }
+    if (error == ESP_OK)
+    {
+        error = pcf85063_driver_start_timer(&s_driver, (uint8_t) interval_s);
+    }
+    if (error != ESP_OK)
+    {
+        const esp_err_t cleanup_error = pcf85063_driver_stop_timer(&s_driver);
+        if (cleanup_error != ESP_OK)
+        {
+            ESP_LOGE(TAG,
+                     "启动 RTC 唤醒计时器失败且回滚停止失败: start=%s stop=%s",
+                     esp_err_to_name(error),
+                     esp_err_to_name(cleanup_error));
+        }
+    }
+    xSemaphoreGive(s_mutex);
+
+    if (error == ESP_OK)
+    {
+        ESP_LOGI(TAG, "RTC 唤醒计时器已启动: %llu 秒，AIE/AF/TF 已清理", (unsigned long long) interval_s);
+    }
+    return error;
+}
+
+esp_err_t bsp_rtc_stop_wakeup_timer(void)
+{
+    if (!s_ready)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
+    const esp_err_t error = pcf85063_driver_stop_timer(&s_driver);
+    xSemaphoreGive(s_mutex);
+    if (error == ESP_OK)
+    {
+        ESP_LOGI(TAG, "RTC 唤醒计时器已停止，TF 已清除");
+    }
     return error;
 }
 
@@ -550,6 +617,16 @@ esp_err_t bsp_rtc_deinit(void)
     s_interrupt_callback = NULL;
     s_interrupt_context  = NULL;
     portEXIT_CRITICAL(&s_interrupt_lock);
+
+    const esp_err_t timer_disable_err = bsp_rtc_stop_wakeup_timer();
+    if (result == ESP_OK)
+    {
+        result = timer_disable_err;
+    }
+    if (timer_disable_err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "关闭 RTC 计时器失败: %s", esp_err_to_name(timer_disable_err));
+    }
 
     const esp_err_t disable_err = bsp_rtc_enable_alarm_interrupt(false);
     if (result == ESP_OK)

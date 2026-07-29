@@ -73,10 +73,10 @@ extern "C"
     } pcf85063_interrupt_snapshot_t;
 
     /**
-     * @brief 初始化 Driver，并关闭未支持的分钟与计时器中断源
+     * @brief 初始化 Driver，并清理启动前遗留的分钟与计时器中断源
      *
      * 初始化保留现有 AIE、AF、告警比较配置和 CLKOUT 配置，使启动前已经发生的有效告警仍可由
-     * 上层消费；同时关闭 MI、HMI、TE、TIE 并清除遗留 TF，避免非告警来源持续拉低 INT。
+     * 上层消费；同时关闭 MI、HMI、TE、TIE 并清除遗留 TF，避免旧计时器来源持续拉低 INT。
      *
      * @param[out] driver Driver 实例
      * @param[in] i2c_device BSP 创建的 I2C Device，必须覆盖 Driver 使用期
@@ -119,6 +119,28 @@ extern "C"
      * @param[in] value 日历时间，仅在调用期间借用
      */
     esp_err_t pcf85063_driver_set_datetime(pcf85063_driver_t *driver, const pcf85063_datetime_t *value);
+
+    /**
+     * @brief 停止计时器、清除计数值与 TF
+     *
+     * 先关闭 TE/TIE，再把 Timer_value 写为 0 并清除 TF；保留 AIE、AF、MI、HMI 和 COF。
+     *
+     * @param[in] driver Driver 实例
+     * @return ESP_OK 已停止且 TF 已清除；ESP_ERR_INVALID_ARG Driver 无效；或 I2C 错误
+     */
+    esp_err_t pcf85063_driver_stop_timer(pcf85063_driver_t *driver);
+
+    /**
+     * @brief 以 1 Hz 时钟启动低电平保持模式计时器中断
+     *
+     * 本函数先停止旧计时器并清除 TF，再写入秒级计数值，最后启用 TE/TIE。TI_TP 保持为 0，
+     * 因此计时到期后 INT 跟随 TF 保持低电平，直到上层调用 `pcf85063_driver_stop_timer()`。
+     *
+     * @param[in] driver Driver 实例
+     * @param[in] interval_s 计时间隔，单位秒，范围 1—255
+     * @return ESP_OK 已启动；ESP_ERR_INVALID_ARG 参数无效；或 I2C 错误
+     */
+    esp_err_t pcf85063_driver_start_timer(pcf85063_driver_t *driver, uint8_t interval_s);
 
     /**
      * @brief 写入告警比较字段、清除旧 AF 并启用 AIE

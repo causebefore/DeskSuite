@@ -1,5 +1,5 @@
 /*
- * 文件职责：实现 PCF85063 时间与闹钟寄存器协议。
+ * 文件职责：实现 PCF85063 时间、闹钟与计时器寄存器协议。
  * 主要依赖：pcf85063_driver.h、ESP-IDF I2C master driver。
  * 调用方：板级 RTC 适配层。
  */
@@ -10,22 +10,26 @@
 
 static const char *TAG = "pcf85063_driver";
 
-#define PCF85063_REG_CTRL1         0x00
-#define PCF85063_REG_CTRL2         0x01
-#define PCF85063_REG_SECONDS       0x04
-#define PCF85063_REG_ALARM_SECONDS 0x0B
-#define PCF85063_REG_TIMER_MODE    0x11
-#define PCF85063_ALARM_REG_COUNT   5U
+#define PCF85063_REG_CTRL1           0x00
+#define PCF85063_REG_CTRL2           0x01
+#define PCF85063_REG_SECONDS         0x04
+#define PCF85063_REG_ALARM_SECONDS   0x0B
+#define PCF85063_REG_TIMER_VALUE     0x10
+#define PCF85063_REG_TIMER_MODE      0x11
+#define PCF85063_ALARM_REG_COUNT     5U
 
-#define PCF85063_CTRL2_AIE         (1U << 7)
-#define PCF85063_CTRL2_AF          (1U << 6)
-#define PCF85063_CTRL2_MI          (1U << 5)
-#define PCF85063_CTRL2_HMI         (1U << 4)
-#define PCF85063_CTRL2_TF          (1U << 3)
-#define PCF85063_TIMER_MODE_TE     (1U << 2)
-#define PCF85063_TIMER_MODE_TIE    (1U << 1)
-#define PCF85063_SECONDS_OS        (1U << 7)
-#define PCF85063_ALARM_DISABLE     (1U << 7)
+#define PCF85063_CTRL2_AIE           (1U << 7)
+#define PCF85063_CTRL2_AF            (1U << 6)
+#define PCF85063_CTRL2_MI            (1U << 5)
+#define PCF85063_CTRL2_HMI           (1U << 4)
+#define PCF85063_CTRL2_TF            (1U << 3)
+#define PCF85063_TIMER_MODE_TCF_MASK (3U << 3)
+#define PCF85063_TIMER_MODE_TCF_1HZ  (2U << 3)
+#define PCF85063_TIMER_MODE_TE       (1U << 2)
+#define PCF85063_TIMER_MODE_TIE      (1U << 1)
+#define PCF85063_TIMER_MODE_TI_TP    (1U << 0)
+#define PCF85063_SECONDS_OS          (1U << 7)
+#define PCF85063_ALARM_DISABLE       (1U << 7)
 
 static bool driver_is_valid(const pcf85063_driver_t *driver)
 {
@@ -97,11 +101,22 @@ static esp_err_t write_register(pcf85063_driver_t *driver, uint8_t reg, uint8_t 
 }
 
 /**
- * @brief 关闭当前 Driver 未支持的分钟与计时器中断源
+ * @brief 清除 TF，同时保留读改写窗口内可能由硬件新置位的 AF
+ */
+static esp_err_t clear_timer_flag(pcf85063_driver_t *driver)
+{
+    uint8_t control2 = 0;
+    ESP_RETURN_ON_ERROR(read_register(driver, PCF85063_REG_CTRL2, &control2), TAG, "读取 Control_2 失败");
+    control2 = (control2 & (uint8_t) ~PCF85063_CTRL2_TF) | PCF85063_CTRL2_AF;
+    return write_register(driver, PCF85063_REG_CTRL2, control2);
+}
+
+/**
+ * @brief 关闭启动前遗留的分钟与计时器中断源
  *
  * 先停止计时器，再清除 TF，避免清除期间重新置位；AIE、AF、COF 和告警比较配置保持不变。
  */
-static esp_err_t normalize_unsupported_interrupt_sources(pcf85063_driver_t *driver)
+static esp_err_t clear_stale_periodic_interrupt_sources(pcf85063_driver_t *driver)
 {
     pcf85063_interrupt_snapshot_t snapshot;
     ESP_RETURN_ON_ERROR(pcf85063_driver_read_interrupt_snapshot(driver, &snapshot), TAG, "读取 RTC 中断快照失败");
@@ -154,7 +169,7 @@ esp_err_t pcf85063_driver_init(pcf85063_driver_t *driver, i2c_master_dev_handle_
     esp_err_t err      = write_register(driver, PCF85063_REG_CTRL1, 0x00);
     if (err == ESP_OK)
     {
-        err = normalize_unsupported_interrupt_sources(driver);
+        err = clear_stale_periodic_interrupt_sources(driver);
     }
     if (err != ESP_OK)
     {
@@ -247,6 +262,49 @@ esp_err_t pcf85063_driver_set_datetime(pcf85063_driver_t *driver, const pcf85063
         bin_to_bcd(value->month),  bin_to_bcd((uint8_t) (value->year - 2000U)),
     };
     return i2c_master_transmit(driver->i2c_device, data, sizeof(data), driver->timeout_ms);
+}
+
+esp_err_t pcf85063_driver_stop_timer(pcf85063_driver_t *driver)
+{
+    if (!driver_is_valid(driver))
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t timer_mode = 0;
+    ESP_RETURN_ON_ERROR(read_register(driver, PCF85063_REG_TIMER_MODE, &timer_mode), TAG, "读取 Timer_mode 失败");
+    timer_mode &= (uint8_t) ~(PCF85063_TIMER_MODE_TE | PCF85063_TIMER_MODE_TIE);
+    ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_TIMER_MODE, timer_mode), TAG, "停止 RTC 计时器失败");
+    ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_TIMER_VALUE, 0U), TAG, "清空 RTC 计时器数值失败");
+    return clear_timer_flag(driver);
+}
+
+esp_err_t pcf85063_driver_start_timer(pcf85063_driver_t *driver, uint8_t interval_s)
+{
+    if (!driver_is_valid(driver) || interval_s == 0U)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_RETURN_ON_ERROR(pcf85063_driver_stop_timer(driver), TAG, "停止旧 RTC 计时器失败");
+    ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_TIMER_VALUE, interval_s), TAG, "写入 RTC 计时器数值失败");
+
+    const uint8_t timer_mode =
+        (PCF85063_TIMER_MODE_TCF_1HZ & PCF85063_TIMER_MODE_TCF_MASK) | PCF85063_TIMER_MODE_TE | PCF85063_TIMER_MODE_TIE;
+    const esp_err_t error =
+        write_register(driver, PCF85063_REG_TIMER_MODE, timer_mode & (uint8_t) ~PCF85063_TIMER_MODE_TI_TP);
+    if (error != ESP_OK)
+    {
+        const esp_err_t cleanup_error = pcf85063_driver_stop_timer(driver);
+        if (cleanup_error != ESP_OK)
+        {
+            ESP_LOGE(TAG,
+                     "启动 RTC 计时器失败且回滚停止失败: start=%s stop=%s",
+                     esp_err_to_name(error),
+                     esp_err_to_name(cleanup_error));
+        }
+    }
+    return error;
 }
 
 esp_err_t pcf85063_driver_enable_alarm_interrupt(pcf85063_driver_t *driver, bool enabled)

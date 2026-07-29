@@ -17,7 +17,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "rtc_service.h"
 #include "system_clock.h"
 #include "task_stack_stats.h"
 #include "ui_runtime.h"
@@ -29,10 +28,6 @@
 #define APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS  5000U
 #define APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS 5000U
 #define APP_POWER_POMODORO_RECONCILE_TIMEOUT_MS 1000U
-#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-    #define APP_POWER_RTC_ALARM_CONFIRM_TIMEOUT_MS 9000U
-    #define APP_POWER_RTC_ALARM_CONFIRM_POLL_MS    20U
-#endif
 
 static const char *TAG                  = "app_power";
 
@@ -47,7 +42,7 @@ static int64_t                   s_last_activity_us;
 static uint32_t                  s_activity_generation;
 static uint32_t                  s_cycle_id;
 static uint32_t                  s_success_count;
-static uint32_t                  s_rtc_alarm_refresh_count;
+static uint32_t                  s_rtc_timer_refresh_count;
 static uint32_t                  s_timer_refresh_count;
 static uint32_t                  s_blockers;
 static esp_err_t                 s_primary_error;
@@ -142,9 +137,9 @@ static app_power_wakeup_source_t map_wakeup_source(const device_power_wakeup_res
     {
         return APP_POWER_WAKEUP_RIGHT_BUTTON;
     }
-    if (wakeup->rtc_alarm)
+    if (wakeup->rtc_timer)
     {
-        return APP_POWER_WAKEUP_RTC_ALARM;
+        return APP_POWER_WAKEUP_RTC_TIMER;
     }
     if (wakeup->timer)
     {
@@ -447,62 +442,6 @@ static esp_err_t restore_awake_runtime(bool *network_suspended, bool *voice_stop
     return first_error;
 }
 
-#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-/**
- * @brief 唤醒后请求 RTC Service 核实并消费本轮告警
- *
- * Light-sleep 期间的 GPIO 下降沿不会保证在普通 GPIO ISR 中重放，因此 RTC INT 命中后必须
- * 主动请求 Service 检查 AF。只有累计消费数相对睡前快照发生变化，才证明本轮低电平来源已由
- * RTC Service 清除；否则禁止再次入睡，避免持续命中的 GPIO15 造成 Runtime 反复启停。
- *
- * @param[in] alarm_count_before_sleep 睡前 RTC Service 累计告警数
- * @return ESP_OK 本轮告警已消费；ESP_ERR_TIMEOUT 未确认到消费；或 Service 状态/处理错误
- */
-static esp_err_t confirm_rtc_alarm_consumed(uint32_t alarm_count_before_sleep)
-{
-    const esp_err_t request_error = rtc_service_request_check();
-    if (request_error != ESP_OK)
-    {
-        const esp_err_t error = request_error == ESP_ERR_INVALID_STATE ? ESP_ERR_INVALID_RESPONSE : request_error;
-        ESP_LOGE(TAG, "请求 RTC Service 核对唤醒告警失败: %s", esp_err_to_name(error));
-        return error;
-    }
-
-    const int64_t        deadline_us = esp_timer_get_time() + (int64_t) APP_POWER_RTC_ALARM_CONFIRM_TIMEOUT_MS * 1000LL;
-    rtc_service_status_t status      = { 0 };
-    for (;;)
-    {
-        const esp_err_t status_error = rtc_service_get_status_copy(&status);
-        if (status_error != ESP_OK)
-        {
-            ESP_LOGE(TAG, "读取 RTC Service 告警消费状态失败: %s", esp_err_to_name(status_error));
-            return status_error;
-        }
-        if (status.state != RTC_SERVICE_STATE_RUNNING)
-        {
-            ESP_LOGE(TAG, "RTC Service 未处于运行态，无法确认唤醒告警已消费: state=%d", (int) status.state);
-            return ESP_ERR_INVALID_RESPONSE;
-        }
-        if (status.alarm_count != alarm_count_before_sleep)
-        {
-            ESP_LOGI(TAG, "RTC INT 唤醒的告警消费已确认，Service 累计=%lu", (unsigned long) status.alarm_count);
-            return ESP_OK;
-        }
-        if (stop_is_requested())
-        {
-            return ESP_ERR_INVALID_STATE;
-        }
-        if (esp_timer_get_time() >= deadline_us)
-        {
-            const esp_err_t error = status.last_error != ESP_OK ? status.last_error : ESP_ERR_TIMEOUT;
-            ESP_LOGE(TAG, "RTC INT 唤醒后未确认到告警消费，停止自动睡眠: %s", esp_err_to_name(error));
-            return error;
-        }
-        vTaskDelay(pdMS_TO_TICKS(APP_POWER_RTC_ALARM_CONFIRM_POLL_MS));
-    }
-}
-#endif
-
 /** @brief 判断当前 Dashboard 正常截止或失败退避截止是否已经到达；未知时间按到期处理 */
 static bool network_maintenance_is_due(void)
 {
@@ -773,32 +712,16 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             goto restore_awake;
         }
 
-#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-        rtc_service_status_t rtc_status_before_sleep = { 0 };
-        result                                       = rtc_service_get_status_copy(&rtc_status_before_sleep);
-        if (result != ESP_OK || rtc_status_before_sleep.state != RTC_SERVICE_STATE_RUNNING)
-        {
-            if (result == ESP_OK)
-            {
-                result = ESP_ERR_INVALID_RESPONSE;
-            }
-            keep_primary_error(result);
-            ESP_LOGE(TAG,
-                     "RTC Service 状态不允许进入 RTC INT 轻睡眠: state=%d, error=%s",
-                     (int) rtc_status_before_sleep.state,
-                     esp_err_to_name(result));
-            goto restore_awake;
-        }
-        const uint32_t rtc_alarm_count_before_sleep = rtc_status_before_sleep.alarm_count;
-#endif
-
         set_state_step(APP_POWER_STATE_SLEEPING, APP_POWER_STEP_DEVICE_SLEEP);
-        device_power_wakeup_result_t wakeup             = { 0 };
-        app_power_timer_reason_t     timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
-        const uint32_t               wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
+        device_power_wakeup_result_t wakeup = { 0 };
 #ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-        ESP_LOGI(TAG, "准备进入轻睡眠，RTC INT 为维护唤醒源，内部 Timer 已禁用；左右按键可提前唤醒");
+        const uint32_t wakeup_interval_ms = s_config.refresh_interval_ms;
+        ESP_LOGI(TAG,
+                 "准备进入轻睡眠，PCF85063 Timer=%lu ms，RTC INT 为唯一维护唤醒源；左右按键可提前唤醒",
+                 (unsigned long) wakeup_interval_ms);
 #else
+        app_power_timer_reason_t timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
+        const uint32_t           wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
         log_next_wakeup(wakeup_interval_ms, timer_reason);
 #endif
         const esp_err_t sleep_error = device_power_enter_light_sleep(wakeup_interval_ms, &wakeup);
@@ -834,18 +757,6 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             result = ESP_ERR_INVALID_RESPONSE;
             goto restore_awake;
         }
-
-#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-        if (wakeup_source == APP_POWER_WAKEUP_RTC_ALARM)
-        {
-            result = confirm_rtc_alarm_consumed(rtc_alarm_count_before_sleep);
-            if (result != ESP_OK)
-            {
-                keep_primary_error(result);
-                goto restore_awake;
-            }
-        }
-#endif
 
         app_pomodoro_wakeup_result_t pomodoro_result = APP_POMODORO_WAKEUP_NO_CHANGE;
         result = app_pomodoro_reconcile_after_wakeup(APP_POWER_POMODORO_RECONCILE_TIMEOUT_MS, &pomodoro_result);
@@ -936,9 +847,9 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         ui_stopped = false;
 
         taskENTER_CRITICAL(&s_lock);
-        if (wakeup_source == APP_POWER_WAKEUP_RTC_ALARM)
+        if (wakeup_source == APP_POWER_WAKEUP_RTC_TIMER)
         {
-            s_rtc_alarm_refresh_count++;
+            s_rtc_timer_refresh_count++;
         }
         else
         {
@@ -947,11 +858,11 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         s_primary_error  = ESP_OK;
         s_recovery_error = ESP_OK;
         const uint32_t refresh_count =
-            wakeup_source == APP_POWER_WAKEUP_RTC_ALARM ? s_rtc_alarm_refresh_count : s_timer_refresh_count;
+            wakeup_source == APP_POWER_WAKEUP_RTC_TIMER ? s_rtc_timer_refresh_count : s_timer_refresh_count;
         taskEXIT_CRITICAL(&s_lock);
-        if (wakeup_source == APP_POWER_WAKEUP_RTC_ALARM)
+        if (wakeup_source == APP_POWER_WAKEUP_RTC_TIMER)
         {
-            ESP_LOGI(TAG, "RTC INT 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
+            ESP_LOGI(TAG, "RTC Timer 通过 INT 唤醒并已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
         }
         else
         {
@@ -1109,7 +1020,7 @@ esp_err_t app_power_init(const app_power_config_t *config)
     s_activity_generation     = 0U;
     s_cycle_id                = 0U;
     s_success_count           = 0U;
-    s_rtc_alarm_refresh_count = 0U;
+    s_rtc_timer_refresh_count = 0U;
     s_timer_refresh_count     = 0U;
     s_blockers                = APP_POWER_BLOCKER_NONE;
     s_primary_error           = ESP_OK;
@@ -1151,8 +1062,9 @@ esp_err_t app_power_start(void)
 
 #ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
     ESP_LOGI(TAG,
-             "自动低功耗流程已启动，无活动窗口=%lu ms，RTC INT 测试模式已启用，内部 Timer 已禁用",
-             (unsigned long) s_config.idle_timeout_ms);
+             "自动低功耗流程已启动，无活动窗口=%lu ms，PCF85063 Timer=%lu ms，内部 Timer 已禁用",
+             (unsigned long) s_config.idle_timeout_ms,
+             (unsigned long) s_config.refresh_interval_ms);
 #else
     ESP_LOGI(TAG,
              "自动低功耗流程已启动，无活动窗口=%lu ms，Timer 刷新间隔=%lu ms",
@@ -1202,7 +1114,7 @@ esp_err_t app_power_get_status_copy(app_power_status_t *out_status)
         .activity_generation           = s_activity_generation,
         .cycle_id                      = s_cycle_id,
         .success_count                 = s_success_count,
-        .rtc_alarm_refresh_count       = s_rtc_alarm_refresh_count,
+        .rtc_timer_refresh_count       = s_rtc_timer_refresh_count,
         .timer_refresh_count           = s_timer_refresh_count,
         .blockers                      = s_blockers,
         .primary_error                 = s_primary_error,
@@ -1255,7 +1167,7 @@ esp_err_t app_power_deinit(void)
     s_activity_generation     = 0U;
     s_cycle_id                = 0U;
     s_success_count           = 0U;
-    s_rtc_alarm_refresh_count = 0U;
+    s_rtc_timer_refresh_count = 0U;
     s_timer_refresh_count     = 0U;
     s_blockers                = APP_POWER_BLOCKER_NONE;
     s_primary_error           = ESP_OK;
