@@ -8,6 +8,7 @@
 
 #include "board.h"
 #include "driver/gpio.h"
+#include "driver/rtc_io.h"
 #include "esp_bit_defs.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
@@ -63,6 +64,49 @@ static esp_err_t ensure_wakeup_buttons_released(void)
     return ESP_OK;
 }
 
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+/**
+ * @brief 为无外部上拉的 RTC INT 保持睡眠域内部上拉
+ *
+ * 本测试只改变 GPIO15 在 Light-sleep 边界的 RTC 域电气配置，不读取引脚电平。显式保持
+ * RTC_PERIPH 供电可以判断此前的睡眠拒绝是否源于数字 GPIO 上拉在睡眠切换时失效。
+ *
+ * @return ESP_OK RTC 域上拉与电源策略已配置；其他值表示配置失败
+ */
+static esp_err_t configure_rtc_int_sleep_pullup(void)
+{
+    const gpio_num_t rtc_int_gpio = (gpio_num_t) BOARD_RTC_PIN_INT;
+    esp_err_t        error        = rtc_gpio_pulldown_dis(rtc_int_gpio);
+    if (error == ESP_OK)
+    {
+        error = rtc_gpio_pullup_en(rtc_int_gpio);
+    }
+    if (error == ESP_OK)
+    {
+        error = esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+    }
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "配置 RTC INT GPIO%d 睡眠域内部上拉失败: %s", BOARD_RTC_PIN_INT, esp_err_to_name(error));
+        return error;
+    }
+
+    ESP_LOGI(TAG, "RTC INT GPIO%d 已启用 RTC 域内部上拉，Light-sleep 保持 RTC_PERIPH 供电", BOARD_RTC_PIN_INT);
+    return ESP_OK;
+}
+
+/** @brief 恢复由本轮 RTC INT 测试临时覆盖的 RTC_PERIPH 自动电源策略 */
+static esp_err_t restore_rtc_periph_auto_power_policy(void)
+{
+    const esp_err_t error = esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "恢复 RTC_PERIPH 自动电源策略失败: %s", esp_err_to_name(error));
+    }
+    return error;
+}
+#endif
+
 esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup_result_t *out_result)
 {
     if (timer_wakeup_ms == 0U || out_result == NULL)
@@ -77,10 +121,23 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
         return button_error;
     }
 
-    esp_err_t operation_error = esp_sleep_enable_ext1_wakeup_io(BSP_POWER_WAKEUP_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+    esp_err_t operation_error = configure_rtc_int_sleep_pullup();
+    if (operation_error != ESP_OK)
+    {
+        return operation_error;
+    }
+#else
+    esp_err_t operation_error = ESP_OK;
+#endif
+
+    operation_error = esp_sleep_enable_ext1_wakeup_io(BSP_POWER_WAKEUP_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
     if (operation_error != ESP_OK)
     {
         ESP_LOGE(TAG, "配置 EXT1 轻睡眠唤醒失败: %s", esp_err_to_name(operation_error));
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+        (void) restore_rtc_periph_auto_power_policy();
+#endif
         return operation_error;
     }
 
@@ -108,7 +165,8 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
 
 #ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
     ESP_LOGI(TAG,
-             "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或 RTC INT GPIO%d 可唤醒，内部 Timer 已禁用",
+             "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或 RTC INT GPIO%d 可唤醒，"
+             "RTC 域内部上拉已保持，内部 Timer 已禁用",
              BOARD_PIN_BTN_LEFT,
              BOARD_PIN_BTN_RIGHT,
              BOARD_RTC_PIN_INT);
@@ -161,6 +219,13 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
         {
             cleanup_error = timer_cleanup_error;
         }
+    }
+#endif
+#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+    const esp_err_t rtc_power_cleanup_error = restore_rtc_periph_auto_power_policy();
+    if (rtc_power_cleanup_error != ESP_OK && cleanup_error == ESP_OK)
+    {
+        cleanup_error = rtc_power_cleanup_error;
     }
 #endif
     return operation_error != ESP_OK ? operation_error : cleanup_error;

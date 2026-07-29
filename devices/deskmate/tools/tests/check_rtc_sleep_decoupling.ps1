@@ -67,6 +67,14 @@ Assert-Contains 'components\bsp\src\bsp_power.c' 'BOARD_PIN_BTN_RIGHT'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'BOARD_RTC_PIN_INT'
 Assert-Contains 'components\bsp\src\bsp_power.c' '\.rtc_alarm'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'rtc_gpio_pulldown_dis'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'rtc_gpio_pullup_en'
+Assert-Contains 'components\bsp\src\bsp_power.c' `
+    'esp_sleep_pd_config\(ESP_PD_DOMAIN_RTC_PERIPH,\s*ESP_PD_OPTION_ON\)'
+Assert-Contains 'components\bsp\src\bsp_power.c' `
+    'esp_sleep_pd_config\(ESP_PD_DOMAIN_RTC_PERIPH,\s*ESP_PD_OPTION_AUTO\)'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'RTC 域内部上拉已保持'
+Assert-NotContains 'components\bsp\src\bsp_power.c' 'gpio_get_level'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'esp_sleep_enable_timer_wakeup'
 Assert-Contains 'components\bsp\src\bsp_power.c' `
     '#ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]*esp_sleep_enable_timer_wakeup'
@@ -87,6 +95,8 @@ Assert-NotContains 'main\application\app_power_task.c' 'gpio_get_level|device_rt
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 Assert-Contains 'main\Kconfig.projbuild' `
     'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,160}default y'
+Assert-Contains 'main\Kconfig.projbuild' `
+    'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,700}RTC_PERIPH'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED=y'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC=60'
