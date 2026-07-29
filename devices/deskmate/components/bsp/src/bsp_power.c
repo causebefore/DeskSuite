@@ -12,6 +12,7 @@
 #include "driver/rtc_io.h"
 #include "esp_bit_defs.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_sleep.h"
 
 static const char *TAG = "bsp_power";
@@ -19,7 +20,8 @@ static const char *TAG = "bsp_power";
 #define BSP_POWER_BUTTON_WAKEUP_MASK ((1ULL << BOARD_PIN_BTN_LEFT) | (1ULL << BOARD_PIN_BTN_RIGHT))
 
 #ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-    #define BSP_POWER_WAKEUP_MASK (BSP_POWER_BUTTON_WAKEUP_MASK | (1ULL << BOARD_RTC_PIN_INT))
+    #define BSP_POWER_WAKEUP_MASK                (BSP_POWER_BUTTON_WAKEUP_MASK | (1ULL << BOARD_RTC_PIN_INT))
+    #define BSP_POWER_RTC_INT_BASELINE_SETTLE_US 10000U
 #else
     #define BSP_POWER_WAKEUP_MASK BSP_POWER_BUTTON_WAKEUP_MASK
 #endif
@@ -108,6 +110,45 @@ static esp_err_t restore_rtc_periph_auto_power_policy(void)
     return error;
 }
 
+/**
+ * @brief 清除所有 RTC INT 来源并在内部上拉稳定后确认 GPIO15 基线已释放
+ *
+ * @return ESP_OK GPIO15 为高；ESP_ERR_INVALID_STATE GPIO15 持续为低；或 RTC/GPIO 错误
+ */
+static esp_err_t verify_rtc_int_released_baseline(void)
+{
+    esp_err_t error = bsp_rtc_clear_interrupt_sources();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "清理 RTC INT 基线中断源失败: %s", esp_err_to_name(error));
+        return error;
+    }
+
+    esp_rom_delay_us(BSP_POWER_RTC_INT_BASELINE_SETTLE_US);
+    bool asserted = false;
+    error         = bsp_rtc_read_interrupt_asserted(&asserted);
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "读取 RTC INT 基线电平失败: %s", esp_err_to_name(error));
+        return error;
+    }
+    if (asserted)
+    {
+        ESP_LOGE(TAG,
+                 "RTC INT 基线测试失败: 全部中断源关闭且内部上拉稳定 %lu us 后，GPIO%d 仍为低；"
+                 "不启动 Timer 或 Light-sleep",
+                 (unsigned long) BSP_POWER_RTC_INT_BASELINE_SETTLE_US,
+                 BOARD_RTC_PIN_INT);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGI(TAG,
+             "RTC INT 基线测试通过: 全部中断源关闭且内部上拉稳定 %lu us 后，GPIO%d=高",
+             (unsigned long) BSP_POWER_RTC_INT_BASELINE_SETTLE_US,
+             BOARD_RTC_PIN_INT);
+    return ESP_OK;
+}
+
 /** @brief 在 IDF 拒绝 Light-sleep 后单次诊断 RTC 是否持续主动拉低 INT */
 static void diagnose_rtc_int_sleep_rejection(void)
 {
@@ -147,6 +188,12 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
     esp_err_t operation_error = configure_rtc_int_sleep_pullup();
     if (operation_error != ESP_OK)
     {
+        return operation_error;
+    }
+    operation_error = verify_rtc_int_released_baseline();
+    if (operation_error != ESP_OK)
+    {
+        (void) restore_rtc_periph_auto_power_policy();
         return operation_error;
     }
     operation_error = bsp_rtc_start_wakeup_timer(timer_wakeup_ms);

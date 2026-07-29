@@ -391,6 +391,23 @@ esp_err_t bsp_rtc_set_datetime(const bsp_rtc_datetime_t *value)
     return error;
 }
 
+esp_err_t bsp_rtc_clear_interrupt_sources(void)
+{
+    if (!s_ready)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
+    const esp_err_t error = pcf85063_driver_clear_interrupt_sources(&s_driver);
+    xSemaphoreGive(s_mutex);
+    if (error == ESP_OK)
+    {
+        ESP_LOGI(TAG, "RTC INT 输出源已全部关闭，AF/TF 已清除");
+    }
+    return error;
+}
+
 esp_err_t bsp_rtc_start_wakeup_timer(uint32_t interval_ms)
 {
     if (interval_ms == 0U)
@@ -409,11 +426,7 @@ esp_err_t bsp_rtc_start_wakeup_timer(uint32_t interval_ms)
     }
 
     ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    esp_err_t error = pcf85063_driver_enable_alarm_interrupt(&s_driver, false);
-    if (error == ESP_OK)
-    {
-        error = pcf85063_driver_clear_alarm_flag(&s_driver);
-    }
+    esp_err_t error = pcf85063_driver_clear_interrupt_sources(&s_driver);
     if (error == ESP_OK)
     {
         error = pcf85063_driver_start_timer(&s_driver, (uint8_t) interval_s);
@@ -433,7 +446,7 @@ esp_err_t bsp_rtc_start_wakeup_timer(uint32_t interval_ms)
 
     if (error == ESP_OK)
     {
-        ESP_LOGI(TAG, "RTC 唤醒计时器已启动: %llu 秒，AIE/AF/TF 已清理", (unsigned long long) interval_s);
+        ESP_LOGI(TAG, "RTC 唤醒计时器已启动: %llu 秒，其他 INT 源与 AF/TF 已清理", (unsigned long long) interval_s);
     }
     return error;
 }

@@ -34,8 +34,9 @@ config DESKMATE_RTC_INT_WAKE_TEST_ENABLED
         DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC 装载 PCF85063 的 1 Hz Timer，再进入
         Light-sleep；任一来源唤醒或睡眠失败后都会停止 Timer 并清除 TF。当前无外部上拉
         测试还会显式启用 GPIO15 的 RTC 域内部上拉，并在 Light-sleep 期间保持 RTC_PERIPH
-        供电；软件不会在入睡前读取或判断 RTC INT 当前电平。若 IDF 因唤醒源预先有效而拒绝
-        睡眠，BSP 会在返回路径采样 GPIO15 与 RTC 中断寄存器，区分 RTC 主动拉低和板级拉低。
+        供电。装载 Timer 前会关闭全部 RTC INT 输出源并清除 AF/TF，等待内部上拉稳定 10 ms
+        后读取 GPIO15 释放基线；基线为低时不启动 Timer 或 Light-sleep。基线为高才继续，
+        若 IDF 仍拒绝睡眠，BSP 会在返回路径再次采样 GPIO15 与 RTC 中断寄存器。
 
 config DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC
     int "Light sleep idle timeout (seconds)"

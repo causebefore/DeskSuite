@@ -729,7 +729,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         const esp_err_t sleep_result = sleep_error == ESP_ERR_INVALID_STATE ? ESP_ERR_INVALID_RESPONSE : sleep_error;
         if (sleep_error == ESP_ERR_INVALID_STATE)
         {
-            ESP_LOGE(TAG, "RTC INT 测试模式下设备拒绝进入轻睡眠，停止自动重试以避免反复启停 Runtime");
+            ESP_LOGE(TAG, "RTC INT 基线未释放或 Light-sleep 被拒绝，停止自动重试以避免反复启停 Runtime");
         }
 #else
         const esp_err_t sleep_result = sleep_error;

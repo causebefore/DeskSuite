@@ -18,6 +18,7 @@ static const char *TAG = "pcf85063_driver";
 #define PCF85063_REG_TIMER_MODE      0x11
 #define PCF85063_ALARM_REG_COUNT     5U
 
+#define PCF85063_CTRL1_CIE           (1U << 2)
 #define PCF85063_CTRL2_AIE           (1U << 7)
 #define PCF85063_CTRL2_AF            (1U << 6)
 #define PCF85063_CTRL2_MI            (1U << 5)
@@ -277,6 +278,27 @@ esp_err_t pcf85063_driver_stop_timer(pcf85063_driver_t *driver)
     ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_TIMER_MODE, timer_mode), TAG, "停止 RTC 计时器失败");
     ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_TIMER_VALUE, 0U), TAG, "清空 RTC 计时器数值失败");
     return clear_timer_flag(driver);
+}
+
+esp_err_t pcf85063_driver_clear_interrupt_sources(pcf85063_driver_t *driver)
+{
+    if (!driver_is_valid(driver))
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_RETURN_ON_ERROR(pcf85063_driver_stop_timer(driver), TAG, "停止 RTC 计时器失败");
+
+    uint8_t control1 = 0;
+    ESP_RETURN_ON_ERROR(read_register(driver, PCF85063_REG_CTRL1, &control1), TAG, "读取 Control_1 失败");
+    control1 &= (uint8_t) ~PCF85063_CTRL1_CIE;
+    ESP_RETURN_ON_ERROR(write_register(driver, PCF85063_REG_CTRL1, control1), TAG, "关闭 RTC 修正中断失败");
+
+    uint8_t control2 = 0;
+    ESP_RETURN_ON_ERROR(read_register(driver, PCF85063_REG_CTRL2, &control2), TAG, "读取 Control_2 失败");
+    control2 &= (uint8_t) ~(PCF85063_CTRL2_AIE | PCF85063_CTRL2_AF | PCF85063_CTRL2_MI | PCF85063_CTRL2_HMI
+                            | PCF85063_CTRL2_TF);
+    return write_register(driver, PCF85063_REG_CTRL2, control2);
 }
 
 esp_err_t pcf85063_driver_start_timer(pcf85063_driver_t *driver, uint8_t interval_s)

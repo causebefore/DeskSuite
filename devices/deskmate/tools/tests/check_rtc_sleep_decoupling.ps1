@@ -67,6 +67,12 @@ Assert-Contains 'components\bsp\src\bsp_power.c' 'BOARD_PIN_BTN_RIGHT'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'BOARD_RTC_PIN_INT'
 Assert-Contains 'components\bsp\src\bsp_power.c' '\.rtc_timer'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'bsp_rtc_clear_interrupt_sources\(\)'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'esp_rom_delay_us\(BSP_POWER_RTC_INT_BASELINE_SETTLE_US\)'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'RTC INT 基线测试通过'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'RTC INT 基线测试失败'
+Assert-Contains 'components\bsp\src\bsp_power.c' `
+    'operation_error\s*=\s*verify_rtc_int_released_baseline\(\);[\s\S]{0,500}operation_error\s*=\s*bsp_rtc_start_wakeup_timer'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'bsp_rtc_start_wakeup_timer\(timer_wakeup_ms\)'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'bsp_rtc_stop_wakeup_timer\(\)'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'rtc_gpio_pulldown_dis'
@@ -89,10 +95,16 @@ Assert-Contains 'components\bsp\src\bsp_rtc.c' `
 Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_enable_alarm_interrupt\(&s_driver,\s*false\)'
 Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_enable_alarm_interrupt\(&s_driver,\s*true\)'
 Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_clear_alarm_flag\(&s_driver\)'
+Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_clear_interrupt_sources\(&s_driver\)'
 Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_start_timer\(&s_driver'
 Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_stop_timer\(&s_driver\)'
+Assert-Contains 'components\drivers\pcf85063_driver\include\pcf85063_driver.h' `
+    'pcf85063_driver_clear_interrupt_sources'
 Assert-Contains 'components\drivers\pcf85063_driver\include\pcf85063_driver.h' 'pcf85063_driver_start_timer'
 Assert-Contains 'components\drivers\pcf85063_driver\include\pcf85063_driver.h' 'pcf85063_driver_stop_timer'
+Assert-Contains 'components\drivers\pcf85063_driver\src\pcf85063_driver.c' 'PCF85063_CTRL1_CIE'
+Assert-Contains 'components\drivers\pcf85063_driver\src\pcf85063_driver.c' `
+    'PCF85063_CTRL2_AIE\s*\|\s*PCF85063_CTRL2_AF\s*\|\s*PCF85063_CTRL2_MI'
 Assert-Contains 'components\drivers\pcf85063_driver\src\pcf85063_driver.c' 'PCF85063_REG_TIMER_VALUE'
 Assert-Contains 'components\drivers\pcf85063_driver\src\pcf85063_driver.c' 'PCF85063_TIMER_MODE_TCF_1HZ'
 Assert-Contains 'components\drivers\pcf85063_driver\src\pcf85063_driver.c' `
@@ -111,7 +123,7 @@ Assert-NotContains 'main\application\app_power_task.c' `
 Assert-Contains 'main\application\app_power_task.c' `
     'sleep_error\s*==\s*ESP_ERR_INVALID_STATE\s*\?\s*ESP_ERR_INVALID_RESPONSE'
 Assert-Contains 'main\application\app_power_task.c' `
-    'RTC INT 测试模式下设备拒绝进入轻睡眠，停止自动重试'
+    'RTC INT 基线未释放或 Light-sleep 被拒绝，停止自动重试'
 Assert-NotContains 'main\application\app_power_task.c' 'gpio_get_level|device_rtc_read_alarm_flag'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 Assert-Contains 'main\Kconfig.projbuild' `
@@ -120,6 +132,7 @@ Assert-Contains 'main\Kconfig.projbuild' `
     'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,700}RTC_PERIPH'
 Assert-Contains 'main\Kconfig.projbuild' `
     'range\s+10\s+255\s+if\s+DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
+Assert-Contains 'main\Kconfig.projbuild' '关闭全部 RTC INT 输出源'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED=y'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC=60'

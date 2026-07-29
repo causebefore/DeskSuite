@@ -15,9 +15,10 @@ VFS 挂载由 System 通过 `device_storage` 完成。当前板型未提供 Card
 
 `bsp_power` 只检查当前板型按键电平，按编译配置互斥选择 ESP32 内部 Timer，或 GPIO15
 RTC INT 与 PCF85063 Timer 组合维护唤醒。测试模式下，一次睡眠事务会先通过 `bsp_rtc`
-关闭旧 AIE、清除 AF/TF、装载秒级 Timer，再调用芯片睡眠入口；任一来源唤醒或入口失败后都
-停止 Timer 并清除 TF。若 IDF 拒绝睡眠，BSP 会在停止 Timer 前完成一次电平和寄存器诊断。
-BSP 不拥有 Timer 刷新周期、无活动窗口、网络/UI 停机顺序、重试或失败降级。
+关闭 CIE/AIE/MI/HMI/TE/TIE 并清除 AF/TF，保持 GPIO15 内部上拉稳定 10 ms 后读取释放
+基线。基线为低时不启动 Timer 或睡眠；基线为高才装载秒级 Timer 并调用芯片睡眠入口。任一
+来源唤醒或入口失败后都停止 Timer 并清除 TF。若 IDF 仍拒绝睡眠，BSP 会在停止 Timer 前完成
+一次电平和寄存器诊断。BSP 不拥有 Timer 刷新周期、无活动窗口、网络/UI 停机顺序、重试或失败降级。
 
 当前 RLCD 的异步 DMA/TE 刷新仍使用 BSP 内部传输 Worker，它只处理硬件传输，不承载页面、
 刷新周期或产品状态机。显示 `stop()` 只关闭新帧入口、等待传输 Worker 静止、关闭 TE 中断并

@@ -251,10 +251,11 @@ Runtime；左右键唤醒则按以下链路恢复产品按键事实：
 启用 `CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 后，RTC INT GPIO15 取代内部 Timer 成为
 唯一维护唤醒源；左右键仍可唤醒，但 BSP 不调用 `esp_sleep_enable_timer_wakeup()`。该模式
 只用于验证 RTC INT 硬件连线，Application 将 RTC INT 命中作为维护刷新而不是用户活动。
-Application 只把固定维护间隔传入单次 Device 睡眠事务；BSP 在事务内清除旧 AF/TF、启动
-PCF85063 Timer，并在 RTC INT、按键唤醒或入口失败后停止 Timer、清除 TF。Application 不再
-轮询 RTC Service 告警累计数；测试模式下设备拒绝进入睡眠时仍恢复清醒 Runtime 并进入
-`BLOCKED`，避免 Wi-Fi、语音和 UI 反复启停。
+Application 只把固定维护间隔传入单次 Device 睡眠事务；BSP 在事务内先关闭全部 RTC INT
+输出源并清除 AF/TF，等待 GPIO15 内部上拉稳定 10 ms 后读取释放基线。基线为低时不启动
+PCF85063 Timer 或 Light-sleep；基线为高才启动 Timer，并在 RTC INT、按键唤醒或入口失败后
+停止 Timer、清除 TF。Application 不再轮询 RTC Service 告警累计数；基线未释放或设备拒绝
+进入睡眠时仍恢复清醒 Runtime 并进入 `BLOCKED`，避免 Wi-Fi、语音和 UI 反复启停。
 
 ```text
 EXT1 左右键掩码 → app_power 按网络 → 语音 → UI 恢复

@@ -121,6 +121,17 @@ extern "C"
     esp_err_t pcf85063_driver_set_datetime(pcf85063_driver_t *driver, const pcf85063_datetime_t *value);
 
     /**
+     * @brief 关闭全部 INT 输出源并清除 AF/TF
+     *
+     * 关闭 CIE、AIE、MI、HMI、TE 和 TIE，清空 Timer_value，并清除 AF/TF。保留时制、
+     * 振荡器电容、CLKOUT 与告警比较字段配置。该操作会主动丢弃尚未消费的告警和计时器标志。
+     *
+     * @param[in] driver Driver 实例
+     * @return ESP_OK 中断源与标志已清理；ESP_ERR_INVALID_ARG Driver 无效；或 I2C 错误
+     */
+    esp_err_t pcf85063_driver_clear_interrupt_sources(pcf85063_driver_t *driver);
+
+    /**
      * @brief 停止计时器、清除计数值与 TF
      *
      * 先关闭 TE/TIE，再把 Timer_value 写为 0 并清除 TF；保留 AIE、AF、MI、HMI 和 COF。
