@@ -34,6 +34,12 @@
 #define RLCD_DISPLAY_TASK_STACK     3584
 #define RLCD_DISPLAY_TASK_PRIO      5
 #define RLCD_RESET_RELEASE_DELAY_MS 150U
+#define ST7305_CMD_SLEEP_IN          0x10U
+#define ST7305_CMD_SLEEP_OUT         0x11U
+#define ST7305_SLEEP_IN_SETTLE_US    (5U * 1000U)
+#define ST7305_SLEEP_OUT_SETTLE_US   (120U * 1000U)
+#define ST7305_INITIAL_WAKE_US        (200U * 1000U)
+#define ST7305_SLEEP_OUT_TO_IN_US    (100U * 1000U)
 #define RLCD_PARKED_OUTPUT_MASK                                                                \
     ((1ULL << BOARD_RLCD_PIN_DC) | (1ULL << BOARD_RLCD_PIN_CS) | (1ULL << BOARD_RLCD_PIN_SCLK) \
      | (1ULL << BOARD_RLCD_PIN_MOSI) | (1ULL << BOARD_RLCD_PIN_RST))
@@ -108,6 +114,8 @@ static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool         s_accepting_frames;
 static bool         s_io_held;
 static bool         s_te_interrupt_suspended;
+static bool         s_controller_sleeping;
+static int64_t      s_last_sleep_out_us;
 
 typedef struct
 {
@@ -172,6 +180,56 @@ static esp_err_t lcd_data(const uint8_t *data, size_t len)
 {
     ESP_RETURN_ON_ERROR(gpio_set_level(BOARD_RLCD_PIN_DC, 1), TAG, "设置 DC 数据电平失败");
     return lcd_tx_sync(data, len);
+}
+
+/**
+ * @brief 让 ST7305 进入 Sleep-In，并满足 Sleep-Out 到下一次 Sleep-In 的最短间隔
+ *
+ * ST7305 V0.2 8.1.6/8.1.7 规定：SLPIN 后 5 ms 内不得发送新命令，
+ * SLPOUT 后至少 100 ms 才能再次发送 SLPIN。Sleep-In 会停止 DC/DC、内部振荡器和面板扫描，
+ * 但保留显示 RAM 与 MCU 接口。
+ */
+static esp_err_t lcd_enter_sleep(void)
+{
+    if (s_controller_sleeping)
+    {
+        return ESP_OK;
+    }
+
+    if (s_last_sleep_out_us > 0)
+    {
+        const int64_t elapsed_us   = esp_timer_get_time() - s_last_sleep_out_us;
+        const int64_t remaining_us = (int64_t) ST7305_SLEEP_OUT_TO_IN_US - elapsed_us;
+        if (remaining_us > 0)
+        {
+            esp_rom_delay_us((uint32_t) remaining_us);
+        }
+    }
+
+    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_SLEEP_IN), TAG, "发送 ST7305 Sleep-In 失败");
+    esp_rom_delay_us(ST7305_SLEEP_IN_SETTLE_US);
+    s_controller_sleeping = true;
+    return ESP_OK;
+}
+
+/**
+ * @brief 让 ST7305 退出 Sleep-In，并等待参考初始化流程要求的稳定时间
+ *
+ * 数据手册规定 SLPOUT 后 5 ms 内不得发送新命令；参考初始化流程等待 120 ms。
+ * 这里采用更保守的 120 ms，确保恢复 TE 与帧提交前面板扫描已经稳定。
+ */
+static esp_err_t lcd_exit_sleep(void)
+{
+    if (!s_controller_sleeping)
+    {
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_SLEEP_OUT), TAG, "发送 ST7305 Sleep-Out 失败");
+    s_last_sleep_out_us = esp_timer_get_time();
+    esp_rom_delay_us(ST7305_SLEEP_OUT_SETTLE_US);
+    s_controller_sleeping = false;
+    return ESP_OK;
 }
 
 /**
@@ -397,8 +455,9 @@ static esp_err_t lcd_init_controller(void)
     ESP_RETURN_ON_ERROR(lcd_cmd(0xB0), TAG, "写 0xB0 失败");
     ESP_RETURN_ON_ERROR(lcd_data(b0, sizeof(b0)), TAG, "写 0xB0 数据失败");
 
-    ESP_RETURN_ON_ERROR(lcd_cmd(0x11), TAG, "退出 sleep 失败");
-    esp_rom_delay_us(200 * 1000);
+    ESP_RETURN_ON_ERROR(lcd_exit_sleep(), TAG, "退出 sleep 失败");
+    /* 保留当前板型已经验证过的 200 ms 冷启动余量；运行期唤醒使用数据手册参考流程的 120 ms。 */
+    esp_rom_delay_us(ST7305_INITIAL_WAKE_US - ST7305_SLEEP_OUT_SETTLE_US);
 
     ESP_RETURN_ON_ERROR(lcd_cmd(0xC9), TAG, "写 0xC9 失败");
     ESP_RETURN_ON_ERROR(lcd_data(c9, sizeof(c9)), TAG, "写 0xC9 数据失败");
@@ -1338,6 +1397,8 @@ esp_err_t bsp_display_init(void)
     ESP_RETURN_ON_ERROR(lcd_init_spi(), TAG, "SPI 初始化失败");
     ESP_RETURN_ON_ERROR(lcd_init_te_gpio(), TAG, "TE GPIO 初始化失败");
     ESP_RETURN_ON_ERROR(lcd_reset(), TAG, "LCD 复位失败");
+    s_controller_sleeping = true;
+    s_last_sleep_out_us    = 0;
     ESP_RETURN_ON_ERROR(lcd_init_controller(), TAG, "LCD 控制器初始化失败");
 
     const BaseType_t task_ok = xTaskCreate(display_flush_task,
@@ -1551,19 +1612,46 @@ esp_err_t bsp_display_stop(uint32_t timeout_ms)
         set_display_accepting_frames(true);
         return interrupt_error;
     }
-    s_te_interrupt_suspended   = true;
+    s_te_interrupt_suspended = true;
+
+    const esp_err_t sleep_error = lcd_enter_sleep();
+    if (sleep_error != ESP_OK)
+    {
+        const esp_err_t interrupt_error = gpio_intr_enable(BOARD_RLCD_PIN_TE);
+        s_te_interrupt_suspended        = interrupt_error != ESP_OK;
+        if (interrupt_error == ESP_OK)
+        {
+            set_display_accepting_frames(true);
+            return sleep_error;
+        }
+        ESP_LOGE(TAG,
+                 "ST7305 Sleep-In 失败后恢复 TE 中断失败: %s",
+                 esp_err_to_name(interrupt_error));
+        return interrupt_error;
+    }
 
     const esp_err_t hold_error = lcd_set_io_hold(true);
     if (hold_error != ESP_OK)
     {
-        (void) lcd_set_io_hold(false);
-        (void) gpio_intr_enable(BOARD_RLCD_PIN_TE);
-        s_te_interrupt_suspended = false;
-        set_display_accepting_frames(true);
-        return hold_error;
+        const esp_err_t release_error   = lcd_set_io_hold(false);
+        const esp_err_t wake_error      = release_error == ESP_OK ? lcd_exit_sleep() : release_error;
+        const esp_err_t interrupt_error = gpio_intr_enable(BOARD_RLCD_PIN_TE);
+        s_io_held                       = release_error != ESP_OK;
+        s_te_interrupt_suspended        = interrupt_error != ESP_OK;
+        if (release_error == ESP_OK && wake_error == ESP_OK && interrupt_error == ESP_OK)
+        {
+            set_display_accepting_frames(true);
+            return hold_error;
+        }
+        ESP_LOGE(TAG,
+                 "LCD GPIO 保持失败后的恢复不完整: release=%s, wake=%s, te=%s",
+                 esp_err_to_name(release_error),
+                 esp_err_to_name(wake_error),
+                 esp_err_to_name(interrupt_error));
+        return release_error != ESP_OK ? release_error : (wake_error != ESP_OK ? wake_error : interrupt_error);
     }
     s_io_held = true;
-    ESP_LOGI(TAG, "显示已停止，DMA 静止且 LCD 输出脚已保持");
+    ESP_LOGI(TAG, "显示已停止，ST7305 已进入 Sleep-In 且 LCD 输出脚已保持");
     return ESP_OK;
 }
 
@@ -1577,32 +1665,60 @@ esp_err_t bsp_display_start(void)
     {
         return ESP_OK;
     }
-    if (!s_io_held)
+    if (s_io_held)
     {
-        return ESP_ERR_INVALID_STATE;
+        const esp_err_t hold_error = lcd_set_io_hold(false);
+        if (hold_error != ESP_OK)
+        {
+            return hold_error;
+        }
+        s_io_held = false;
     }
 
-    const esp_err_t hold_error = lcd_set_io_hold(false);
-    if (hold_error != ESP_OK)
+    const esp_err_t wake_error = lcd_exit_sleep();
+    if (wake_error != ESP_OK)
     {
-        return hold_error;
+        const esp_err_t restore_hold_error = lcd_set_io_hold(true);
+        s_io_held                         = restore_hold_error == ESP_OK;
+        if (restore_hold_error != ESP_OK)
+        {
+            const esp_err_t release_error = lcd_set_io_hold(false);
+            s_io_held                     = release_error != ESP_OK;
+            ESP_LOGE(TAG,
+                     "ST7305 唤醒失败后恢复 LCD GPIO 保持失败: hold=%s, release=%s",
+                     esp_err_to_name(restore_hold_error),
+                     esp_err_to_name(release_error));
+        }
+        return wake_error;
     }
-    s_io_held = false;
 
     if (s_te_interrupt_suspended)
     {
         const esp_err_t interrupt_error = gpio_intr_enable(BOARD_RLCD_PIN_TE);
         if (interrupt_error != ESP_OK)
         {
-            (void) lcd_set_io_hold(true);
-            s_io_held = true;
+            const esp_err_t sleep_error = lcd_enter_sleep();
+            const esp_err_t hold_error  = sleep_error == ESP_OK ? lcd_set_io_hold(true) : sleep_error;
+            s_io_held                   = hold_error == ESP_OK;
+            if (sleep_error != ESP_OK || hold_error != ESP_OK)
+            {
+                if (hold_error != ESP_OK)
+                {
+                    const esp_err_t release_error = lcd_set_io_hold(false);
+                    s_io_held                     = release_error != ESP_OK;
+                }
+                ESP_LOGE(TAG,
+                         "恢复 TE 中断失败后的 LCD 回滚不完整: sleep=%s, hold=%s",
+                         esp_err_to_name(sleep_error),
+                         esp_err_to_name(hold_error));
+            }
             return interrupt_error;
         }
         s_te_interrupt_suspended = false;
     }
 
     set_display_accepting_frames(true);
-    ESP_LOGI(TAG, "显示已恢复并重新接受刷新");
+    ESP_LOGI(TAG, "ST7305 已退出 Sleep-In，显示已恢复并重新接受刷新");
     return ESP_OK;
 }
 
@@ -1731,6 +1847,8 @@ esp_err_t bsp_display_deinit(void)
 
     s_initialized            = false;
     s_te_interrupt_suspended = false;
+    s_controller_sleeping    = false;
+    s_last_sleep_out_us      = 0;
     ESP_LOGI(TAG, "显示已反初始化");
     return ESP_OK;
 }
