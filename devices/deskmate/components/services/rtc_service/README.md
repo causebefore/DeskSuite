@@ -6,7 +6,8 @@
 ## 1. 定位
 
 - 层级：Service。
-- 触发方：Composition Root 初始化并启动；RTC GPIO15 下降沿触发运行期处理。
+- 触发方：Composition Root 初始化并启动；RTC GPIO15 下降沿或 Power Application 的唤醒后
+  显式核对请求触发运行期处理。
 - 主要输出：告警成功事件、处理失败事件和可复制运行摘要。
 
 ## 2. 职责边界
@@ -35,6 +36,11 @@ GPIO15 下降沿
     → 失败时按有界退避重试
     → 更新运行摘要
     → 在 Service Task 上下文通知 Application
+
+Light-sleep 中 GPIO ISR 边沿未重放
+    → app_power 调用 rtc_service_request_check()
+    → Task 执行同一 AF 消费事务
+    → app_power 通过运行摘要确认 alarm_count 相对睡前快照变化
 ```
 
 `start()` 还会主动触发一次 AF 检查，以消费 Service 启动前已经置位的告警。
@@ -46,6 +52,7 @@ GPIO15 下降沿
 | 调用 | `device_rtc` | 注册快速 ISR 通知、读取和清除告警标志 |
 | 调用 | `utils` | 低频输出 RTC Task 的历史最小剩余栈 |
 | 被调用 | `main/app_main.c` | 装配生命周期并消费告警事件 |
+| 被调用 | `main/application/app_power_task.c` | RTC INT 唤醒后显式核对 AF，并读取摘要确认消费完成 |
 
 公开头文件不泄漏 FreeRTOS 类型；Task、通知和停止信号量都是私有实现资源。
 
@@ -80,7 +87,8 @@ GPIO15 下降沿
 - AF 读取或清除失败会保留错误、记录中文日志并发布 `PROCESSING_FAILED`，随后以 1、2、4 秒
   进行最多三次技术性重试；重试耗尽后保留错误，等待下一次中断或显式检查。
 - GPIO15 为低但 AF 未置位时，Service 不猜测芯片私有中断来源；Driver 初始化负责清理未支持
-  来源，显式电平诊断仍由 BSP 拥有。
+  来源，显式电平诊断仍由 BSP 拥有。Power Application 的显式核对若未观察到告警累计数变化，
+  会停止后续自动睡眠，而不是反复重启 Runtime。
 - 启动或停止失败由 Composition Root/Application 决定是否降级；Service 不重启设备。
 
 ## 8. 配置与文件

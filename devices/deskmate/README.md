@@ -69,7 +69,9 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
   可逆停止 UI Runtime，再通过 `device_power`/BSP 进入 Light-sleep。普通模式使用左右键 EXT1
   与 ESP32 内部 Timer；`DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 测试模式改用左右键与 GPIO15
   RTC INT EXT1，并完全禁用内部 Timer。左右键唤醒恢复正常交互；维护源唤醒后先同步补算
-  番茄钟，再恢复 UI，阶段完成会重新开启正常清醒窗口。
+  番茄钟，再恢复 UI，阶段完成会重新开启正常清醒窗口。RTC INT 唤醒还会先显式请求
+  `rtc_service` 核实并清除 AF，只有累计消费数变化后才允许继续本轮维护；无法确认消费或
+  睡眠源预先有效时进入 `BLOCKED`，避免反复启停 Runtime。
 
 网页文件管理的完整流程为：
 

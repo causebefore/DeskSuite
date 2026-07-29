@@ -75,6 +75,15 @@ Assert-Contains 'components\device\device_power\include\device_power.h' 'bool\s+
 Assert-Contains 'components\device\device_power\src\device_power.c' '\.rtc_alarm'
 Assert-Contains 'main\application\app_power.h' 'APP_POWER_WAKEUP_RTC_ALARM'
 Assert-Contains 'main\application\app_power_task.c' 'RTC INT 唤醒已刷新屏幕'
+Assert-Contains 'main\application\app_power_task.c' 'rtc_service_request_check'
+Assert-Contains 'main\application\app_power_task.c' 'rtc_service_get_status_copy'
+Assert-Contains 'main\application\app_power_task.c' 'confirm_rtc_alarm_consumed\(rtc_alarm_count_before_sleep\)'
+Assert-Contains 'main\application\app_power_task.c' 'RTC INT 唤醒的告警消费已确认'
+Assert-Contains 'main\application\app_power_task.c' `
+    'sleep_error\s*==\s*ESP_ERR_INVALID_STATE\s*\?\s*ESP_ERR_INVALID_RESPONSE'
+Assert-Contains 'main\application\app_power_task.c' `
+    'RTC INT 测试模式下设备拒绝进入轻睡眠，停止自动重试'
+Assert-NotContains 'main\application\app_power_task.c' 'gpio_get_level|device_rtc_read_alarm_flag'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 Assert-Contains 'main\Kconfig.projbuild' `
     'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,160}default y'
