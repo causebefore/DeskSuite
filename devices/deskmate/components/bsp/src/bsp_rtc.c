@@ -202,8 +202,8 @@ static pcf85063_datetime_t to_driver_datetime(const bsp_rtc_datetime_t *value)
     };
 }
 
-/** @brief 在普通 Task 上下文尽力记录“INT 低但 AF 未置位”的芯片状态 */
-static void log_unexpected_asserted_interrupt(void)
+/** @brief 在普通 Task 上下文记录持续低电平对应的 RTC 中断来源分类 */
+static void log_asserted_interrupt_diagnosis(void)
 {
     const esp_err_t lock_error = lock_driver();
     if (lock_error != ESP_OK)
@@ -220,23 +220,40 @@ static void log_unexpected_asserted_interrupt(void)
         ESP_LOGW(TAG, "RTC INT 已拉低，但读取中断状态失败: %s", esp_err_to_name(error));
         return;
     }
-    if (snapshot.alarm_flag)
-    {
-        return;
-    }
-
     ESP_LOGW(TAG,
-             "RTC INT GPIO%d 持续为低但 AF 未置位: Control_2=0x%02x, Timer_mode=0x%02x, "
-             "AIE=%d, MI=%d, HMI=%d, TF=%d, TE=%d, TIE=%d",
+             "RTC INT 诊断快照: GPIO%d=低, Control_2=0x%02x, Timer_mode=0x%02x, "
+             "AIE=%d, AF=%d, MI=%d, HMI=%d, TF=%d, TE=%d, TIE=%d",
              BOARD_RTC_PIN_INT,
              snapshot.control2_raw,
              snapshot.timer_mode_raw,
              (int) snapshot.alarm_interrupt_enabled,
+             (int) snapshot.alarm_flag,
              (int) snapshot.minute_interrupt_enabled,
              (int) snapshot.half_minute_interrupt_enabled,
              (int) snapshot.timer_flag,
              (int) snapshot.timer_enabled,
              (int) snapshot.timer_interrupt_enabled);
+
+    if (snapshot.alarm_interrupt_enabled && snapshot.alarm_flag)
+    {
+        ESP_LOGW(TAG,
+                 "RTC INT 诊断结论: AIE=1 且 AF=1，PCF85063 闹钟正在主动拉低 GPIO%d",
+                 BOARD_RTC_PIN_INT);
+        return;
+    }
+
+    if (snapshot.minute_interrupt_enabled || snapshot.half_minute_interrupt_enabled || snapshot.timer_flag
+        || snapshot.timer_enabled || snapshot.timer_interrupt_enabled)
+    {
+        ESP_LOGW(TAG,
+                 "RTC INT 诊断结论: 存在非闹钟中断配置或标志，PCF85063 可能正在主动拉低 GPIO%d",
+                 BOARD_RTC_PIN_INT);
+        return;
+    }
+
+    ESP_LOGW(TAG,
+             "RTC INT 诊断结论: RTC 寄存器没有有效中断来源，GPIO%d 持续为低更倾向板级拉低或 RTC 输出级异常",
+             BOARD_RTC_PIN_INT);
 }
 
 esp_err_t bsp_rtc_init(void)
@@ -499,7 +516,7 @@ esp_err_t bsp_rtc_read_interrupt_asserted(bool *out_asserted)
             *out_asserted = false;
             return ESP_OK;
         }
-        log_unexpected_asserted_interrupt();
+        log_asserted_interrupt_diagnosis();
     }
     return ESP_OK;
 }

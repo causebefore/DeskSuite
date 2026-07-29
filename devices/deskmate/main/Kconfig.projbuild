@@ -31,8 +31,10 @@ config DESKMATE_RTC_INT_WAKE_TEST_ENABLED
         用于验证 RTC INT GPIO15 硬件连线。启用后，左右按键与 RTC INT 共同作为 EXT1
         低电平唤醒源，并完全禁用 ESP32 内部 Timer 唤醒，避免两个定时来源重复命中。
         当前无外部上拉测试还会显式启用 GPIO15 的 RTC 域内部上拉，并在 Light-sleep
-        期间保持 RTC_PERIPH 供电；软件不会在入睡前读取或判断 RTC INT 当前电平。测试前
-        必须由 RTC Service 安排告警；若 RTC INT 不生效且没有按键输入，设备会一直保持
+        期间保持 RTC_PERIPH 供电；软件不会在入睡前读取或判断 RTC INT 当前电平。若 IDF
+        因唤醒源预先有效而拒绝睡眠，BSP 会在返回路径采样 GPIO15 与 RTC 中断寄存器；仅在
+        没有真实中断来源时短暂关闭并恢复 AIE，以区分 RTC 主动拉低和板级拉低。测试前必须
+        由 RTC Service 安排告警；若 RTC INT 不生效且没有按键输入，设备会一直保持
         Light-sleep。
 
 config DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC

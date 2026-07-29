@@ -237,8 +237,12 @@ extern "C"
     esp_err_t bsp_rtc_read_alarm_flag(bool *out_pending);
 
     /**
-     * @brief 读取板级 RTC INT 是否处于低电平有效状态
-     * @param[out] out_asserted true 表示 INT 当前有效，仅在 ESP_OK 时有效
+     * @brief 采样并诊断板级 RTC INT 是否处于低电平有效状态
+     *
+     * 确认持续低电平后读取 RTC 中断寄存器；仅当 AIE 已启用且没有 AF、分钟或计时器来源时，
+     * 会短暂关闭并恢复 AIE，以区分 RTC 输出门控与板级拉低。真实中断标志不会被清除。
+     *
+     * @param[out] out_asserted true 表示诊断完成后 INT 仍有效，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_STATE 尚未初始化
      */
     esp_err_t bsp_rtc_read_interrupt_asserted(bool *out_asserted);

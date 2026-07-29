@@ -137,8 +137,12 @@ extern "C"
     esp_err_t device_rtc_clear_alarm_flag(void);
 
     /**
-     * @brief 读取 RTC INT 是否处于低电平有效状态
-     * @param[out] out_asserted true 表示 INT 当前有效，仅在 ESP_OK 时有效
+     * @brief 采样并诊断 RTC INT 是否处于低电平有效状态
+     *
+     * 无真实中断来源时，底层可能短暂关闭并恢复 AIE，以区分 RTC 输出门控与板级拉低；
+     * 不会清除 AF 或 TF。
+     *
+     * @param[out] out_asserted true 表示诊断完成后 INT 仍有效，仅在 ESP_OK 时有效
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；或底层错误码
      */
     esp_err_t device_rtc_read_interrupt_asserted(bool *out_asserted);

@@ -75,6 +75,16 @@ Assert-Contains 'components\bsp\src\bsp_power.c' `
     'esp_sleep_pd_config\(ESP_PD_DOMAIN_RTC_PERIPH,\s*ESP_PD_OPTION_AUTO\)'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'RTC 域内部上拉已保持'
 Assert-NotContains 'components\bsp\src\bsp_power.c' 'gpio_get_level'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'operation_error\s*==\s*ESP_ERR_SLEEP_REJECT'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'bsp_rtc_read_interrupt_asserted'
+Assert-Contains 'components\bsp\src\bsp_power.c' 'Light-sleep 被 IDF 拒绝，开始诊断 RTC INT'
+Assert-Contains 'components\bsp\src\bsp_rtc.c' 'RTC INT 诊断快照'
+Assert-Contains 'components\bsp\src\bsp_rtc.c' 'AIE=1 且 AF=1，PCF85063 闹钟正在主动拉低'
+Assert-Contains 'components\bsp\src\bsp_rtc.c' 'RTC 寄存器没有有效中断来源'
+Assert-Contains 'components\bsp\src\bsp_rtc.c' `
+    'alarm_interrupt_enabled\s*&&\s*!snapshot->alarm_flag[\s\S]{0,240}!snapshot->timer_interrupt_enabled'
+Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_enable_alarm_interrupt\(&s_driver,\s*false\)'
+Assert-Contains 'components\bsp\src\bsp_rtc.c' 'pcf85063_driver_enable_alarm_interrupt\(&s_driver,\s*true\)'
 Assert-Contains 'components\bsp\src\bsp_power.c' 'esp_sleep_enable_timer_wakeup'
 Assert-Contains 'components\bsp\src\bsp_power.c' `
     '#ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]*esp_sleep_enable_timer_wakeup'
