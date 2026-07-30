@@ -16,7 +16,6 @@
 #include "ui_quota_page.h"
 #include "ui_runtime.h"
 #include "ui_settings_page.h"
-#include "ui_test_page.h"
 #include "ui_weather_page.h"
 #include "ui_voice_page.h"
 
@@ -165,8 +164,6 @@ static esp_err_t show_page(ui_page_id_t page, lv_obj_t *container)
             return ui_quota_page_show(container);
         case PRESENTATION_PAGE_SETTINGS:
             return ui_settings_page_show(container);
-        case PRESENTATION_PAGE_TEST:
-            return ui_test_page_show(container);
         default:
             return ESP_ERR_INVALID_ARG;
     }
@@ -193,8 +190,6 @@ static esp_err_t update_page(ui_page_id_t page, lv_obj_t *container)
             return ui_quota_page_update(container);
         case PRESENTATION_PAGE_SETTINGS:
             return ui_settings_page_update(container);
-        case PRESENTATION_PAGE_TEST:
-            return ui_test_page_update(container);
         default:
             return ESP_ERR_INVALID_ARG;
     }
@@ -260,7 +255,6 @@ esp_err_t ui_router_init(void)
     ESP_RETURN_ON_ERROR(ui_mail_page_init(), TAG, "邮箱页初始化失败");
     ESP_RETURN_ON_ERROR(ui_quota_page_init(), TAG, "限额页初始化失败");
     ESP_RETURN_ON_ERROR(ui_settings_page_init(), TAG, "设置页初始化失败");
-    ESP_RETURN_ON_ERROR(ui_test_page_init(), TAG, "测试页初始化失败");
     s_current_page         = PRESENTATION_PAGE_COUNT;
     s_current_container    = NULL;
     s_transition_container = NULL;

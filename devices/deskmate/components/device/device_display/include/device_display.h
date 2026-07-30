@@ -67,9 +67,6 @@ extern "C"
     /** @brief 有界等待已经提交的显示刷新完成 */
     esp_err_t device_display_wait_flush_done(uint32_t timeout_ms);
 
-    /** @brief 读取最近一秒显示刷新帧率 */
-    uint32_t device_display_get_flush_fps(void);
-
     /** @brief 读取启动后的显示刷新总次数 */
     uint32_t device_display_get_total_flush_count(void);
 

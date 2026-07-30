@@ -35,8 +35,9 @@ DeskMate 正常空闲和联网待机阶段的内部 SRAM 占用：
 
 ### 3.1 本次包含
 
-- 在 `sdkconfig.defaults` 和当前 `sdkconfig` 中启用
-  `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y`。
+- 在受版本控制的 `sdkconfig.defaults` 中启用
+  `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y`；本地生成的根 `sdkconfig` 通过 DeskSuite
+  统一配置/构建流程更新。
 - 保留 `firmware_ota_init()`、`firmware_ota_start()`、`firmware_ota_stop()`、
   `firmware_ota_deinit()` 以及两个异步 `request` API。
 - `firmware_ota_start()` 只进入可接受事务的 `IDLE` 状态，不创建 Task。
@@ -63,11 +64,10 @@ DeskMate 正常空闲和联网待机阶段的内部 SRAM 占用：
 
 ## 4. 外部 BSS 设计
 
-同时修改：
+修改受版本控制的配置源：
 
 ```text
 sdkconfig.defaults
-sdkconfig
 ```
 
 设置：
@@ -161,7 +161,7 @@ Task 创建和状态预占必须在状态互斥量保护下完成，避免 `stop
 
 新增 `tools/tests/check_internal_sram_optimization.ps1`，验证：
 
-- `sdkconfig.defaults` 与 `sdkconfig` 都启用外部 BSS。
+- `sdkconfig.defaults` 启用外部 BSS。
 - `firmware_ota_start()` 不创建 Task。
 - `firmware_ota_request_check()` 与 `firmware_ota_request_install()` 通过同一个事务启动辅助函数
   创建一次性 Task。
@@ -174,7 +174,8 @@ Task 创建和状态预占必须在状态互斥量保护下完成，避免 `stop
 
 ### 7.2 后续构建与实机验收
 
-本任务未收到编译授权，不执行构建。后续显式执行 `.\dm.ps1 build` 后应检查：
+后续获得明确编译授权时，应从 DeskSuite 根目录执行
+`& .\ds.ps1 build deskmate`，并检查：
 
 - map 中出现 `.ext_ram.bss`，内部 `.dram0.bss` 相对基线下降。
 - 启动后 OTA 处于 `IDLE` 时不存在 `firmware_ota` Task。

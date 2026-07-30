@@ -67,47 +67,13 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 - 低功耗：`app_power` 在 60 秒无按键活动且产品事务空闲时先选择模式。运行中的番茄钟页进入
   `OFFLINE_DISPLAY`，只停止 Network Manager 和 Wi-Fi Driver，保留 UI 与一秒刷新；其他场景
   可逆停止 UI Runtime，再通过 `device_power`/BSP 进入 Light-sleep。普通模式使用左右键 EXT1
-  与 ESP32 内部 Timer；`DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 测试模式改用左右键与 GPIO15
-  RTC INT EXT1，并完全禁用内部 Timer。BSP 在每次睡眠事务开始时关闭全部 RTC INT 输出源、
+  与 ESP32 内部 Timer；默认关闭的 `DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 测试模式改用左右键
+  与 GPIO15 RTC INT EXT1，并完全禁用内部 Timer。BSP 在每次睡眠事务开始时关闭全部 RTC INT 输出源、
   清除 AF/TF，保持 GPIO15 内部上拉并等待 10 ms 后读取释放基线；基线为低时不启动 Timer
   或 Light-sleep，基线为高才以 1 Hz 时钟装载 PCF85063 Timer。任一来源唤醒或睡眠入口失败后
   都会停止 Timer 并清除 TF。测试模式在 Light-sleep 期间保持 `RTC_PERIPH` 供电；若 IDF 仍
   因唤醒源预先有效而拒绝睡眠，BSP 会在返回路径再次采样 GPIO15 与 RTC 中断寄存器。左右键唤醒恢复正常交互；
   RTC Timer 唤醒后先同步补算番茄钟，再恢复 UI，阶段完成会重新开启正常清醒窗口。
-
-网页文件管理的完整流程为：
-
-```text
-设备设置页选择“网页文件管理”
-  → app_web_file 检查 /sdcard
-  → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
-  → web_file_service 恢复事务并启动 HTTPD
-  → 浏览器用 6 位访问码换取 Bearer token
-  → handler 串行浏览、下载、事务上传或执行单项文件变更
-  → 设备返回时 Service 安全停止后释放网络租约
-```
-
-运行期间 `app_network` 的链路变化借用回调只通知 `app_web_file_task` 重新读取最新 STA
-事实；断线时设备页暂时清空 URL，重连或 IPv4 变化时只更新 URL，不重启 Service，也不更换
-访问码。Application 把已收敛的完整快照和严格单调展示版本推给 Presenter，UI 只消费
-View Model；离开子页或关闭设置菜单时，只有 Application 明确报告资源已经安全释放才允许退出。
-
-当前开放 `/sdcard` 的浏览、下载、原始 `PUT` 上传、创建目录、常规文件重命名/移动，以及
-常规文件和空目录删除。浏览器多选操作按顺序调用单项接口，不提供跨文件原子事务；仍不包含
-配置编辑、递归目录删除、目录移动/重命名、WebDAV 或 WebSocket。
-
-## 网页文件管理配置与验收状态
-
-- 受版本控制的 `sdkconfig.defaults` 和 `sdkconfig.ci` 已显式启用 FatFs UTF-8、堆分配长文件名
-  并把 FatFs 长文件名上限设为 255 个 UTF-16 代码单元，禁用 HTTPD WebSocket，同时把 URI
-  上限设为 2048 字节；Service 运行期配置八个精确 URI handler。
-- 根 `sdkconfig` 是 `.gitignore` 排除的本地生成文件，本次未复制、修改或提交。用户自行编译前
-  应通过仓库统一配置/构建流程重新生成，或确认本地值已与上述受控源同步：UTF-8 已启用、
-  ANSI/OEM 与 WebSocket 已关闭、URI 上限为 2048。需要编译时只在 DeskSuite 根目录使用
-  `& .\ds.ps1 build deskmate`，不得绕过统一脚本直接调用下层构建工具。
-- 当前功能按用户要求只做代码和静态核查，不运行自动化测试、固件编译或实机验收。500 MiB
-  上传、上传取消/重试、中文及特殊文件名、创建/移动/删除、会话互斥、覆盖恢复、断网/掉电和
-  安全停止等硬件检查仍由用户在目标设备上执行。
 
 ## 规范文档
 

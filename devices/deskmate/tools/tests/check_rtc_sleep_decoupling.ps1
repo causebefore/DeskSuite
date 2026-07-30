@@ -127,13 +127,13 @@ Assert-Contains 'main\application\app_power_task.c' `
 Assert-NotContains 'main\application\app_power_task.c' 'gpio_get_level|device_rtc_read_alarm_flag'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 Assert-Contains 'main\Kconfig.projbuild' `
-    'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,160}default y'
+    'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,160}default n'
 Assert-Contains 'main\Kconfig.projbuild' `
     'DESKMATE_RTC_INT_WAKE_TEST_ENABLED[\s\S]{0,700}RTC_PERIPH'
 Assert-Contains 'main\Kconfig.projbuild' `
     'range\s+10\s+255\s+if\s+DESKMATE_RTC_INT_WAKE_TEST_ENABLED'
 Assert-Contains 'main\Kconfig.projbuild' '关闭全部 RTC INT 输出源'
-Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED=y'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED=n'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC=60'
 Assert-Contains 'main\Kconfig.projbuild' 'DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC'

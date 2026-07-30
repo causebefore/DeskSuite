@@ -293,9 +293,6 @@ extern "C"
  */
     esp_err_t bsp_display_get_info_copy(bsp_display_info_t *out_info);
 
-    /** @brief 把 RGB565 区域同步转换并写入 BSP 内部帧 */
-    esp_err_t bsp_display_write_rgb565_area(int x1, int y1, int x2, int y2, const uint16_t *pixels, int stride_pixels);
-
     /** @brief 把 1 bpp 区域同步转换并写入 BSP 内部帧 */
     esp_err_t bsp_display_write_i1_area(int x1, int y1, int x2, int y2, const uint8_t *pixels, uint32_t stride_bytes);
 
@@ -311,9 +308,6 @@ extern "C"
 
     /** @brief 有界等待已经提交的显示刷新完成 */
     esp_err_t bsp_display_wait_flush_done(uint32_t timeout_ms);
-
-    /** @brief 读取最近一秒显示刷新帧率 */
-    uint32_t bsp_display_get_flush_fps(void);
 
     /** @brief 读取启动后的显示刷新总次数 */
     uint32_t bsp_display_get_total_flush_count(void);

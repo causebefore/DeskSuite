@@ -129,18 +129,33 @@ Application 用户意图/产品时机
     → app_network 串行产品命令与租约
     → Communication network_manager 建立 Wi-Fi/Portal 会话
     → app_network 构造统一后端上下文
-    → DeskMate protocols / firmware_ota / remote_log / voice
+    → DeskMate Product Protocol / firmware_ota / remote_log / voice
       共同读取 URL、Token、稳定设备 ID、产品 ID 与固件目标
-    → 不可变结果事实
-    → app_network 更新 Data 快照并收敛产品状态
-    → Presenter 生成 View Model / 呈现事件
-    → UI 提示
+    → 类型化结果事实
+    → app_network 收敛产品状态
 ```
 
 Communication 不直接调用 Data、Presentation 或 UI，不决定是否保持联网，也不处理产品按键。
 页面状态由设备 Application 本地拥有，页面切换不产生网络请求。
 固件安装成功后的底层强制重启属于 `firmware_ota` 已声明的原子事务；是否发起检查或安装仍由
 Application 决定。
+
+Dashboard 的数据路径不经过四个领域中转组件：
+
+```text
+deskmate_api 执行 HTTP GET 并单次解析 JSON
+    → 完整类型化 Dashboard 结果
+    → dashboard_store 校验并复制整份快照
+    → Weather / Calendar / Mail / Quota Presenter 显式刷新各自 View Model
+    → 统一发布一次 Dashboard 呈现更新
+    → UI Runtime 拉取最新 View Model
+```
+
+协议层拥有 schema、设备 ID、`next_refresh_at_utc` 和四个业务块的唯一 JSON 解析；Data Store
+只提交完整类型化快照，不再次解析 JSON，也不向四个领域组件转发事件。Presenter 不订阅 Data
+事件，而由 `app_network` 在完整快照提交成功后按固定顺序显式刷新。完成四次刷新尝试后只发布
+一次轻量呈现通知，避免一次 Dashboard 响应形成四层中转和四次独立 UI 更新；若单个 Presenter
+刷新失败，它保留上一份 View Model 并记录错误，其余 Presenter 仍可使用新快照。
 
 成功 Dashboard 响应中的 `next_refresh_at_utc` 是清醒态和 Light-sleep 状态下下一次自动同步
 的唯一正常调度权威。`app_network` 在清醒态把它换算为一次性 Timer；`app_power` 在
@@ -157,26 +172,32 @@ ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保�
 ```text
 稳定按键事件
     → app_power 重置活动窗口
-    → Application 等待语音 / OTA / 网络租约收敛
+    → app_voice 有界收敛已经结束会话遗留的实时语音租约
+    → Application 检查语音 / OTA / 网络租约阻止条件
     → 运行中的番茄钟页？
         → 是：app_network 有界停网，UI 保持运行并每秒刷新
-        → 否：app_network 有界停网
-             → app_environment 协作停止
-             → UI Runtime Task 停止
-             → button_service 停止扫描
-             → Device / BSP 按编译配置选择双按键 + 内部 Timer，
-               或双按键 + PCF85063 Timer 的 RTC INT 维护唤醒并进入 Light-sleep
+        → 否：app_voice 有界停止
+             → UI Runtime Task 有界停止
+             → app_network 有界停网
+             → Device / BSP 使用双按键 + 内部 Timer 进入 Light-sleep
+               （显式测试配置可改用双按键 + PCF85063 Timer 的 RTC INT）
     → 维护源唤醒后恢复 UI、同步刷新屏幕，再次停止 UI 并继续睡眠
-    → 按键唤醒后按相反产品顺序恢复并重新开始活动窗口
+    → 按键唤醒后按网络 → 语音 → UI 恢复，提交按键事实并重新开始活动窗口
 ```
 
 无活动截止时间、准备顺序、重试和失败阻断由 `app_power` 的唯一 Application Task 拥有。
+`app_voice_reconcile_network_lease()` 只在语音会话已经空闲时释放本地仍记录的实时语音租约；
+释放失败保留代次并作为普通阻止条件等待下一次有界重试，不直接把电源流程推进到 `BLOCKED`。
 Device/BSP 只提供一次同步轻睡眠事务，并按编译配置锁存 Timer 或 RTC INT 维护唤醒事实，
 不拥有周期刷新策略；RTC INT 测试模式使用调用方传入的间隔装载外部 RTC Timer，并在睡眠
-返回前停止 Timer、清除 TF，但不启用 ESP32 内部 Timer。
+返回前停止 Timer、清除 TF，但不启用 ESP32 内部 Timer。该测试配置默认关闭。
 `app_network` 提供不依赖 UI 或 Light-sleep 的低功耗停网/恢复握手。番茄钟前台离线显示期间
 Dashboard 截止到达时临时恢复网络完成维护，再次停网；用户活动或离开运行中的番茄钟页时恢复
-正常网络策略。详细产品流程见
+正常网络策略。
+
+`app_environment`、`button_service` 和 `rtc_service` 不参与本轮低功耗停启，生命周期保持
+RUNNING；CPU 进入硬件 Light-sleep 后它们自然不执行，唤醒后无需重建 Task、Timer 或回调。
+详细产品流程见
 [低功耗流程](../低功耗流程.md)。
 
 ### UI 更新

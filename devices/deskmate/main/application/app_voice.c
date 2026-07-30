@@ -41,14 +41,14 @@ static wake_arbiter_t s_wake_arbiter;
 /**
  * @brief 释放当前 App 持有的实时语音网络租约
  */
-static esp_err_t release_network_lease_locked(void)
+static esp_err_t release_network_lease_locked(uint32_t timeout_ms)
 {
     if (s_network_lease_generation == 0)
     {
         return ESP_OK;
     }
     const uint32_t  generation = s_network_lease_generation;
-    const esp_err_t err        = app_network_release_realtime_voice_lease(generation, APP_VOICE_LEASE_TIMEOUT_MS);
+    const esp_err_t err        = app_network_release_realtime_voice_lease(generation, timeout_ms);
     if (err != ESP_OK)
     {
         ESP_LOGW(TAG,
@@ -123,7 +123,7 @@ static esp_err_t start_voice_chat(uint32_t duration_ms)
     err                        = voice_service_request_chat(&backend, duration_ms);
     if (err != ESP_OK)
     {
-        (void) release_network_lease_locked();
+        (void) release_network_lease_locked(APP_VOICE_LEASE_TIMEOUT_MS);
     }
     xSemaphoreGive(s_control_lock);
     return err;
@@ -143,7 +143,7 @@ static void on_voice_application_event(void *arg, esp_event_base_t base, int32_t
         if (s_control_lock != NULL)
         {
             xSemaphoreTake(s_control_lock, portMAX_DELAY);
-            (void) release_network_lease_locked();
+            (void) release_network_lease_locked(APP_VOICE_LEASE_TIMEOUT_MS);
             xSemaphoreGive(s_control_lock);
         }
     }
@@ -314,6 +314,31 @@ esp_err_t app_voice_start(uint32_t timeout_ms)
              esp_err_to_name(primary_error),
              esp_err_to_name(recovery_error));
     return primary_error;
+}
+
+esp_err_t app_voice_reconcile_network_lease(uint32_t timeout_ms)
+{
+    ESP_RETURN_ON_FALSE(timeout_ms > 0, ESP_ERR_INVALID_ARG, TAG, "语音网络租约收敛超时无效");
+    if (s_control_lock == NULL)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    xSemaphoreTake(s_control_lock, portMAX_DELAY);
+    if (s_network_lease_generation == 0)
+    {
+        xSemaphoreGive(s_control_lock);
+        return ESP_OK;
+    }
+    if (voice_service_is_busy())
+    {
+        xSemaphoreGive(s_control_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t error = release_network_lease_locked(timeout_ms);
+    xSemaphoreGive(s_control_lock);
+    return error;
 }
 
 esp_err_t app_voice_stop(uint32_t timeout_ms)

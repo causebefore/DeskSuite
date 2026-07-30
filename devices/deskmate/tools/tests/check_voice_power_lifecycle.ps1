@@ -127,6 +127,7 @@ Assert-NotContains $voiceSource 'vTaskDelete(WithCaps)?\s*\('
 Assert-Contains $appVoiceHeader 'app_voice_state_t'
 Assert-Contains $appVoiceHeader 'app_voice_start\s*\('
 Assert-Contains $appVoiceHeader 'app_voice_stop\s*\('
+Assert-Contains $appVoiceHeader 'app_voice_reconcile_network_lease\s*\(\s*uint32_t\s+timeout_ms\s*\)'
 Assert-Contains $appVoiceHeader 'app_voice_deinit\s*\('
 Assert-Contains $appVoiceHeader 'app_voice_get_status_copy\s*\('
 Assert-Contains $appVoiceSource 'APP_VOICE_STATE_STOPPED'
@@ -134,6 +135,13 @@ Assert-Contains $appVoiceSource 'APP_VOICE_STATE_FAILED'
 Assert-Contains $appVoiceSource 'APP_VOICE_STATE_RUNNING'
 Assert-Contains $appVoiceSource 'app_page_get_current\(\)\s*!=\s*PRESENTATION_PAGE_VOICE'
 Assert-Contains $appVoiceSource 'DEVICE_BUTTON_EVENT_RIGHT_LONG'
+Assert-Contains $appVoiceSource 'release_network_lease_locked\s*\(\s*uint32_t\s+timeout_ms\s*\)'
+Assert-InOrder $appVoiceSource @(
+    'esp_err_t app_voice_reconcile_network_lease(uint32_t timeout_ms)',
+    's_network_lease_generation == 0',
+    'voice_service_is_busy()',
+    'release_network_lease_locked(timeout_ms)'
+)
 Assert-InOrder $appVoiceSource @(
     'audio_service_start()',
     'audio_processor_service_start()',
@@ -159,6 +167,10 @@ Assert-Contains $powerTask 'voice\.processor_idle'
 Assert-Contains $powerTask 'voice\.input_active'
 Assert-Contains $powerTask 'voice\.output_active'
 Assert-Contains $powerTask 'voice\.network_lease_held'
+Assert-InOrder $powerTask @(
+    'app_voice_reconcile_network_lease(APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS)',
+    'const uint32_t blockers = collect_runtime_blockers();'
+)
 Assert-InOrder $powerTask @(
     'stop_voice_for_sleep(expected_generation)',
     'stop_ui_for_sleep(expected_generation)',

@@ -149,20 +149,6 @@ extern "C"
     esp_err_t system_clock_sync_from_rtc(void);
 
     /**
-     * @brief 按可信 UTC 时间调度设备 RTC 告警
-     *
-     * 本函数先读取当前可信系统时间，要求目标位于未来且不超过
-     * `CONFIG_DESKMATE_RTC_ALARM_MAX_DELAY_SEC`，随后按当前固定 UTC+8 转换为 RTC
-     * 日历，并使用秒、分、时、日四字段配置硬件告警。RTC 不比较月份和年份，因此必须使用
-     * 有界未来窗口避免远期日期歧义。
-     *
-     * @param[in] utc_timestamp 目标 UTC 时间戳
-     * @return ESP_OK 告警已写入并启用；ESP_ERR_INVALID_STATE 系统时间尚不可信；
-     *         ESP_ERR_INVALID_ARG 目标不在允许窗口；或 RTC 底层错误码
-     */
-    esp_err_t system_clock_schedule_rtc_alarm(time_t utc_timestamp);
-
-    /**
  * @brief 判断当前系统时间是否可信
  *
  * @return true 当前时间已由可信来源校准且仍处于有效范围，false 否则

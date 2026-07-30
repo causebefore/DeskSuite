@@ -60,7 +60,3 @@ void ui_platform_lvgl_unlock(void);
 esp_err_t ui_platform_lvgl_request_refresh(void);
 
 uint32_t ui_platform_lvgl_get_refresh_period(void);
-
-uint32_t ui_platform_lvgl_get_flush_fps(void);
-uint32_t ui_platform_lvgl_get_total_frames(void);
-uint32_t ui_platform_lvgl_get_total_flush_count(void);

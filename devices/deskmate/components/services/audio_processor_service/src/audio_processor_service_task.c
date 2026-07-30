@@ -5,31 +5,30 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#include "task_stack_stats.h"
 
 static const char *TAG = "audio_processor_task";
 
-#define APS_FEED_TASK_STACK 4096
-#define APS_FEED_TASK_PRIO  3
-#define APS_FETCH_TASK_STACK 4096
-#define APS_FETCH_TASK_PRIO  4
+#define APS_FEED_TASK_STACK    4096
+#define APS_FEED_TASK_PRIO     3
+#define APS_FETCH_TASK_STACK   4096
+#define APS_FETCH_TASK_PRIO    4
 
-#define APS_TASK_FEED_RUN       BIT0
-#define APS_TASK_FETCH_RUN      BIT1
-#define APS_TASK_EXIT_REQUEST   BIT2
-#define APS_TASK_FEED_PARKED    BIT3
-#define APS_TASK_FETCH_PARKED   BIT4
-#define APS_TASK_DRAIN_REQUEST  BIT5
-#define APS_TASK_DRAIN_DONE     BIT6
-#define APS_TASK_FEED_EXITED    BIT7
-#define APS_TASK_FETCH_EXITED   BIT8
+#define APS_TASK_FEED_RUN      BIT0
+#define APS_TASK_FETCH_RUN     BIT1
+#define APS_TASK_EXIT_REQUEST  BIT2
+#define APS_TASK_FEED_PARKED   BIT3
+#define APS_TASK_FETCH_PARKED  BIT4
+#define APS_TASK_DRAIN_REQUEST BIT5
+#define APS_TASK_DRAIN_DONE    BIT6
+#define APS_TASK_FEED_EXITED   BIT7
+#define APS_TASK_FETCH_EXITED  BIT8
 
-static EventGroupHandle_t             s_events;
-static TaskHandle_t                   s_feed_task;
-static TaskHandle_t                   s_fetch_task;
-static portMUX_TYPE                   s_task_lock = portMUX_INITIALIZER_UNLOCKED;
-static audio_processor_feed_step_t    s_feed_step;
-static audio_processor_fetch_step_t   s_fetch_step;
+static EventGroupHandle_t           s_events;
+static TaskHandle_t                 s_feed_task;
+static TaskHandle_t                 s_fetch_task;
+static portMUX_TYPE                 s_task_lock = portMUX_INITIALIZER_UNLOCKED;
+static audio_processor_feed_step_t  s_feed_step;
+static audio_processor_fetch_step_t s_fetch_step;
 
 static TickType_t timeout_ticks(uint32_t timeout_ms)
 {
@@ -59,32 +58,24 @@ static EventBits_t created_parked_mask(void)
 static void audio_processor_feed_task(void *arg)
 {
     (void) arg;
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
     xEventGroupSetBits(s_events, APS_TASK_FEED_PARKED);
     for (;;)
     {
         const EventBits_t bits =
-            xEventGroupWaitBits(s_events,
-                                APS_TASK_FEED_RUN | APS_TASK_EXIT_REQUEST,
-                                pdFALSE,
-                                pdFALSE,
-                                portMAX_DELAY);
+            xEventGroupWaitBits(s_events, APS_TASK_FEED_RUN | APS_TASK_EXIT_REQUEST, pdFALSE, pdFALSE, portMAX_DELAY);
         if ((bits & APS_TASK_EXIT_REQUEST) != 0)
         {
             break;
         }
 
         xEventGroupClearBits(s_events, APS_TASK_FEED_PARKED);
-        while ((xEventGroupGetBits(s_events) & (APS_TASK_FEED_RUN | APS_TASK_EXIT_REQUEST))
-               == APS_TASK_FEED_RUN)
+        while ((xEventGroupGetBits(s_events) & (APS_TASK_FEED_RUN | APS_TASK_EXIT_REQUEST)) == APS_TASK_FEED_RUN)
         {
-            task_stack_stats_log_if_due(&stack_stats, "aps_feed");
             s_feed_step();
         }
         xEventGroupSetBits(s_events, APS_TASK_FEED_PARKED);
     }
 
-    task_stack_stats_log_now("aps_feed");
     xEventGroupSetBits(s_events, APS_TASK_FEED_PARKED | APS_TASK_FEED_EXITED);
     taskENTER_CRITICAL(&s_task_lock);
     s_feed_task = NULL;
@@ -98,26 +89,19 @@ static void audio_processor_feed_task(void *arg)
 static void audio_processor_fetch_task(void *arg)
 {
     (void) arg;
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
     xEventGroupSetBits(s_events, APS_TASK_FETCH_PARKED);
     for (;;)
     {
         const EventBits_t bits =
-            xEventGroupWaitBits(s_events,
-                                APS_TASK_FETCH_RUN | APS_TASK_EXIT_REQUEST,
-                                pdFALSE,
-                                pdFALSE,
-                                portMAX_DELAY);
+            xEventGroupWaitBits(s_events, APS_TASK_FETCH_RUN | APS_TASK_EXIT_REQUEST, pdFALSE, pdFALSE, portMAX_DELAY);
         if ((bits & APS_TASK_EXIT_REQUEST) != 0)
         {
             break;
         }
 
         xEventGroupClearBits(s_events, APS_TASK_FETCH_PARKED);
-        while ((xEventGroupGetBits(s_events) & (APS_TASK_FETCH_RUN | APS_TASK_EXIT_REQUEST))
-               == APS_TASK_FETCH_RUN)
+        while ((xEventGroupGetBits(s_events) & (APS_TASK_FETCH_RUN | APS_TASK_EXIT_REQUEST)) == APS_TASK_FETCH_RUN)
         {
-            task_stack_stats_log_if_due(&stack_stats, "aps_fetch");
             const bool draining = (xEventGroupGetBits(s_events) & APS_TASK_DRAIN_REQUEST) != 0;
             if (s_fetch_step(draining))
             {
@@ -129,7 +113,6 @@ static void audio_processor_fetch_task(void *arg)
         xEventGroupSetBits(s_events, APS_TASK_FETCH_PARKED);
     }
 
-    task_stack_stats_log_now("aps_fetch");
     xEventGroupSetBits(s_events, APS_TASK_FETCH_PARKED | APS_TASK_FETCH_EXITED);
     taskENTER_CRITICAL(&s_task_lock);
     s_fetch_task = NULL;
@@ -137,7 +120,7 @@ static void audio_processor_fetch_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t audio_processor_task_runtime_init(audio_processor_feed_step_t feed_step,
+esp_err_t audio_processor_task_runtime_init(audio_processor_feed_step_t  feed_step,
                                             audio_processor_fetch_step_t fetch_step)
 {
     ESP_RETURN_ON_FALSE(feed_step != NULL && fetch_step != NULL, ESP_ERR_INVALID_ARG, TAG, "AFE Task 回调为空");
@@ -166,8 +149,8 @@ esp_err_t audio_processor_task_runtime_ensure_created(void)
     ESP_RETURN_ON_FALSE(!partial, ESP_ERR_INVALID_STATE, TAG, "AFE Task 仍在收敛退出");
 
     xEventGroupClearBits(s_events,
-                         APS_TASK_EXIT_REQUEST | APS_TASK_FEED_EXITED | APS_TASK_FETCH_EXITED
-                             | APS_TASK_FEED_PARKED | APS_TASK_FETCH_PARKED);
+                         APS_TASK_EXIT_REQUEST | APS_TASK_FEED_EXITED | APS_TASK_FETCH_EXITED | APS_TASK_FEED_PARKED
+                             | APS_TASK_FETCH_PARKED);
     if (xTaskCreate(audio_processor_fetch_task,
                     "aps_fetch",
                     APS_FETCH_TASK_STACK,
@@ -179,21 +162,12 @@ esp_err_t audio_processor_task_runtime_ensure_created(void)
         s_fetch_task = NULL;
         return ESP_ERR_NO_MEM;
     }
-    if (xTaskCreate(audio_processor_feed_task,
-                    "aps_feed",
-                    APS_FEED_TASK_STACK,
-                    NULL,
-                    APS_FEED_TASK_PRIO,
-                    &s_feed_task)
+    if (xTaskCreate(audio_processor_feed_task, "aps_feed", APS_FEED_TASK_STACK, NULL, APS_FEED_TASK_PRIO, &s_feed_task)
         != pdPASS)
     {
         s_feed_task = NULL;
         xEventGroupSetBits(s_events, APS_TASK_EXIT_REQUEST | APS_TASK_FETCH_RUN);
-        (void) xEventGroupWaitBits(s_events,
-                                   APS_TASK_FETCH_EXITED,
-                                   pdFALSE,
-                                   pdTRUE,
-                                   pdMS_TO_TICKS(1200));
+        (void) xEventGroupWaitBits(s_events, APS_TASK_FETCH_EXITED, pdFALSE, pdTRUE, pdMS_TO_TICKS(1200));
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
@@ -202,8 +176,7 @@ esp_err_t audio_processor_task_runtime_ensure_created(void)
 void audio_processor_task_runtime_begin_processing(void)
 {
     xEventGroupClearBits(s_events,
-                         APS_TASK_DRAIN_REQUEST | APS_TASK_DRAIN_DONE | APS_TASK_FEED_PARKED
-                             | APS_TASK_FETCH_PARKED);
+                         APS_TASK_DRAIN_REQUEST | APS_TASK_DRAIN_DONE | APS_TASK_FEED_PARKED | APS_TASK_FETCH_PARKED);
     xEventGroupSetBits(s_events, APS_TASK_FEED_RUN | APS_TASK_FETCH_RUN);
 }
 
@@ -222,35 +195,27 @@ esp_err_t audio_processor_task_runtime_park(uint32_t timeout_ms)
         return ESP_OK;
     }
     xEventGroupClearBits(s_events, APS_TASK_FEED_RUN | APS_TASK_FETCH_RUN | APS_TASK_DRAIN_REQUEST);
-    const EventBits_t bits =
-        xEventGroupWaitBits(s_events, parked_mask, pdFALSE, pdTRUE, timeout_ticks(timeout_ms));
+    const EventBits_t bits = xEventGroupWaitBits(s_events, parked_mask, pdFALSE, pdTRUE, timeout_ticks(timeout_ms));
     return (bits & parked_mask) == parked_mask ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 esp_err_t audio_processor_task_runtime_wait_drain_and_park(uint32_t timeout_ms)
 {
     ESP_RETURN_ON_FALSE(timeout_ms > 0, ESP_ERR_INVALID_ARG, TAG, "AFE drain 超时无效");
-    const TickType_t start_tick = xTaskGetTickCount();
-    const TickType_t total      = timeout_ticks(timeout_ms);
+    const TickType_t  start_tick = xTaskGetTickCount();
+    const TickType_t  total      = timeout_ticks(timeout_ms);
     const EventBits_t drain_bits =
-        xEventGroupWaitBits(s_events,
-                            APS_TASK_FEED_PARKED | APS_TASK_DRAIN_DONE,
-                            pdFALSE,
-                            pdTRUE,
-                            total);
-    if ((drain_bits & (APS_TASK_FEED_PARKED | APS_TASK_DRAIN_DONE))
-        != (APS_TASK_FEED_PARKED | APS_TASK_DRAIN_DONE))
+        xEventGroupWaitBits(s_events, APS_TASK_FEED_PARKED | APS_TASK_DRAIN_DONE, pdFALSE, pdTRUE, total);
+    if ((drain_bits & (APS_TASK_FEED_PARKED | APS_TASK_DRAIN_DONE)) != (APS_TASK_FEED_PARKED | APS_TASK_DRAIN_DONE))
     {
-        xEventGroupClearBits(s_events,
-                             APS_TASK_FEED_RUN | APS_TASK_FETCH_RUN | APS_TASK_DRAIN_REQUEST);
+        xEventGroupClearBits(s_events, APS_TASK_FEED_RUN | APS_TASK_FETCH_RUN | APS_TASK_DRAIN_REQUEST);
         return ESP_ERR_TIMEOUT;
     }
 
     xEventGroupClearBits(s_events, APS_TASK_FETCH_RUN | APS_TASK_DRAIN_REQUEST);
-    const TickType_t elapsed   = xTaskGetTickCount() - start_tick;
-    const TickType_t remaining = elapsed < total ? total - elapsed : 1;
-    const EventBits_t parked =
-        xEventGroupWaitBits(s_events, APS_TASK_FETCH_PARKED, pdFALSE, pdTRUE, remaining);
+    const TickType_t  elapsed   = xTaskGetTickCount() - start_tick;
+    const TickType_t  remaining = elapsed < total ? total - elapsed : 1;
+    const EventBits_t parked    = xEventGroupWaitBits(s_events, APS_TASK_FETCH_PARKED, pdFALSE, pdTRUE, remaining);
     return (parked & APS_TASK_FETCH_PARKED) != 0 ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
@@ -277,14 +242,9 @@ esp_err_t audio_processor_task_runtime_deinit(uint32_t timeout_ms)
     if (exit_mask != 0)
     {
         xEventGroupClearBits(s_events, exit_mask);
-        xEventGroupSetBits(s_events,
-                           APS_TASK_EXIT_REQUEST | APS_TASK_FEED_RUN | APS_TASK_FETCH_RUN);
-        const EventBits_t bits =
-            xEventGroupWaitBits(s_events, exit_mask, pdFALSE, pdTRUE, timeout_ticks(timeout_ms));
-        ESP_RETURN_ON_FALSE((bits & exit_mask) == exit_mask,
-                            ESP_ERR_TIMEOUT,
-                            TAG,
-                            "AFE Task 协作退出超时");
+        xEventGroupSetBits(s_events, APS_TASK_EXIT_REQUEST | APS_TASK_FEED_RUN | APS_TASK_FETCH_RUN);
+        const EventBits_t bits = xEventGroupWaitBits(s_events, exit_mask, pdFALSE, pdTRUE, timeout_ticks(timeout_ms));
+        ESP_RETURN_ON_FALSE((bits & exit_mask) == exit_mask, ESP_ERR_TIMEOUT, TAG, "AFE Task 协作退出超时");
     }
 
     vEventGroupDelete(s_events);

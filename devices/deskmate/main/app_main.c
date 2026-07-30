@@ -16,7 +16,6 @@
 #include "audio_processor_service.h"
 #include "audio_service.h"
 #include "button_service.h"
-#include "calendar.h"
 #include "calendar_presenter.h"
 #include "dashboard_store.h"
 #include "device_audio.h"
@@ -29,11 +28,9 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "home_presenter.h"
-#include "mail.h"
 #include "mail_presenter.h"
 #include "ota_presenter.h"
 #include "pomodoro_presenter.h"
-#include "quota.h"
 #include "quota_presenter.h"
 #include "rtc_service.h"
 #include "sdkconfig.h"
@@ -43,7 +40,6 @@
 #include "ui_runtime.h"
 #include "voice_presenter.h"
 #include "voice_service.h"
-#include "weather.h"
 #include "weather_presenter.h"
 #include "web_file_presenter.h"
 #include "web_file_service.h"
@@ -352,10 +348,6 @@ cleanup:
 static esp_err_t init_runtime_capabilities(void)
 {
     ESP_RETURN_ON_ERROR(dashboard_store_init(), TAG, "初始化 Dashboard Store 失败");
-    ESP_RETURN_ON_ERROR(weather_init(), TAG, "初始化天气数据失败");
-    ESP_RETURN_ON_ERROR(calendar_init(), TAG, "初始化日历数据失败");
-    ESP_RETURN_ON_ERROR(mail_init(), TAG, "初始化邮箱数据失败");
-    ESP_RETURN_ON_ERROR(quota_init(), TAG, "初始化限额数据失败");
     ESP_RETURN_ON_ERROR(init_input_environment_runtime(), TAG, "初始化输入与环境运行时失败");
     ESP_RETURN_ON_ERROR(rtc_service_init(), TAG, "初始化 RTC Service 失败");
     ESP_RETURN_ON_ERROR(rtc_service_set_event_callback_borrow(app_main_rtc_event_callback, NULL),

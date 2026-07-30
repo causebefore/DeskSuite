@@ -10,7 +10,6 @@
 #include "freertos/task.h"
 #include "network_manager.h"
 #include "system_filesystem.h"
-#include "task_stack_stats.h"
 #include "web_file_service.h"
 
 #define APP_WEB_FILE_LEASE_TIMEOUT_MS         1000U
@@ -399,10 +398,9 @@ static esp_err_t start_owned_resources(void)
     return ESP_OK;
 }
 
-/** @brief 输出最终栈水位并删除已经与全局句柄解绑的当前 Task */
+/** @brief 删除已经与全局句柄解绑的当前 Task */
 static void delete_detached_task(void)
 {
-    task_stack_stats_log_now("app_web_file_task");
     vTaskDelete(NULL);
 }
 

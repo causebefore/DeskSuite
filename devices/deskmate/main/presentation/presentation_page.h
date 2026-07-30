@@ -26,6 +26,5 @@ typedef enum
     PRESENTATION_PAGE_MAIL,     /*!< 邮箱页 */
     PRESENTATION_PAGE_QUOTA,    /*!< 限额页 */
     PRESENTATION_PAGE_SETTINGS, /*!< 设置页 */
-    PRESENTATION_PAGE_TEST,     /*!< 测试页 */
     PRESENTATION_PAGE_COUNT,    /*!< 页面总数（哨兵值） */
 } presentation_page_id_t;

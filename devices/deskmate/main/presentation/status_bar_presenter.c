@@ -72,8 +72,6 @@ static const char *page_id_to_title(presentation_page_id_t page)
             return "限额";
         case PRESENTATION_PAGE_SETTINGS:
             return "设置";
-        case PRESENTATION_PAGE_TEST:
-            return "测试";
         default:
             return "首页";
     }

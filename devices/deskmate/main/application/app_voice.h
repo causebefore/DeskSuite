@@ -54,6 +54,17 @@ esp_err_t app_voice_init(void);
 esp_err_t app_voice_start(uint32_t timeout_ms);
 
 /**
+ * @brief 在语音回合空闲时收敛残留的实时语音网络租约
+ *
+ * 未持有租约时幂等返回 ESP_OK；存在活动语音回合时不会释放租约。
+ *
+ * @param[in] timeout_ms 等待网络租约释放完成的最长时间，必须大于 0
+ * @return ESP_OK 未持有租约或已经释放；ESP_ERR_INVALID_ARG 超时为零；
+ *         ESP_ERR_INVALID_STATE 尚未初始化或仍有活动语音回合；其他值表示租约释放失败
+ */
+esp_err_t app_voice_reconcile_network_lease(uint32_t timeout_ms);
+
+/**
  * @brief 在会话和网络租约空闲时反序停止语音 Runtime
  *
  * 本函数不取消活动语音会话。返回 ESP_OK 时 AFE Task 已停泊，输入输出均已关闭。

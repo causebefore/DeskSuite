@@ -15,7 +15,6 @@
 #include "pomodoro_presenter.h"
 #include "presentation_dispatch.h"
 #include "system_clock.h"
-#include "task_stack_stats.h"
 
 #define US_PER_SECOND 1000000LL
 #define US_PER_MINUTE (60LL * US_PER_SECOND)
@@ -677,7 +676,6 @@ static bool handle_command(const app_pomodoro_command_t *command)
 void app_pomodoro_task(void *arg)
 {
     (void) arg;
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
     xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
     normalize_date_locked();
     (void) reconcile_locked();
@@ -688,14 +686,12 @@ void app_pomodoro_task(void *arg)
     app_pomodoro_command_t command;
     while (xQueueReceive(g_app_pomodoro_runtime.queue, &command, portMAX_DELAY) == pdTRUE)
     {
-        task_stack_stats_log_if_due(&stack_stats, "app_pomodoro_task");
         if (!handle_command(&command))
         {
             break;
         }
     }
 
-    task_stack_stats_log_now("app_pomodoro_task");
     g_app_pomodoro_runtime.task = NULL;
     (void) xSemaphoreGive(g_app_pomodoro_runtime.stopped_sem);
     vTaskDelete(NULL);

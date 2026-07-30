@@ -1,17 +1,16 @@
 /*
- * 文件职责：订阅邮件事实事件并维护邮箱页 View Model。
+ * 文件职责：从 Dashboard Store 刷新并维护邮箱页 View Model。
  */
 #include "mail_presenter.h"
 
 #include <stdio.h>
 #include <string.h>
 
-#include "presentation_dispatch.h"
-#include "mail.h"
+#include "dashboard_store.h"
 
 static mail_view_model_t s_view;
 
-static void update_view_from_service(const mail_snapshot_t *data)
+static void update_view_from_store(const deskmate_api_dashboard_mail_t *data)
 {
     if (data == NULL || !data->valid)
     {
@@ -40,33 +39,23 @@ static void update_view_from_service(const mail_snapshot_t *data)
     s_view.status = (s_view.message_count > 0) ? PRESENTATION_DATA_OK : PRESENTATION_DATA_EMPTY;
 }
 
-static void on_mail_event(void *arg, esp_event_base_t base, int32_t id, void *data)
-{
-    (void) arg;
-    (void) base;
-    (void) data;
-
-    mail_snapshot_t svc;
-    if (mail_get_snapshot(&svc) == ESP_OK)
-    {
-        update_view_from_service(&svc);
-    }
-
-    (void) presentation_dispatch_status_update();
-}
-
 esp_err_t mail_presenter_init(void)
 {
     memset(&s_view, 0, sizeof(s_view));
     s_view.status = PRESENTATION_DATA_EMPTY;
+    return ESP_OK;
+}
 
-    mail_snapshot_t svc;
-    if (mail_get_snapshot(&svc) == ESP_OK)
+esp_err_t mail_presenter_refresh(void)
+{
+    deskmate_api_dashboard_mail_t data;
+    const esp_err_t               error = dashboard_store_get_mail_copy(&data);
+    if (error != ESP_OK)
     {
-        update_view_from_service(&svc);
+        return error;
     }
-
-    return esp_event_handler_register(MAIL_EVENT, ESP_EVENT_ANY_ID, on_mail_event, NULL);
+    update_view_from_store(&data);
+    return ESP_OK;
 }
 
 void mail_presenter_get_view_copy(mail_view_model_t *out_view)

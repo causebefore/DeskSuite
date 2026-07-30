@@ -18,7 +18,6 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "system_clock.h"
-#include "task_stack_stats.h"
 #include "ui_runtime.h"
 
 #define APP_POWER_TASK_STACK_SIZE               6144U
@@ -929,11 +928,9 @@ static void wait_until_stopped(void)
 static void app_power_task(void *arg)
 {
     (void) arg;
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
 
     for (;;)
     {
-        task_stack_stats_log_if_due(&stack_stats, "app_power_task");
         set_status(APP_POWER_STATE_AWAKE, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
         wait_awake_window();
         if (stop_is_requested())
@@ -942,6 +939,7 @@ static void app_power_task(void *arg)
         }
 
         set_state_step(APP_POWER_STATE_AWAKE, APP_POWER_STEP_CHECK_BLOCKERS);
+        (void) app_voice_reconcile_network_lease(APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS);
         const uint32_t blockers = collect_runtime_blockers();
         set_blockers(blockers);
         if (blockers != APP_POWER_BLOCKER_NONE)
@@ -978,7 +976,6 @@ static void app_power_task(void *arg)
         break;
     }
 
-    task_stack_stats_log_now("app_power_task");
     taskENTER_CRITICAL(&s_lock);
     s_state          = APP_POWER_STATE_STOPPED;
     s_step           = APP_POWER_STEP_NONE;

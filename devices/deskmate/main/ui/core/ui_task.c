@@ -17,7 +17,6 @@
 #include "freertos/task.h"
 #include "presentation_dispatch.h"
 #include "sdkconfig.h"
-#include "task_stack_stats.h"
 #include "ui_main.h"
 #include "ui_platform_font.h"
 #include "ui_platform_lvgl.h"
@@ -909,14 +908,12 @@ static void delete_current_task(void)
 static void ui_runtime_task(void *arg)
 {
     (void) arg;
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
 
-    const esp_err_t init_result    = initialize_runtime();
+    const esp_err_t init_result = initialize_runtime();
     if (init_result != ESP_OK)
     {
         clear_current_task_handle();
         (void) complete_startup(init_result);
-        task_stack_stats_log_now("ui_runtime_task");
         vTaskDelete(NULL);
         return;
     }
@@ -925,7 +922,6 @@ static void ui_runtime_task(void *arg)
     if (start_result != ESP_OK)
     {
         rollback_runtime();
-        task_stack_stats_log_now("ui_runtime_task");
         delete_current_task();
         return;
     }
@@ -934,7 +930,6 @@ static void ui_runtime_task(void *arg)
     ui_msg_t          message;
     for (;;)
     {
-        task_stack_stats_log_if_due(&stack_stats, "ui_runtime_task");
         for (;;)
         {
             if (xQueueReceive(s_control_queue, &control, 0) == pdTRUE)
@@ -978,7 +973,6 @@ static void ui_runtime_task(void *arg)
     }
 
 stopped:
-    task_stack_stats_log_now("ui_runtime_task");
     vTaskDelete(NULL);
 }
 

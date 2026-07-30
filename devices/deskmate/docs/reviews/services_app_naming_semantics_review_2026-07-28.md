@@ -102,8 +102,8 @@
 以下内容不属于本次 Services / Application 范围，已记录到
 `docs/architecture/deskmate_naming_audit.md`，不混入本轮提交：
 
-- Data 层 `calendar_get_snapshot()`、`dashboard_store_get_snapshot()` 等缓存 Getter 的
-  `_copy` 迁移；
+后续 Dashboard 单次解析收敛已经删除四个中转 Data Getter 与完整 Store snapshot，剩余候选为：
+
 - UI / Presentation 层若干 `_status_t` enum 的形态核对；
 - `UI_USER_INTENT_SCREEN_LOADED` 从用户意图协议中拆出 UI 生命周期事实；
 - Dashboard `sync` 是否应改为 `refresh` 的产品语义确认。

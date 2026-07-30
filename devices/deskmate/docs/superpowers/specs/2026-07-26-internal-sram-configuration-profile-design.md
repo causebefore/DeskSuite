@@ -30,7 +30,8 @@
 
 ## 3. 配置变更
 
-所有配置同时写入 `sdkconfig.defaults` 和当前 `sdkconfig`。
+配置写入受版本控制的 `sdkconfig.defaults`。根 `sdkconfig` 是本地生成文件，应通过 DeskSuite
+统一配置/构建流程重新生成，不作为规范源维护。
 
 ### 3.1 静态内存与普通分配
 
@@ -116,7 +117,7 @@ TLS TX/RX 缓冲按需创建并在使用后释放；握手完成后释放证书�
 - `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`
 - `CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768`
 - 16 KiB Instruction Cache
-- 现有 CPU 频率、双核模式与日志级别
+- 最大 CPU 频率配置、双核模式与日志级别
 - 所有 Task 栈大小和栈内外部 RAM 属性
 - Flash ROM 实现选择
 - OTA Task 和 OTA 生命周期
@@ -125,13 +126,14 @@ TLS TX/RX 缓冲按需创建并在使用后释放；握手完成后释放证书�
 
 新增 PowerShell 结构回归检查，验证：
 
-- `sdkconfig.defaults` 与 `sdkconfig` 的显式配置一致。
+- `sdkconfig.defaults` 明确声明本配置档。
 - 外部 BSS、`-Os`、16 KiB Data Cache、低 Wi-Fi 缓冲、TLS 动态缓冲均已启用。
 - Wi-Fi/SPI/Event/libc IRAM 配置均关闭，Heap 放入 Flash。
 - PSRAM 优先分配和 32 KiB 内部 DMA 保留池未被误改。
 - OTA 源文件不在本任务改动列表中。
 
-按照仓库规则，本任务未收到编译授权，不执行构建。后续显式运行 `.\dm.ps1 build` 后，应检查：
+后续获得明确编译授权时，应从 DeskSuite 根目录运行
+`& .\ds.ps1 build deskmate`，并检查：
 
 - Kconfig 不存在依赖冲突。
 - map 中 `.ext_ram.bss` 增加、内部 `.dram0.bss` 和 `.iram0.text` 下降。

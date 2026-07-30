@@ -12,11 +12,9 @@
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_rom_sys.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "task_stack_stats.h"
 
 #define RLCD_BYTES_PER_ROW          (BOARD_RLCD_WIDTH / 8)
 #define RLCD_BLOCK_ROWS             (BOARD_RLCD_HEIGHT / 4)
@@ -37,27 +35,9 @@
 #define RLCD_PARKED_OUTPUT_MASK                                                                \
     ((1ULL << BOARD_RLCD_PIN_DC) | (1ULL << BOARD_RLCD_PIN_CS) | (1ULL << BOARD_RLCD_PIN_SCLK) \
      | (1ULL << BOARD_RLCD_PIN_MOSI) | (1ULL << BOARD_RLCD_PIN_RST))
-/* 显示行为/TE 时序/判黑阈值/极性见 Kconfig: DeskMate Display */
+/* 显示行为、TE 时序和极性见 Kconfig: DeskMate Display */
 
 static const char *TAG = "bsp_display";
-
-typedef struct
-{
-    uint32_t frame_count;
-    uint32_t area_count;
-    uint32_t dirty_bytes;
-    uint32_t tx_bytes;
-    uint32_t interval_min_us;
-    uint32_t interval_max_us;
-    uint64_t convert_us;
-    uint64_t wait_prev_us;
-    uint64_t copy_us;
-    uint64_t cmd_us;
-    uint64_t te_us;
-    uint64_t queue_us;
-    uint64_t dma_us;
-    uint64_t interval_us;
-} display_perf_stats_t;
 
 typedef struct
 {
@@ -72,8 +52,6 @@ typedef struct
     size_t  payload_len;
 } rlcd_flush_window_t;
 
-static uint32_t             s_partial_flush_count;
-static uint32_t             s_partial_full_count;
 static spi_device_handle_t  s_lcd_spi;
 static esp_pm_lock_handle_t s_bus_timing_lock;
 static SemaphoreHandle_t    s_flush_mutex;
@@ -119,19 +97,12 @@ typedef struct
 
 static dirty_rect_t s_dirty_rects[RLCD_MAX_DIRTY_RECTS];
 static int          s_dirty_count;
-static uint32_t     s_flush_fps;
-static uint32_t     s_flush_count_window;
 static uint32_t     s_total_flush_count;
-static int64_t      s_flush_window_start_us;
-static int64_t      s_dma_start_us;
 /* spi_device_queue_trans 内部存储指向 spi_transaction_t 的指针，直到
  * spi_device_get_trans_result 才通过它回读 tx_buffer 判断是否需要释放。
  * 栈变量在 lcd_queue_chunk 返回后失效，必须用持久存储。display task
  * 串行处理（queue 后必等 get_result 再发下一帧），单实例即可。 */
-static spi_transaction_t    s_spi_transaction;
-static int64_t              s_last_frame_done_us;
-static int64_t              s_perf_window_start_us;
-static display_perf_stats_t s_perf_stats;
+static spi_transaction_t s_spi_transaction;
 
 static void IRAM_ATTR te_gpio_isr(void *arg)
 {
@@ -338,7 +309,7 @@ static esp_err_t lcd_init_te_gpio(void)
     s_te_enabled = CONFIG_DESKMATE_DISPLAY_TE_SYNC != 0;
     if (!s_te_enabled)
     {
-        ESP_LOGI(TAG, "TE 同步等待默认关闭，仅保留 GPIO ISR 供后续诊断");
+        ESP_LOGI(TAG, "TE 同步等待已关闭，仅保留 GPIO ISR 供后续诊断");
     }
     return ESP_OK;
 }
@@ -614,7 +585,7 @@ static int make_dirty_windows(rlcd_flush_window_t *windows, int max_windows)
 }
 
 /* 将 dirty 矩形对应的 framebuffer 区域从 src 复制到 dst，保持双缓冲一致。 */
-static size_t copy_dirty_region(uint8_t *dst, const uint8_t *src, const dirty_rect_t *rect)
+static void copy_dirty_region(uint8_t *dst, const uint8_t *src, const dirty_rect_t *rect)
 {
     int byte_x1  = rect->x1 >> 1;
     int byte_x2  = rect->x2 >> 1;
@@ -644,110 +615,10 @@ static size_t copy_dirty_region(uint8_t *dst, const uint8_t *src, const dirty_re
     }
 
     const size_t block_count = (size_t) (block_y2 - block_y1 + 1);
-    size_t       copied      = 0;
     for (int byte_x = byte_x1; byte_x <= byte_x2; ++byte_x)
     {
         const size_t offset = (size_t) byte_x * RLCD_BLOCK_ROWS + (size_t) block_y1;
         memcpy(dst + offset, src + offset, block_count);
-        copied += block_count;
-    }
-    return copied;
-}
-
-static inline bool rgb565_is_black_fast(uint16_t color)
-{
-    if (color == 0x0000)
-    {
-        return true;
-    }
-    if (color == 0xffff)
-    {
-        return false;
-    }
-
-    const uint32_t r         = (uint32_t) ((color >> 11) & 0x1f);
-    const uint32_t g         = (uint32_t) ((color >> 5) & 0x3f);
-    const uint32_t b         = (uint32_t) (color & 0x1f);
-    const uint32_t luminance = r * 77U + g * 150U + b * 29U;
-    return luminance < (uint32_t) CONFIG_DESKMATE_DISPLAY_RGB565_BLACK_THRESHOLD;
-}
-
-static inline void write_rgb565_pixel(uint8_t *fb, int x, uint8_t row_bit_base, uint16_t block_y, uint16_t color)
-{
-    const size_t  offset = (size_t) (x >> 1) * RLCD_BLOCK_ROWS + block_y;
-    const uint8_t mask   = (uint8_t) (1U << (7U - (row_bit_base + (uint8_t) (x & 0x01))));
-
-    if (rgb565_is_black_fast(color))
-    {
-        fb[offset] &= (uint8_t) ~mask;
-    }
-    else
-    {
-        fb[offset] |= mask;
-    }
-}
-
-static inline void write_rgb565_pair(uint8_t *fb, int even_x, uint16_t block_y, uint8_t left_mask, uint8_t right_mask,
-                                     uint8_t pair_mask, const uint16_t *pixels)
-{
-    const size_t offset = (size_t) (even_x >> 1) * RLCD_BLOCK_ROWS + block_y;
-    uint8_t      value  = 0;
-
-    if (!rgb565_is_black_fast(pixels[0]))
-    {
-        value |= left_mask;
-    }
-    if (!rgb565_is_black_fast(pixels[1]))
-    {
-        value |= right_mask;
-    }
-
-    fb[offset] = (uint8_t) ((fb[offset] & (uint8_t) ~pair_mask) | value);
-}
-
-static void write_rgb565_row(uint8_t *fb, int x1, int x2, int y, const uint16_t *pixels)
-{
-    const uint16_t inv_y        = (uint16_t) (BOARD_RLCD_HEIGHT - 1 - y);
-    const uint16_t block_y      = (uint16_t) (inv_y >> 2);
-    const uint8_t  row_bit_base = (uint8_t) ((inv_y & 0x03U) << 1);
-    const uint8_t  left_mask    = (uint8_t) (1U << (7U - row_bit_base));
-    const uint8_t  right_mask   = (uint8_t) (1U << (6U - row_bit_base));
-    const uint8_t  pair_mask    = (uint8_t) (left_mask | right_mask);
-
-    int x                       = x1;
-    if ((x & 0x01) != 0 && x <= x2)
-    {
-        write_rgb565_pixel(fb, x, row_bit_base, block_y, *pixels++);
-        ++x;
-    }
-
-    for (; x + 1 <= x2; x += 2, pixels += 2)
-    {
-        write_rgb565_pair(fb, x, block_y, left_mask, right_mask, pair_mask, pixels);
-    }
-
-    if (x <= x2)
-    {
-        write_rgb565_pixel(fb, x, row_bit_base, block_y, *pixels);
-    }
-}
-
-static void write_rgb565_fullscreen(uint8_t *fb, const uint16_t *pixels)
-{
-    for (int y = 0; y < BOARD_RLCD_HEIGHT; ++y)
-    {
-        const uint16_t  inv_y        = (uint16_t) (BOARD_RLCD_HEIGHT - 1 - y);
-        const uint16_t  block_y      = (uint16_t) (inv_y >> 2);
-        const uint8_t   row_bit_base = (uint8_t) ((inv_y & 0x03U) << 1);
-        const uint8_t   left_mask    = (uint8_t) (1U << (7U - row_bit_base));
-        const uint8_t   right_mask   = (uint8_t) (1U << (6U - row_bit_base));
-        const uint8_t   pair_mask    = (uint8_t) (left_mask | right_mask);
-        const uint16_t *row          = pixels + (size_t) y * BOARD_RLCD_WIDTH;
-
-        for (int x = 0; x < BOARD_RLCD_WIDTH; x += 2)
-        {
-            write_rgb565_pair(fb, x, block_y, left_mask, right_mask, pair_mask, row + x);
-        }
     }
 }
 
@@ -755,7 +626,7 @@ static void write_rgb565_fullscreen(uint8_t *fb, const uint16_t *pixels)
  * LVGL 以 LV_COLOR_FORMAT_I1 渲染，px_map 为标准行优先 bit 打包
  *（每 byte 8 像素，MSB=最左，stride 由调用方传入，随 area 宽度变化）。
  * 控制器 framebuffer 是"2 像素列 × 4 行"列块打包 + Y 翻转，因此需要逐像素
- * bit 转换。相比 RGB565 路径省掉了逐像素亮度加权计算。 */
+ * bit 转换。 */
 
 static inline bool i1_read_pixel(const uint8_t *src_row, int bit_offset, int j)
 {
@@ -844,87 +715,7 @@ static TickType_t timeout_to_ticks(uint32_t timeout_ms)
 
 static void record_flush_done(void)
 {
-    const int64_t now_us = esp_timer_get_time();
-    if (s_flush_window_start_us == 0)
-    {
-        s_flush_window_start_us = now_us;
-    }
-
-    s_flush_count_window++;
     s_total_flush_count++;
-    const int64_t elapsed_us = now_us - s_flush_window_start_us;
-    if (elapsed_us >= 1000 * 1000)
-    {
-        s_flush_fps             = (uint32_t) ((s_flush_count_window * 1000 * 1000) / elapsed_us);
-        s_flush_count_window    = 0;
-        s_flush_window_start_us = now_us;
-    }
-
-    if (s_dma_start_us > 0)
-    {
-        s_perf_stats.dma_us += (uint64_t) (now_us - s_dma_start_us);
-        s_dma_start_us = 0;
-    }
-
-    if (s_last_frame_done_us > 0)
-    {
-        const uint32_t interval_us = (uint32_t) (now_us - s_last_frame_done_us);
-        s_perf_stats.interval_us += interval_us;
-        if (s_perf_stats.interval_min_us == 0 || interval_us < s_perf_stats.interval_min_us)
-        {
-            s_perf_stats.interval_min_us = interval_us;
-        }
-        if (interval_us > s_perf_stats.interval_max_us)
-        {
-            s_perf_stats.interval_max_us = interval_us;
-        }
-    }
-    s_last_frame_done_us = now_us;
-}
-
-static void log_perf_stats_if_due(void)
-{
-    const int64_t now_us = esp_timer_get_time();
-    if (s_perf_window_start_us == 0)
-    {
-        s_perf_window_start_us = now_us;
-        return;
-    }
-
-    const int64_t elapsed_us = now_us - s_perf_window_start_us;
-    if (elapsed_us < CONFIG_DESKMATE_DISPLAY_PERF_LOG_INTERVAL_US || s_perf_stats.frame_count == 0)
-    {
-        return;
-    }
-
-    const uint32_t frames          = s_perf_stats.frame_count;
-    const uint32_t areas           = s_perf_stats.area_count;
-    const uint32_t interval_avg_us = s_perf_stats.interval_us > 0 ? (uint32_t) (s_perf_stats.interval_us / frames) : 0;
-    ESP_LOGI(
-        TAG,
-        "perf fps=%lu frames=%lu areas=%lu interval_us avg=%lu min=%lu max=%lu avg_us: convert=%llu wait_prev=%llu copy=%llu cmd=%llu te=%llu queue=%llu dma=%llu dirty_bytes=%lu tx_bytes=%lu partial=%lu full=%lu",
-        (unsigned long) ((uint64_t) frames * 1000ULL * 1000ULL / (uint64_t) elapsed_us),
-        (unsigned long) frames,
-        (unsigned long) areas,
-        (unsigned long) interval_avg_us,
-        (unsigned long) s_perf_stats.interval_min_us,
-        (unsigned long) s_perf_stats.interval_max_us,
-        (unsigned long long) (s_perf_stats.convert_us / frames),
-        (unsigned long long) (s_perf_stats.wait_prev_us / frames),
-        (unsigned long long) (s_perf_stats.copy_us / frames),
-        (unsigned long long) (s_perf_stats.cmd_us / frames),
-        (unsigned long long) (s_perf_stats.te_us / frames),
-        (unsigned long long) (s_perf_stats.queue_us / frames),
-        (unsigned long long) (s_perf_stats.dma_us / frames),
-        (unsigned long) (s_perf_stats.dirty_bytes / frames),
-        (unsigned long) (s_perf_stats.tx_bytes / frames),
-        (unsigned long) s_partial_flush_count,
-        (unsigned long) s_partial_full_count);
-
-    memset(&s_perf_stats, 0, sizeof(s_perf_stats));
-    s_partial_flush_count  = 0;
-    s_partial_full_count   = 0;
-    s_perf_window_start_us = now_us;
 }
 
 static void wait_te_signal(void)
@@ -966,7 +757,6 @@ static esp_err_t lcd_queue_chunk(const uint8_t *frame, const rlcd_flush_window_t
         return ESP_ERR_INVALID_ARG;
     }
 
-    int64_t segment_start_us = esp_timer_get_time();
     ESP_RETURN_ON_ERROR(lcd_cmd(0x2A), TAG, "设置列地址失败");
     const uint8_t column_addr[] = { window->col_start, window->col_end };
     ESP_RETURN_ON_ERROR(lcd_data(column_addr, sizeof(column_addr)), TAG, "写列地址失败");
@@ -974,19 +764,13 @@ static esp_err_t lcd_queue_chunk(const uint8_t *frame, const rlcd_flush_window_t
     ESP_RETURN_ON_ERROR(lcd_cmd(0x2B), TAG, "设置行地址失败");
     const uint8_t row_addr[] = { window->row_start, window->row_end };
     ESP_RETURN_ON_ERROR(lcd_data(row_addr, sizeof(row_addr)), TAG, "写行地址失败");
-    s_perf_stats.cmd_us += (uint64_t) (esp_timer_get_time() - segment_start_us);
-
     if (wait_for_te)
     {
-        segment_start_us = esp_timer_get_time();
         wait_te_signal();
-        s_perf_stats.te_us += (uint64_t) (esp_timer_get_time() - segment_start_us);
     }
 
-    segment_start_us = esp_timer_get_time();
     ESP_RETURN_ON_ERROR(lcd_cmd(0x2C), TAG, "写内存命令失败");
     ESP_RETURN_ON_ERROR(gpio_set_level(BOARD_RLCD_PIN_DC, 1), TAG, "设置 DC 数据电平失败");
-    s_perf_stats.cmd_us += (uint64_t) (esp_timer_get_time() - segment_start_us);
 
     if (s_bus_timing_lock != NULL)
     {
@@ -998,14 +782,11 @@ static esp_err_t lcd_queue_chunk(const uint8_t *frame, const rlcd_flush_window_t
         .length    = window->payload_len * 8,
         .tx_buffer = frame,
     };
-    s_perf_stats.tx_bytes += (uint32_t) window->payload_len;
     /* queue 模式：提交后立即返回，DMA 在后台传输。pm lock 由
      * display_flush_task 在 get_trans_result 之后释放。 */
-    s_dma_start_us      = esp_timer_get_time();
     const esp_err_t err = spi_device_queue_trans(s_lcd_spi, &s_spi_transaction, portMAX_DELAY);
     if (err != ESP_OK)
     {
-        s_dma_start_us = 0;
         if (s_bus_timing_lock != NULL && s_bus_timing_lock_held)
         {
             esp_pm_lock_release(s_bus_timing_lock);
@@ -1029,11 +810,6 @@ static esp_err_t finish_in_flight_dma(bool *in_flight)
         esp_pm_lock_release(s_bus_timing_lock);
         s_bus_timing_lock_held = false;
     }
-    if (s_dma_start_us > 0)
-    {
-        s_perf_stats.dma_us += (uint64_t) (esp_timer_get_time() - s_dma_start_us);
-        s_dma_start_us = 0;
-    }
     *in_flight = false;
     return wait_err;
 }
@@ -1049,15 +825,6 @@ static esp_err_t send_staged_window(const uint8_t *staging, const rlcd_flush_win
     if (staging == NULL || window == NULL || window->payload_len == 0U)
     {
         return ESP_ERR_INVALID_ARG;
-    }
-
-    if (window->payload_len < RLCD_FRAME_BYTES)
-    {
-        s_partial_flush_count++;
-    }
-    else
-    {
-        s_partial_full_count++;
     }
 
     const size_t block_count = (size_t) (window->block_y2 - window->block_y1 + 1);
@@ -1110,10 +877,8 @@ static void display_flush_task(void *arg)
 {
     (void) arg;
 
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
     while (true)
     {
-        task_stack_stats_log_if_due(&stack_stats, "rlcd_flush");
         xSemaphoreTake(s_frame_ready_sem, portMAX_DELAY);
 
         while (true)
@@ -1146,12 +911,7 @@ static void display_flush_task(void *arg)
                     s_staging_locked[staging_index] = false;
                     xSemaphoreGive(s_flush_mutex);
                 }
-                if (err == ESP_OK)
-                {
-                    s_perf_stats.frame_count++;
-                    log_perf_stats_if_due();
-                }
-                else
+                if (err != ESP_OK)
                 {
                     ESP_LOGE(TAG, "提交 RLCD DMA 失败: %s", esp_err_to_name(err));
                     if (xSemaphoreTake(s_flush_mutex, portMAX_DELAY) == pdTRUE)
@@ -1182,7 +942,6 @@ static esp_err_t submit_flush_batch(const uint8_t *frame, rlcd_flush_window_t *w
         return ESP_ERR_INVALID_STATE;
     }
 
-    const int64_t segment_start_us = esp_timer_get_time();
     if (xSemaphoreTake(s_flush_mutex, portMAX_DELAY) != pdTRUE)
     {
         return ESP_ERR_TIMEOUT;
@@ -1271,7 +1030,6 @@ static esp_err_t submit_flush_batch(const uint8_t *frame, rlcd_flush_window_t *w
     xSemaphoreGive(s_flush_mutex);
 
     xSemaphoreGive(s_frame_ready_sem);
-    s_perf_stats.queue_us += (uint64_t) (esp_timer_get_time() - segment_start_us);
     return ESP_OK;
 }
 
@@ -1367,50 +1125,6 @@ esp_err_t bsp_display_init(void)
     return ESP_OK;
 }
 
-esp_err_t bsp_display_write_rgb565_area(int x1, int y1, int x2, int y2, const uint16_t *pixels, int stride_pixels)
-{
-    uint8_t *fb = draw_framebuffer();
-    if (!s_initialized || !display_accepts_frames() || fb == NULL)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (pixels == NULL || stride_pixels <= 0 || x2 < x1 || y2 < y1)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (x1 == 0 && y1 == 0 && x2 == BOARD_RLCD_WIDTH - 1 && y2 == BOARD_RLCD_HEIGHT - 1
-        && stride_pixels == BOARD_RLCD_WIDTH)
-    {
-        const int64_t convert_start_us = esp_timer_get_time();
-        write_rgb565_fullscreen(fb, pixels);
-        s_perf_stats.convert_us += (uint64_t) (esp_timer_get_time() - convert_start_us);
-        dirty_add_area(0, 0, BOARD_RLCD_WIDTH - 1, BOARD_RLCD_HEIGHT - 1);
-        s_perf_stats.area_count++;
-        return ESP_OK;
-    }
-
-    const int clipped_x1 = x1 < 0 ? 0 : x1;
-    const int clipped_y1 = y1 < 0 ? 0 : y1;
-    const int clipped_x2 = x2 >= BOARD_RLCD_WIDTH ? (BOARD_RLCD_WIDTH - 1) : x2;
-    const int clipped_y2 = y2 >= BOARD_RLCD_HEIGHT ? (BOARD_RLCD_HEIGHT - 1) : y2;
-    if (clipped_x2 < clipped_x1 || clipped_y2 < clipped_y1)
-    {
-        return ESP_OK;
-    }
-
-    const int64_t convert_start_us = esp_timer_get_time();
-    for (int y = clipped_y1; y <= clipped_y2; ++y)
-    {
-        const uint16_t *src_row = pixels + (size_t) (y - y1) * (size_t) stride_pixels + (size_t) (clipped_x1 - x1);
-        write_rgb565_row(fb, clipped_x1, clipped_x2, y, src_row);
-    }
-    s_perf_stats.convert_us += (uint64_t) (esp_timer_get_time() - convert_start_us);
-    dirty_add_area(clipped_x1, clipped_y1, clipped_x2, clipped_y2);
-    s_perf_stats.area_count++;
-    return ESP_OK;
-}
-
 esp_err_t bsp_display_write_i1_area(int x1, int y1, int x2, int y2, const uint8_t *px_map, uint32_t stride_bytes)
 {
     uint8_t *fb = draw_framebuffer();
@@ -1434,9 +1148,8 @@ esp_err_t bsp_display_write_i1_area(int x1, int y1, int x2, int y2, const uint8_
 
     /* PARTIAL 模式下 draw_buf 被 reshape 为 area 宽度，px_map 列 0 = area->x1，
      * 字节内无额外 bit 偏移。 */
-    const int bit_offset           = 0;
+    const int bit_offset = 0;
 
-    const int64_t convert_start_us = esp_timer_get_time();
     if (clipped_x1 == 0 && clipped_y1 == 0 && clipped_x2 == BOARD_RLCD_WIDTH - 1 && clipped_y2 == BOARD_RLCD_HEIGHT - 1)
     {
         write_i1_fullscreen(fb, px_map, stride_bytes);
@@ -1449,9 +1162,7 @@ esp_err_t bsp_display_write_i1_area(int x1, int y1, int x2, int y2, const uint8_
             write_i1_row(fb, clipped_x1, clipped_x2, y, src_row, bit_offset);
         }
     }
-    s_perf_stats.convert_us += (uint64_t) (esp_timer_get_time() - convert_start_us);
     dirty_add_area(clipped_x1, clipped_y1, clipped_x2, clipped_y2);
-    s_perf_stats.area_count++;
     return ESP_OK;
 }
 
@@ -1508,14 +1219,10 @@ esp_err_t bsp_display_request_flush(void)
     /* 所有 dirty 矩形都需 copy 到下一帧 framebuffer，保持双缓冲一致。
      * window 数量可能少于 rect 数量（退化全屏或 buffer 不足合并），
      * 但 copy 覆盖范围必须和实际写入 framebuffer 的脏区一致。 */
-    int64_t segment_start_us = esp_timer_get_time();
-    size_t  dirty_bytes      = 0;
     for (int i = 0; i < s_dirty_count; ++i)
     {
-        dirty_bytes += copy_dirty_region(s_framebuffer[next_draw_fb_index], flush_fb, &s_dirty_rects[i]);
+        copy_dirty_region(s_framebuffer[next_draw_fb_index], flush_fb, &s_dirty_rects[i]);
     }
-    s_perf_stats.copy_us += (uint64_t) (esp_timer_get_time() - segment_start_us);
-    s_perf_stats.dirty_bytes += (uint32_t) dirty_bytes;
     dirty_reset();
     s_draw_fb_index = next_draw_fb_index;
 
@@ -1604,11 +1311,6 @@ esp_err_t bsp_display_start(void)
     set_display_accepting_frames(true);
     ESP_LOGI(TAG, "显示已恢复并重新接受刷新");
     return ESP_OK;
-}
-
-uint32_t bsp_display_get_flush_fps(void)
-{
-    return s_flush_fps;
 }
 
 uint32_t bsp_display_get_total_flush_count(void)

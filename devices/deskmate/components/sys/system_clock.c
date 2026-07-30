@@ -520,52 +520,6 @@ esp_err_t system_clock_get_time(time_t *timestamp)
     return ESP_OK;
 }
 
-esp_err_t system_clock_schedule_rtc_alarm(time_t utc_timestamp)
-{
-    ESP_RETURN_ON_FALSE(system_clock_timestamp_is_valid(utc_timestamp),
-                        ESP_ERR_INVALID_ARG,
-                        TAG,
-                        "RTC 告警目标时间超出支持范围");
-
-    time_t current_timestamp = 0;
-    ESP_RETURN_ON_ERROR(system_clock_get_time(&current_timestamp), TAG, "系统时间尚不可信，无法调度 RTC 告警");
-    const int64_t delay_seconds = (int64_t) utc_timestamp - (int64_t) current_timestamp;
-    ESP_RETURN_ON_FALSE(delay_seconds > 0 && delay_seconds <= CONFIG_DESKMATE_RTC_ALARM_MAX_DELAY_SEC,
-                        ESP_ERR_INVALID_ARG,
-                        TAG,
-                        "RTC 告警目标不在允许的未来窗口");
-
-    taskENTER_CRITICAL(&s_state_lock);
-    const int16_t utc_offset_minutes = s_utc_offset_minutes;
-    taskEXIT_CRITICAL(&s_state_lock);
-
-    device_rtc_datetime_t datetime;
-    ESP_RETURN_ON_ERROR(system_clock_utc_to_datetime(utc_timestamp, utc_offset_minutes, &datetime),
-                        TAG,
-                        "RTC 告警时间转换失败");
-    const device_rtc_alarm_t alarm = {
-        .second       = datetime.second,
-        .minute       = datetime.minute,
-        .hour         = datetime.hour,
-        .day          = datetime.day,
-        .weekday      = 0U,
-        .match_fields = DEVICE_RTC_ALARM_MATCH_SECOND | DEVICE_RTC_ALARM_MATCH_MINUTE | DEVICE_RTC_ALARM_MATCH_HOUR
-                        | DEVICE_RTC_ALARM_MATCH_DAY,
-    };
-    ESP_RETURN_ON_ERROR(device_rtc_set_alarm(&alarm), TAG, "写入设备 RTC 告警失败");
-    ESP_LOGI(TAG,
-             "RTC 告警已调度：UTC=%lld，本地=%04u-%02u-%02u %02u:%02u:%02u，延迟=%lld 秒",
-             (long long) utc_timestamp,
-             (unsigned int) datetime.year,
-             (unsigned int) datetime.month,
-             (unsigned int) datetime.day,
-             (unsigned int) datetime.hour,
-             (unsigned int) datetime.minute,
-             (unsigned int) datetime.second,
-             (long long) delay_seconds);
-    return ESP_OK;
-}
-
 /**
  * @brief 复制获取当前系统时钟快照
  *

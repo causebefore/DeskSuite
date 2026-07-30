@@ -16,6 +16,7 @@
 #define BUTTON_SERVICE_START_ROLLBACK_TIMEOUT_MS 1000U
 #define BUTTON_WAKE_LEFT                         (1U << 0)
 #define BUTTON_WAKE_RIGHT                        (1U << 1)
+#define BUTTON_SCAN_FAILURE_RETRY_MS             250U
 
 typedef enum
 {
@@ -48,7 +49,7 @@ static void                     *s_event_context;
 static uint32_t                  s_scan_period_ms;
 static bool                      s_scan_error_reported;
 
-static esp_err_t schedule_scan_from_task(void);
+static esp_err_t schedule_scan_from_task(uint32_t delay_ms);
 
 /** @brief 把产品按键事件映射为对应的 Light Sleep 唤醒事实位 */
 static uint8_t event_wake_mask(device_button_event_t event)
@@ -136,9 +137,10 @@ static void IRAM_ATTR button_service_activity_isr(void *context)
 
 /**
  * @brief 从普通上下文幂等安排一次扫描
+ * @param[in] delay_ms 本轮 one-shot 延迟，单位毫秒
  * @return ESP_OK 已有或已成功安排 Timer；ESP_ERR_INVALID_STATE 未运行；或 ESP Timer 错误码
  */
-static esp_err_t schedule_scan_from_task(void)
+static esp_err_t schedule_scan_from_task(uint32_t delay_ms)
 {
     taskENTER_CRITICAL(&s_lock);
     if (s_state != BUTTON_SERVICE_STATE_RUNNING)
@@ -155,7 +157,7 @@ static esp_err_t schedule_scan_from_task(void)
     s_runtime.schedule_inflight++;
     taskEXIT_CRITICAL(&s_lock);
 
-    const esp_err_t error = esp_timer_start_once(s_scan_timer, (uint64_t) s_scan_period_ms * 1000ULL);
+    const esp_err_t error = esp_timer_start_once(s_scan_timer, (uint64_t) delay_ms * 1000ULL);
 
     taskENTER_CRITICAL(&s_lock);
     s_runtime.schedule_inflight--;
@@ -172,7 +174,7 @@ static esp_err_t schedule_scan_from_task(void)
     return error;
 }
 
-/** @brief 首次记录连续扫描故障，避免相同故障每 10 ms 重复输出 */
+/** @brief 首次记录连续扫描故障，避免相同故障重复输出 */
 static void report_scan_failure(const char *operation, esp_err_t error)
 {
     if (!s_scan_error_reported)
@@ -301,7 +303,7 @@ static void button_service_scan_timer_callback(void *context)
     if (running && !timer_already_armed
         && (result.follow_up_required || edge_arrived_during_scan || wake_pending || scan_failed))
     {
-        const esp_err_t error = schedule_scan_from_task();
+        const esp_err_t error = schedule_scan_from_task(scan_failed ? BUTTON_SCAN_FAILURE_RETRY_MS : s_scan_period_ms);
         if (error != ESP_OK && error != ESP_ERR_INVALID_STATE)
         {
             report_scan_failure("安排后续按键扫描失败", error);
@@ -433,7 +435,7 @@ esp_err_t button_service_start(void)
     s_state = BUTTON_SERVICE_STATE_RUNNING;
     taskEXIT_CRITICAL(&s_lock);
 
-    error = schedule_scan_from_task();
+    error = schedule_scan_from_task(s_scan_period_ms);
     if (error == ESP_OK)
     {
         return ESP_OK;
@@ -479,7 +481,7 @@ esp_err_t button_service_request_light_sleep_wakeup_copy(const button_service_wa
     }
     s_runtime.wake_pending_mask |= wake_mask;
     taskEXIT_CRITICAL(&s_lock);
-    return schedule_scan_from_task();
+    return schedule_scan_from_task(s_scan_period_ms);
 }
 
 esp_err_t button_service_stop(uint32_t timeout_ms)

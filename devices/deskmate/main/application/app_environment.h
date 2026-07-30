@@ -1,6 +1,6 @@
 /**
  * @file app_environment.h
- * @brief 声明环境与电池产品周期 Task 及按需采样命令
+ * @brief 声明环境与电池产品周期 Task
  */
 #pragma once
 
@@ -24,17 +24,3 @@ esp_err_t app_environment_init(void);
  * @return ESP_OK 已停止并释放；ESP_ERR_INVALID_STATE 尚未初始化；ESP_ERR_TIMEOUT 未及时退出
  */
 esp_err_t app_environment_deinit(uint32_t timeout_ms);
-
-/**
- * @brief 请求尽快执行一次电池采样
- *
- * @return ESP_OK 已入队；ESP_ERR_INVALID_STATE 当前不可接收；ESP_ERR_TIMEOUT 队列已满
- */
-esp_err_t app_environment_request_battery_sample(void);
-
-/**
- * @brief 请求尽快执行一次温湿度采样
- *
- * @return ESP_OK 已入队；ESP_ERR_INVALID_STATE 当前不可接收；ESP_ERR_TIMEOUT 队列已满
- */
-esp_err_t app_environment_request_environment_sample(void);

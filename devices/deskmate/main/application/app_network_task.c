@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-#include "calendar.h"
+#include "calendar_presenter.h"
 #include "dashboard_store.h"
 #include "deskmate_api.h"
 #include "esp_check.h"
@@ -17,18 +17,17 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "mail.h"
+#include "mail_presenter.h"
 #include "network_manager.h"
 #include "ota_presenter.h"
 #include "presentation_dispatch.h"
-#include "quota.h"
+#include "quota_presenter.h"
 #include "remote_log.h"
 #include "sdkconfig.h"
 #include "settings_store.h"
 #include "status_bar_presenter.h"
 #include "system_clock.h"
-#include "task_stack_stats.h"
-#include "weather.h"
+#include "weather_presenter.h"
 
 #define NETWORK_TASK_STACK                 8192U
 #define NETWORK_TASK_PRIORITY              2U
@@ -575,9 +574,9 @@ static esp_err_t fetch_dashboard(void)
     deskmate_api_client_t      client;
     ESP_RETURN_ON_ERROR(make_deskmate_client(&backend, &client), TAG, "创建 Dashboard 客户端失败");
 
-    deskmate_api_dashboard_t dashboard   = { 0 };
-    int                      http_status = 0;
-    esp_err_t                error =
+    deskmate_api_dashboard_result_t dashboard   = { 0 };
+    int                             http_status = 0;
+    esp_err_t                       error =
         deskmate_api_get_dashboard(&client, CONFIG_DESKMATE_API_DASHBOARD_JSON_MAX, &dashboard, &http_status);
     if (http_status == 401)
     {
@@ -585,11 +584,10 @@ static esp_err_t fetch_dashboard(void)
     }
     if (error != ESP_OK)
     {
-        deskmate_api_dashboard_release(&dashboard);
         return error;
     }
 
-    error = dashboard_store_update_from_json(dashboard.raw_json);
+    error = dashboard_store_update_copy(&dashboard);
     if (error == ESP_OK)
     {
         taskENTER_CRITICAL(&s_state_lock);
@@ -598,32 +596,31 @@ static esp_err_t fetch_dashboard(void)
         s_dashboard_retry_at_utc  = 0;
         taskEXIT_CRITICAL(&s_state_lock);
     }
-    deskmate_api_dashboard_release(&dashboard);
     return error;
 }
 
-/** @brief 按固定顺序把 Dashboard Store 刷新到四个领域快照 */
-static void refresh_dashboard_services(void)
+/** @brief 按固定顺序把 Dashboard Store 刷新到四个页面 View Model */
+static void refresh_dashboard_presenters(void)
 {
-    esp_err_t error = weather_refresh_from_dashboard();
+    esp_err_t error = weather_presenter_refresh();
     if (error != ESP_OK)
     {
-        ESP_LOGW(TAG, "刷新天气快照失败: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "刷新天气页 View Model 失败: %s", esp_err_to_name(error));
     }
-    error = calendar_refresh_from_dashboard();
+    error = calendar_presenter_refresh();
     if (error != ESP_OK)
     {
-        ESP_LOGW(TAG, "刷新日历快照失败: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "刷新日历页 View Model 失败: %s", esp_err_to_name(error));
     }
-    error = mail_refresh_from_dashboard();
+    error = mail_presenter_refresh();
     if (error != ESP_OK)
     {
-        ESP_LOGW(TAG, "刷新邮件快照失败: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "刷新邮箱页 View Model 失败: %s", esp_err_to_name(error));
     }
-    error = quota_refresh_from_dashboard();
+    error = quota_presenter_refresh();
     if (error != ESP_OK)
     {
-        ESP_LOGW(TAG, "刷新限额快照失败: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "刷新限额页 View Model 失败: %s", esp_err_to_name(error));
     }
 }
 
@@ -1257,8 +1254,13 @@ static esp_err_t execute_sync_command(void)
 
         if (error == ESP_OK)
         {
-            refresh_dashboard_services();
+            refresh_dashboard_presenters();
             set_dashboard_online(true);
+            const esp_err_t dispatch_error = presentation_dispatch_status_update();
+            if (dispatch_error != ESP_OK)
+            {
+                ESP_LOGW(TAG, "发布 Dashboard 页面更新失败: %s", esp_err_to_name(dispatch_error));
+            }
         }
         else if (!is_sync_cancel_requested())
         {
@@ -1783,12 +1785,9 @@ static void discard_command_while_suspended(const network_command_t *command)
 static void app_network_task(void *arg)
 {
     (void) arg;
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
-    network_command_t  command;
+    network_command_t command;
     for (;;)
     {
-        task_stack_stats_log_if_due(&stack_stats, "app_network_task");
-
         taskENTER_CRITICAL(&s_state_lock);
         const bool manager_change_pending = s_manager_change_pending;
         taskEXIT_CRITICAL(&s_state_lock);

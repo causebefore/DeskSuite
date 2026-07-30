@@ -1,7 +1,7 @@
 /*
  * 文件职责：封装双麦降噪录音 + 流式播放的语音交互闭环。
  * 主要依赖：audio_service、audio_processor_service、transport、voice_protocol、protocols。
- * 调用方：App 业务流程（按键触发、测试页触发）。
+ * 调用方：App 业务流程（按键或唤醒词触发）。
  *
  * 数据流：
  *   录音：(MIC) → ES7210 双通道 → 双麦 AFE 降噪/VAD → 单声道 16kHz PCM

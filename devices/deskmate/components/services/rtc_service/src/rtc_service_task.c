@@ -9,7 +9,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "task_stack_stats.h"
 
 #define RTC_SERVICE_TASK_STACK_SIZE_BYTES 3072U
 #define RTC_SERVICE_TASK_PRIORITY         4U
@@ -135,12 +134,10 @@ static void rtc_service_interrupt_callback(void *context)
 static void rtc_service_task(void *context)
 {
     (void) context;
-    task_stack_stats_t stack_stats    = TASK_STACK_STATS_INITIALIZER;
-    bool               retry_pending  = false;
-    uint32_t           retry_attempts = 0U;
+    bool     retry_pending  = false;
+    uint32_t retry_attempts = 0U;
     for (;;)
     {
-        task_stack_stats_log_if_due(&stack_stats, "rtc_service");
         uint32_t         notification = 0;
         const BaseType_t notified = xTaskNotifyWait(0U,
                                                     UINT32_MAX,
@@ -185,7 +182,6 @@ static void rtc_service_task(void *context)
         }
     }
 
-    task_stack_stats_log_now("rtc_service");
     taskENTER_CRITICAL(&s_state_lock);
     s_task  = NULL;
     s_state = RTC_SERVICE_STATE_INITIALIZED;

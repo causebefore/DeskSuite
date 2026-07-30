@@ -113,11 +113,6 @@ esp_err_t device_display_wait_flush_done(uint32_t timeout_ms)
     return s_initialized ? bsp_display_wait_flush_done(timeout_ms) : ESP_ERR_INVALID_STATE;
 }
 
-uint32_t device_display_get_flush_fps(void)
-{
-    return s_initialized ? bsp_display_get_flush_fps() : 0;
-}
-
 uint32_t device_display_get_total_flush_count(void)
 {
     return s_initialized ? bsp_display_get_total_flush_count() : 0;

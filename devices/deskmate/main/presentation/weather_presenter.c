@@ -1,5 +1,5 @@
 /*
- * 文件职责：订阅天气事实事件并维护天气页 View Model。
+ * 文件职责：从 Dashboard Store 刷新并维护天气页 View Model。
  */
 #include "weather_presenter.h"
 
@@ -7,10 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "presentation_dispatch.h"
-#include "esp_event.h"
-#include "esp_log.h"
-#include "weather.h"
+#include "dashboard_store.h"
 
 static weather_view_model_t s_view;
 
@@ -37,17 +34,17 @@ static uint16_t icon_code_from_text(const char *text)
     return (uint16_t) atoi(text);
 }
 
-static void update_weather_view(const weather_snapshot_t *weather, esp_err_t result)
+static void update_weather_view(const deskmate_api_dashboard_weather_t *weather)
 {
-    if (weather == NULL || result != ESP_OK || !weather->valid)
+    if (weather == NULL || !weather->valid)
     {
-        s_view.status = result == ESP_OK ? PRESENTATION_DATA_EMPTY : PRESENTATION_DATA_ERROR;
+        s_view.status = PRESENTATION_DATA_EMPTY;
         return;
     }
 
     memset(&s_view, 0, sizeof(s_view));
     copy_text(s_view.city, sizeof(s_view.city), weather->city);
-    copy_text(s_view.text, sizeof(s_view.text), weather->weather_text);
+    copy_text(s_view.text, sizeof(s_view.text), weather->text);
     copy_text(s_view.wind_scale, sizeof(s_view.wind_scale), weather->wind_scale);
     copy_text(s_view.alert_title, sizeof(s_view.alert_title), weather->alert_title);
     copy_text(s_view.updated_at, sizeof(s_view.updated_at), weather->updated_at);
@@ -75,25 +72,23 @@ static void update_weather_view(const weather_snapshot_t *weather, esp_err_t res
     }
 }
 
-static void on_weather_event(void *arg, esp_event_base_t base, int32_t id, void *data)
-{
-    (void) arg;
-    (void) base;
-    (void) data;
-
-    weather_snapshot_t weather;
-    esp_err_t          err = weather_get_snapshot(&weather);
-
-    esp_err_t result       = (id == WEATHER_EVENT_REFRESHED && err == ESP_OK) ? ESP_OK : ESP_FAIL;
-    update_weather_view(&weather, result);
-    (void) presentation_dispatch_status_update();
-}
-
 esp_err_t weather_presenter_init(void)
 {
     memset(&s_view, 0, sizeof(s_view));
     s_view.status = PRESENTATION_DATA_EMPTY;
-    return esp_event_handler_register(WEATHER_EVENT, ESP_EVENT_ANY_ID, on_weather_event, NULL);
+    return ESP_OK;
+}
+
+esp_err_t weather_presenter_refresh(void)
+{
+    deskmate_api_dashboard_weather_t weather;
+    const esp_err_t                  error = dashboard_store_get_weather_copy(&weather);
+    if (error != ESP_OK)
+    {
+        return error;
+    }
+    update_weather_view(&weather);
+    return ESP_OK;
 }
 
 void weather_presenter_get_view_copy(weather_view_model_t *out_view)

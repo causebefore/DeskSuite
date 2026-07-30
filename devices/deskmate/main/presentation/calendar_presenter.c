@@ -1,22 +1,21 @@
 /*
- * 文件职责：订阅日历事实事件并维护日历页 View Model。
+ * 文件职责：从 Dashboard Store 刷新并维护日历页 View Model。
  */
 #include "calendar_presenter.h"
 
 #include <stdio.h>
 #include <string.h>
 
-#include "presentation_dispatch.h"
-#include "calendar.h"
+#include "dashboard_store.h"
 
 static calendar_view_model_t s_view;
 
 /** 
- * @brief 更新视图数据从日历服务快照
+ * @brief 从 Dashboard Store 日历数据更新 View Model
  * 
- * @param data 日历服务快照数据
+ * @param[in] data 日历数据
  */
-static void update_view_from_service(const calendar_snapshot_t *data)
+static void update_view_from_store(const deskmate_api_dashboard_calendar_t *data)
 {
     if (data == NULL || !data->valid)
     {
@@ -44,33 +43,23 @@ static void update_view_from_service(const calendar_snapshot_t *data)
     s_view.status = (s_view.event_count > 0) ? PRESENTATION_DATA_OK : PRESENTATION_DATA_EMPTY;
 }
 
-static void on_calendar_event(void *arg, esp_event_base_t base, int32_t id, void *data)
-{
-    (void) arg;
-    (void) base;
-    (void) data;
-
-    calendar_snapshot_t svc;
-    if (calendar_get_snapshot(&svc) == ESP_OK)
-    {
-        update_view_from_service(&svc);
-    }
-
-    (void) presentation_dispatch_status_update();
-}
-
 esp_err_t calendar_presenter_init(void)
 {
     memset(&s_view, 0, sizeof(s_view));
     s_view.status = PRESENTATION_DATA_EMPTY;
+    return ESP_OK;
+}
 
-    calendar_snapshot_t svc;
-    if (calendar_get_snapshot(&svc) == ESP_OK)
+esp_err_t calendar_presenter_refresh(void)
+{
+    deskmate_api_dashboard_calendar_t data;
+    const esp_err_t                   error = dashboard_store_get_calendar_copy(&data);
+    if (error != ESP_OK)
     {
-        update_view_from_service(&svc);
+        return error;
     }
-
-    return esp_event_handler_register(CALENDAR_DATA_EVENT, ESP_EVENT_ANY_ID, on_calendar_event, NULL);
+    update_view_from_store(&data);
+    return ESP_OK;
 }
 
 void calendar_presenter_get_view_copy(calendar_view_model_t *out_view)

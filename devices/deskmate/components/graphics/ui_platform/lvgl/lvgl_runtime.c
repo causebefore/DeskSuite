@@ -4,7 +4,6 @@
 #include "ui_platform_lvgl.h"
 
 #include <stdint.h>
-#include <string.h>
 
 #include "device_display.h"
 #include "esp_check.h"
@@ -16,7 +15,6 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 
-#define LVGL_PERF_LOG_INTERVAL_US (5 * 1000 * 1000)
 #define LVGL_PORT_STOP_TIMEOUT_MS 1000U
 /* 略大于 MIP 面板约 40ms 的 TE 周期，避免动画帧挤压 BSP 待发送批次。 */
 #define LVGL_RENDER_PERIOD_MS     45U
@@ -25,28 +23,14 @@
 
 static const char *TAG = "ui_platform";
 
-typedef struct
-{
-    uint32_t flush_count;
-    uint32_t frame_count;
-    uint32_t interval_min_us;
-    uint32_t interval_max_us;
-    uint64_t interval_us;
-    uint64_t flush_cb_us;
-} lvgl_perf_stats_t;
-
-static lv_display_t     *s_display;
-static lv_timer_t       *s_render_timer;
-static void             *s_draw_buffer_1;
-static void             *s_draw_buffer_2;
-static bool              s_initialized;
-static bool              s_port_started;
-static bool              s_port_stop_requested;
-static bool              s_suspended;
-static int64_t           s_last_flush_enter_us;
-static int64_t           s_perf_window_start_us;
-static lvgl_perf_stats_t s_perf_stats;
-static uint32_t          s_total_frames;
+static lv_display_t *s_display;
+static lv_timer_t   *s_render_timer;
+static void         *s_draw_buffer_1;
+static void         *s_draw_buffer_2;
+static bool          s_initialized;
+static bool          s_port_started;
+static bool          s_port_stop_requested;
+static bool          s_suspended;
 
 /**
  * @brief 把绝对微秒期限换算为至少一个 FreeRTOS Tick
@@ -171,54 +155,8 @@ static esp_err_t rollback_port_init(esp_err_t original_error)
     return original_error;
 }
 
-static void perf_record_enter(int64_t now_us)
-{
-    if (s_last_flush_enter_us > 0)
-    {
-        const uint32_t interval_us = (uint32_t) (now_us - s_last_flush_enter_us);
-        s_perf_stats.interval_us += interval_us;
-        if (s_perf_stats.interval_min_us == 0 || interval_us < s_perf_stats.interval_min_us)
-        {
-            s_perf_stats.interval_min_us = interval_us;
-        }
-        if (interval_us > s_perf_stats.interval_max_us)
-        {
-            s_perf_stats.interval_max_us = interval_us;
-        }
-    }
-    s_last_flush_enter_us = now_us;
-}
-
-static void perf_log_if_due(void)
-{
-    const int64_t now_us = esp_timer_get_time();
-    if (s_perf_window_start_us == 0)
-    {
-        s_perf_window_start_us = now_us;
-        return;
-    }
-    const int64_t elapsed_us = now_us - s_perf_window_start_us;
-    if (elapsed_us < LVGL_PERF_LOG_INTERVAL_US || s_perf_stats.flush_count == 0)
-    {
-        return;
-    }
-
-    const uint32_t flushes = s_perf_stats.flush_count;
-    ESP_LOGI(TAG,
-             "LVGL 性能: fps=%lu frames=%lu flushes=%lu flush_cb_avg_us=%llu",
-             (unsigned long) ((uint64_t) s_perf_stats.frame_count * 1000000ULL / (uint64_t) elapsed_us),
-             (unsigned long) s_perf_stats.frame_count,
-             (unsigned long) flushes,
-             (unsigned long long) (s_perf_stats.flush_cb_us / flushes));
-    memset(&s_perf_stats, 0, sizeof(s_perf_stats));
-    s_perf_window_start_us = now_us;
-}
-
 static void flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t *px_map)
 {
-    const int64_t start_us = esp_timer_get_time();
-    perf_record_enter(start_us);
-
     lv_draw_buf_t *draw_buf     = lv_display_get_buf_active(display);
     const uint32_t stride       = draw_buf->header.stride;
     const size_t   palette_size = LV_COLOR_INDEXED_PALETTE_SIZE(LV_COLOR_FORMAT_I1) * sizeof(lv_color32_t);
@@ -241,13 +179,8 @@ static void flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t *px_m
         {
             ESP_LOGE(TAG, "刷新 RLCD 失败: %s", esp_err_to_name(err));
         }
-        s_perf_stats.frame_count++;
     }
-    s_total_frames++;
     lv_display_flush_ready(display);
-    s_perf_stats.flush_count++;
-    s_perf_stats.flush_cb_us += (uint64_t) (esp_timer_get_time() - start_us);
-    perf_log_if_due();
 }
 
 /**
@@ -565,19 +498,4 @@ esp_err_t ui_platform_lvgl_request_refresh(void)
 uint32_t ui_platform_lvgl_get_refresh_period(void)
 {
     return LVGL_RENDER_PERIOD_MS;
-}
-
-uint32_t ui_platform_lvgl_get_flush_fps(void)
-{
-    return device_display_get_flush_fps();
-}
-
-uint32_t ui_platform_lvgl_get_total_frames(void)
-{
-    return s_total_frames;
-}
-
-uint32_t ui_platform_lvgl_get_total_flush_count(void)
-{
-    return device_display_get_total_flush_count();
 }

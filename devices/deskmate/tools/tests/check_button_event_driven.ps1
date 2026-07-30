@@ -53,6 +53,14 @@ if (Test-Section 'Core') {
         'esp_timer_start_periodic\s*\(' 'Button Service 仍在启动永久周期 Timer'
     Assert-Contains 'components\services\button_service\src\button_service.c' `
         'esp_timer_start_once\s*\(' 'Button Service 未使用 one-shot Timer'
+    Assert-Contains 'components\services\button_service\src\button_service.c' `
+        'BUTTON_SCAN_FAILURE_RETRY_MS\s+250U' 'Button Service 扫描失败重试未固定退避到 250 ms'
+    Assert-Contains 'components\services\button_service\src\button_service.c' `
+        'schedule_scan_from_task\s*\(\s*scan_failed\s*\?\s*BUTTON_SCAN_FAILURE_RETRY_MS\s*:\s*s_scan_period_ms\s*\)' `
+        'Button Service 未仅在扫描失败时使用低频重试'
+    Assert-Contains 'components\services\button_service\src\button_service.c' `
+        'schedule_scan_from_task\s*\(\s*s_scan_period_ms\s*\)' `
+        'Button Service 正常扫描未继续使用配置周期'
     Assert-Contains 'components\bsp\src\bsp_button.c' `
         'GPIO_INTR_ANYEDGE' '按键 GPIO 未配置双边沿'
     Assert-Contains 'components\bsp\src\bsp_button.c' `

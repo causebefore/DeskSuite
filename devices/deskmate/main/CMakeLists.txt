@@ -38,7 +38,6 @@ idf_component_register(SRCS
                           "ui/pages/ui_quota_page.c"
                           "ui/pages/ui_calendar_page.c"
                            "ui/pages/ui_settings_page.c"
-                           "ui/pages/ui_test_page.c"
                            "ui/foundation/ui_common.c"
                            "ui/foundation/ui_format.c"
                            "ui/resources/weather_icon_resolver.c"
@@ -80,10 +79,6 @@ idf_component_register(SRCS
                           web_file_service
                            ui_platform
                            lvgl
-                           weather
-                           calendar
-                           mail
-                           quota
                            dashboard_store
                            pomodoro_store
                        INCLUDE_DIRS

@@ -51,10 +51,11 @@
 
 以下候选不属于本轮 Services / Application 审查范围，应各自按完整调用链单独处理：
 
+Dashboard 的四个中转 Data Getter 与完整 Store snapshot 已在后续单次解析收敛中删除，不再作为
+命名迁移候选。
+
 | 当前名称或边界 | 候选方向 | 原因 |
 | --- | --- | --- |
-| `calendar_get_snapshot()` 等 Data Getter | 增加 `_copy` | 返回所有者缓存的完整快照副本 |
-| `dashboard_store_get_snapshot()` | `dashboard_store_get_snapshot_copy()` | 与其他缓存快照 Getter 对齐 |
 | `presentation_data_status_t` | 核对为 `_state_t` | `EMPTY/OK/STALE/ERROR` 可能是单一呈现阶段 |
 | `ui_platform_font_status_t` | 核对为 `_state_t` | `READY/FALLBACK/UNAVAILABLE` 可能是单一阶段 |
 | `rlcd_font_container_status_t` | 核对为 `_result_t` | 值描述一次容器解析结果 |

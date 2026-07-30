@@ -34,12 +34,8 @@ set(EXTRA_COMPONENT_DIRS
     components/services/voice_service
     components/services/web_file_service
     components/graphics/ui_platform
-    components/data/weather
-    components/data/calendar
     components/data/dashboard_store
     components/data/pomodoro_store
-    components/data/mail
-    components/data/quota
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

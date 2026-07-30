@@ -114,9 +114,14 @@ UI 用户意图 → app_main → app_settings / app_ota / app_web_file → app_n
 手动 OTA 检查始终要求用户确认，即使持久化自动安装策略已开启；自动检查来源才允许继续应用
 自动安装策略。
 
-Dashboard 的 HTTP 协议在 Communication，JSON 缓存和领域快照在 Data，拉取时机、重试和
-Weather → Calendar → Mail → Quota 刷新顺序由 `app_network` 拥有。401 只收敛为鉴权失败，
-不清除 Token 或尝试注册。成功响应中的 `next_refresh_at_utc` 是下一次 Dashboard 自动同步
+Dashboard 的 HTTP 与 JSON schema 契约位于 Product Protocols：
+`deskmate_api_get_dashboard()` 对成功响应只解析一次并返回完整类型化结果，`dashboard_store`
+只校验并提交整份快照，不缓存原始 JSON，也不再次解析。`app_network` 拥有拉取时机、重试和
+Weather → Calendar → Mail → Quota 的显式 Presenter 刷新顺序；四个 Presenter 直接读取
+`dashboard_store` 对应切片，不再经过四个中间 Data 组件或订阅其事件。完成四次刷新尝试后只
+发布一次统一呈现更新；单个 Presenter 刷新失败时记录错误并保留该页上一份 View Model，不阻断
+其余页面采用新快照。401 只收敛为鉴权失败，不清除 Token 或尝试注册。成功响应中的
+`next_refresh_at_utc` 是下一次 Dashboard 自动同步
 的唯一正常调度权威：清醒态使用一次性 `esp_timer` 对齐绝对截止，Light-sleep 使用同一截止
 时间决定何时恢复网络。完整同步失败后才使用
 `CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC`，本地退避只负责错误恢复，不再存在 NVS 相对
@@ -153,7 +158,7 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
   → web_file_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
-  → handler 串行浏览、下载或事务上传
+  → handler 串行浏览、下载、事务上传或执行单项目录/文件变更
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
@@ -202,7 +207,9 @@ Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当�
 租约。Service 已反初始化但租约释放失败时同样保留代次供幂等重试。启动失败只逆序释放本轮
 实际取得的资源；Service 报告 `STOPPING/CLEANUP_FAILED` 时保留租约，不能伪装为可退出。
 任何 request API 返回非 `ESP_OK` 时均不承诺后续 Presentation 事件，调用方直接处理同步错误。
-本阶段的产品契约不包含配置编辑、删除、重命名、创建目录、WebDAV 或 WebSocket。
+当前产品契约支持创建目录、常规文件移动/重命名，以及常规文件和空目录的单项删除；不包含
+配置编辑、递归目录删除、目录移动/重命名、WebDAV 或 WebSocket。浏览器批量操作只是顺序调用
+单项接口，不声明跨多个目录项的原子事务。
 
 同步回执 waiter 在同一个 `s_state_lock` 临界区完成 deadline 最终仲裁：`COMPLETED` 先复制
 结果并释放槽，`EXECUTING` 解锁后等待最终信号，已到期的 `PENDING` 当场释放；不存在检查
@@ -220,8 +227,6 @@ Manager 快照，不使用周期轮询或额外 Task。
 | `app_web_file_task.cpp` | 网页文件管理启动、运行和可失败停止的一次性产品状态机 |
 
 Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 API 不暴露 RTOS 句柄。
-每个 Task 通过统一工具向串口输出 `uxTaskGetStackHighWaterMark()`；常驻任务按 60 秒周期
-节流，一次性或可停止任务在退出前输出最终值。
 
 `app_web_file_task.cpp` 的一次性 Task 只在启动、运行和停止期间存在。它不创建命令队列：重复启动
 明确拒绝，每个有效停止意图都在 Task 锁内取得严格单调的 64 位序列并通知活动 Task；链路变化
@@ -231,7 +236,7 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 有界清理先记录已消费序列；失败后在同一把锁内比较最新序列，只有没有更新请求时才解绑并
 进入 `ERROR`，否则立即继续下一轮。成功进入 `STOPPED` 可以原子消费全部并发停止请求。
 `UINT64_MAX` 只分配一次，耗尽后停止与后续启动都拒绝，避免回绕后吞掉清理重试。Task 退出前
-清空私有句柄并输出最终栈高水位。
+清空私有句柄。
 
 当前低功耗阶段把“停网”和“Light-sleep”拆成两个可组合步骤。无活动窗口结束后，如果
 `app_pomodoro_requires_live_display()` 报告运行中的番茄钟正处于前台，`app_power` 进入
@@ -239,6 +244,11 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 产品 Timer、远端日志、Network Manager 和 Wi-Fi Driver，UI Runtime 与一秒番茄钟 Timer
 继续运行。Dashboard 截止到达时临时恢复网络并完成维护，活动代次未改变则再次停网；任意按键、
 阶段完成或离开运行中的番茄钟页都会恢复正常网络策略。
+
+每次收集低功耗阻止条件前，`app_power` 都同步调用
+`app_voice_reconcile_network_lease()` 修复语音侧可能遗留的实时租约。没有本地租约时直接
+成功；语音 Service 仍忙时保留租约并返回 `ESP_ERR_INVALID_STATE`；释放失败时同样保留原代次，
+供下一轮幂等重试。该错误本身不进入 `BLOCKED`，仍存在的租约会作为正常阻止条件按既有退避重试。
 
 其他场景继续执行完整 Light-sleep：睡前先关闭语音新会话入口，确认 AFE Task 停泊且输入输出
 关闭；再关闭 UI 业务入口、停止 LVGL timer、等待显示 DMA 静止，最后使用同一低功耗停网握手。
@@ -248,9 +258,10 @@ ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止时间更近
 等待完整显示传输。同步失败保留旧截止时间，下个 Timer 周期重试。Timer 维护窗口不启动语音
 Runtime；左右键唤醒则按以下链路恢复产品按键事实：
 
-启用 `CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 后，RTC INT GPIO15 取代内部 Timer 成为
-唯一维护唤醒源；左右键仍可唤醒，但 BSP 不调用 `esp_sleep_enable_timer_wakeup()`。该模式
-只用于验证 RTC INT 硬件连线，Application 将 RTC INT 命中作为维护刷新而不是用户活动。
+默认关闭 `CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED`。显式启用后，RTC INT GPIO15 取代
+内部 Timer 成为唯一维护唤醒源；左右键仍可唤醒，但 BSP 不调用
+`esp_sleep_enable_timer_wakeup()`。该模式只用于验证 RTC INT 硬件连线，Application 将
+RTC INT 命中作为维护刷新而不是用户活动。
 Application 只把固定维护间隔传入单次 Device 睡眠事务；BSP 在事务内先关闭全部 RTC INT
 输出源并清除 AF/TF，等待 GPIO15 内部上拉稳定 10 ms 后读取释放基线。基线为低时不启动
 PCF85063 Timer 或 Light-sleep；基线为高才启动 Timer，并在 RTC INT、按键唤醒或入口失败后
@@ -264,7 +275,9 @@ EXT1 左右键掩码 → app_power 按网络 → 语音 → UI 恢复
 ```
 
 Button Service 保持 RUNNING，不增加睡前 `stop()` 或醒后 `start()`；提交失败属于恢复错误
-并进入 BLOCKED。活动录音、上传、播放、AFE drain、音频输入输出或语音租约是暂时睡眠阻止
+并进入 BLOCKED。普通按需扫描使用配置的 10 ms 周期；Device 扫描或唤醒后物理状态读取失败时，
+下一次单次扫描固定退避 250 ms，成功后立即恢复正常周期，避免错误状态下持续高频唤醒。
+活动录音、上传、播放、AFE drain、音频输入输出或语音租约是暂时睡眠阻止
 条件，不会在睡前取消会话；会话结束后按 10 秒配置重试。语音 Runtime 的 Light-sleep
 `stop()` 保留 Codec、AFE、模型、缓冲和已创建 Task，`deinit()` 不进入每轮睡眠路径。
 Dashboard 同步失败是可重试的数据错误；语音、网络或 UI 无法证明已安全停止/恢复才进入

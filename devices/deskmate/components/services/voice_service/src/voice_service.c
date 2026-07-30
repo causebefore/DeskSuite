@@ -1,7 +1,7 @@
 /*
  * 文件职责：封装录音 + 流式播放的语音交互闭环。
  * 主要依赖：audio_service、transport、voice_protocol、settings_store。
- * 调用方：App 业务流程（按键触发、测试页触发）。
+ * 调用方：App 业务流程（按键或唤醒词触发）。
  *
  * 数据流：
  *   录音：(MIC) → ES7210 2通道 → audio_processor_service (双麦 AFE 降噪)
@@ -30,7 +30,6 @@
 #include "freertos/task.h"
 #include "protocol_identity.h"
 #include "protocol_url.h"
-#include "task_stack_stats.h"
 #include "voice_protocol.h"
 
 static const char *TAG = "voice_service";
@@ -214,7 +213,6 @@ static void run_playback(void *arg)
                  mean_abs_sample,
                  (int) ctx->got_error);
     }
-    task_stack_stats_log_now("voice_play");
     (void) audio_service_enable_output(false);
     if (ctx->playback_done != NULL)
     {
@@ -657,7 +655,6 @@ static void run_voice_chat(void *arg)
     terminal_event = VOICE_SERVICE_EVENT_DONE;
 
 cleanup:
-    task_stack_stats_log_now("voice_chat");
     free(record_buf);
 #if !CONFIG_DESKMATE_WAKE_WORD_ENABLE
     if (input_enabled)

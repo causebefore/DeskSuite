@@ -1,72 +1,19 @@
 /*
  * 文件职责：固件主入口，显式初始化系统基础能力并启动 App。
- * 主要依赖：device_rtc、device_storage、sys、app_main、ESP-IDF Heap/Timer。
+ * 主要依赖：device_rtc、device_storage、sys、app_main。
  * 调用方：ESP-IDF 启动流程。
  */
 #include "app_main.h"
 #include "device_rtc.h"
 #include "device_storage.h"
 #include "esp_check.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "settings_store.h"
 #include "system_clock.h"
 #include "system_filesystem.h"
 #include "system_storage.h"
-#include "task_stack_stats.h"
 
-#define MEMORY_STATS_LOG_TAG     "memory_stats"
-#define MEMORY_STATS_INTERVAL_US (10ULL * 1000ULL * 1000ULL)
-
-static const char        *TAG = "main";
-static esp_timer_handle_t s_memory_stats_timer;
-
-/** @brief 输出内部 SRAM 总览 */
-static void memory_stats_timer_callback(void *arg)
-{
-    (void) arg;
-    const uint32_t capabilities = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-    const size_t   total_bytes  = heap_caps_get_total_size(capabilities);
-    const size_t   free_bytes   = heap_caps_get_free_size(capabilities);
-    const size_t   used_bytes   = total_bytes >= free_bytes ? total_bytes - free_bytes : 0U;
-    const uint32_t used_permille =
-        total_bytes > 0U ? (uint32_t) ((used_bytes * 1000U + total_bytes / 2U) / total_bytes) : 0U;
-
-    ESP_LOGI(MEMORY_STATS_LOG_TAG,
-             "内部 SRAM: 占用=%lu.%lu%%, 已用=%lu 字节, 空闲=%lu 字节, "
-             "历史最小空闲=%lu 字节, 最大连续块=%lu 字节",
-             (unsigned long) (used_permille / 10U),
-             (unsigned long) (used_permille % 10U),
-             (unsigned long) used_bytes,
-             (unsigned long) free_bytes,
-             (unsigned long) heap_caps_get_minimum_free_size(capabilities),
-             (unsigned long) heap_caps_get_largest_free_block(capabilities));
-}
-
-/** @brief 在产品初始化前启动 10 秒 SRAM 总览 */
-static void start_memory_stats_logging(void)
-{
-    const esp_timer_create_args_t timer_args = {
-        .callback = memory_stats_timer_callback,
-        .name     = MEMORY_STATS_LOG_TAG,
-    };
-    esp_err_t err = esp_timer_create(&timer_args, &s_memory_stats_timer);
-    if (err != ESP_OK)
-    {
-        ESP_LOGW(TAG, "创建内存统计定时器失败: %s", esp_err_to_name(err));
-        return;
-    }
-
-    memory_stats_timer_callback(NULL);
-    err = esp_timer_start_periodic(s_memory_stats_timer, MEMORY_STATS_INTERVAL_US);
-    if (err != ESP_OK)
-    {
-        ESP_LOGW(TAG, "启动内存统计定时器失败: %s", esp_err_to_name(err));
-        (void) esp_timer_delete(s_memory_stats_timer);
-        s_memory_stats_timer = NULL;
-    }
-}
+static const char *TAG = "main";
 
 /**
  * @brief 同步装配可选 SD 卡与 FAT 文件系统，失败时回滚并降级继续
@@ -126,12 +73,6 @@ static void init_optional_sd_filesystem(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "DeskMate OTA 验证固件已启动");
-
-    // esp_log_level_set("*", ESP_LOG_WARN);
-    // esp_log_level_set(TAG, ESP_LOG_INFO);
-    // esp_log_level_set(TASK_STACK_STATS_LOG_TAG, ESP_LOG_INFO);
-    // esp_log_level_set(MEMORY_STATS_LOG_TAG, ESP_LOG_INFO);
-    //   start_memory_stats_logging();
 
     esp_err_t err = system_storage_init();
     if (err != ESP_OK)

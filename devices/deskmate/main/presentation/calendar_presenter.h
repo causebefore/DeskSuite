@@ -1,5 +1,5 @@
 /*
- * 文件职责：把日历领域快照转换为日历页 View Model。
+ * 文件职责：把 Dashboard Store 日历数据转换为日历页 View Model。
  */
 #pragma once
 
@@ -9,11 +9,18 @@
 /**
  * @brief 初始化日历页 Presenter
  *
- * 注册日历事实事件并建立初始 View Model。
+ * 建立初始空 View Model。
  *
- * @return ESP_OK 成功；其他值表示初始化失败
+ * @return ESP_OK 成功
  */
 esp_err_t calendar_presenter_init(void);
+
+/**
+ * @brief 从 Dashboard Store 同步刷新日历页 View Model
+ *
+ * @return ESP_OK 成功；其他值表示 Store 尚无有效日历数据
+ */
+esp_err_t calendar_presenter_refresh(void);
 
 /**
  * @brief 复制日历页当前 View Model
