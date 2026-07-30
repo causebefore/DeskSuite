@@ -42,7 +42,7 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 | UI | [`main/ui/`](main/ui/) | LVGL 页面、控件、UI Runtime Task 和视觉呈现 |
 | Service | [`components/services/`](components/services/) | 可选的持续执行、自动恢复、完整事务与资源协调 |
 | Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的 Wi‑Fi/Portal、网络诊断、传输、身份、后端上下文、SNTP、OTA 和日志能力 |
-| Shared Service | [`../../shared/components/services/`](../../shared/components/services/) | 可跨产品显式装配、但不反向依赖 Communication 的网页控制台等通用 Service |
+| Shared Service | [`../../shared/components/services/`](../../shared/components/services/) | 可跨产品显式装配的网页控制台，以及单向依赖 Communication 的叶子 Provider Adapter |
 | Product Protocols | [`components/product_protocols/`](components/product_protocols/) | DeskMate Dashboard 产品协议 |
 | Data | [`components/data/`](components/data/) | 产品数据结构、缓存和持久化语义 |
 | System | [`components/sys/`](components/sys/) | 可信时间、存储基础、复位和看门狗等系统级能力 |
@@ -60,8 +60,8 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 - 网络：`app_network` 拥有 DeskMate 的 Dashboard、OTA、语音租约和会话退避策略；
   Communication 的 `network_manager` 只拥有 Wi‑Fi/Portal 技术状态机，协议与传输不决定产品时机。
 - 网页控制台：设备设置页选择“网页控制台”后，Application 申请专用网络租约并启动本地
-  认证管理 Service；产品显式组合 Files、番茄钟 Settings 与系统 Status，页面返回必须等待
-  Service 完整停止后才释放租约。
+  认证管理 Service；产品显式组合 Files、番茄钟 Settings、系统 Status 与可选网络 Status，
+  页面返回必须等待 Service 完整停止后才释放租约。
 - 呈现：Service、Communication 或 Application 报告事实，Presenter 更新 View Model 并发布呈现事件，
   UI Runtime 在唯一 LVGL 上下文读取并渲染。
 - 番茄钟：`app_pomodoro_task` 使用单调 deadline 串行推进专注、短休和长休；设置以独立版本

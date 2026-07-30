@@ -606,6 +606,7 @@ static bool web_console_settings_snapshot_is_valid(
     return true;
 }
 
+#if CONFIG_WEB_CONSOLE_STATUS
 /** @brief 校验 Status Provider 完整输出契约。 */
 static bool web_console_status_is_valid(const web_console_status_provider_t *provider,
                                         const web_console_section_status_t *status,
@@ -625,6 +626,7 @@ static bool web_console_status_is_valid(const web_console_status_provider_t *pro
     }
     return true;
 }
+#endif
 
 /** @brief 创建一个字段公开值 JSON 对象；Secret/Write-only 不编码原值。 */
 static cJSON *web_console_provider_create_field_value_json(
@@ -772,6 +774,7 @@ static const web_console_settings_provider_t *web_console_provider_find_settings
     return provider;
 }
 
+#if CONFIG_WEB_CONSOLE_STATUS
 /** @brief 读取并查找请求指定的 Status 分区。 */
 static const web_console_status_provider_t *web_console_provider_find_status_request(
     httpd_req_t *request,
@@ -799,6 +802,7 @@ static const web_console_status_provider_t *web_console_provider_find_status_req
     }
     return provider;
 }
+#endif
 
 #if CONFIG_WEB_CONSOLE_SETTINGS
 /** @brief 返回指定 Settings 分区的完整公开快照。 */

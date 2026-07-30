@@ -78,6 +78,7 @@ idf_component_register(SRCS
                           rtc_service
                           voice_service
                           web_console_service
+                          web_console_network_provider
                            ui_platform
                            lvgl
                            dashboard_store

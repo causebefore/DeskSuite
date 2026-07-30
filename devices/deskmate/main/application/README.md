@@ -169,14 +169,18 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → Files handler 串行浏览、下载、事务上传或执行单项目录/文件变更
   → Settings handler 经 app_web_console_provider 提交版本化番茄钟更新并查询结果
   → Status handler 经 app_web_console_provider 读取单份系统快照
+  → Status handler 经 web_console_network_provider 读取单份 Network Manager 诊断快照
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
 `app_web_console.cpp` 拥有产品阶段、网页控制台网络租约代次、是否仍需清理 Service 的事实以及运行摘要
 边界；`app_web_console_task.cpp` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
 `app_web_console_provider.c` 是无状态产品适配层，只把通用字段映射到 `app_pomodoro` 和
-`system_info` 公共 API，不拥有请求、版本、队列、持久化或 HTTPD。`web_console_service`
-独占 HTTPD、认证、handler、文件事务和传输资源。Composition Root 必须先初始化
+`system_info` 公共 API，不拥有请求、版本、队列、持久化或 HTTPD。
+`web_console_network_provider` 是单独的无状态共享适配层，只在 Status 构建开关开启时由
+`app_web_console` 显式追加；每次读取只调用一次 `network_manager_get_diagnostics_copy()`，
+不控制网络生命周期或注册通知回调。`web_console_service` 独占 HTTPD、认证、handler、文件
+事务和传输资源。Composition Root 必须先初始化
 `app_pomodoro`，再初始化会借用其 Provider 的 `app_web_console`；失败时按相反顺序回滚。
 Application 在授予租约后还会复核 Network Manager `ONLINE` 与当前 STA IPv4；它不因 STA
 短暂断线停止 Service。Service 启动成功后，`app_web_console_task` 先在
@@ -222,8 +226,9 @@ Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当�
 任何 request API 返回非 `ESP_OK` 时均不承诺后续 Presentation 事件，调用方直接处理同步错误。
 当前 Files 契约支持创建目录、常规文件移动/重命名，以及常规文件和空目录的单项删除；不包含
 递归目录删除、目录移动/重命名、WebDAV 或 WebSocket。Settings 当前只暴露四项番茄钟设置，
-Status 当前只暴露系统只读事实；敏感凭据、OTA 和 Dashboard 不进入字段表。浏览器批量文件操作
-只是顺序调用单项接口，不声明跨多个目录项的原子事务。
+Status 当前暴露系统只读事实与 Network Manager 网络诊断；网络 SSID、敏感凭据、OTA 和
+Dashboard 不进入字段表。浏览器批量文件操作只是顺序调用单项接口，不声明跨多个目录项的
+原子事务。
 
 同步回执 waiter 在同一个 `s_state_lock` 临界区完成 deadline 最终仲裁：`COMPLETED` 先复制
 结果并释放槽，`EXECUTING` 解锁后等待最终信号，已到期的 `PENDING` 当场释放；不存在检查

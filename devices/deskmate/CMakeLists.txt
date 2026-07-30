@@ -33,6 +33,7 @@ set(EXTRA_COMPONENT_DIRS
     components/services/rtc_service
     components/services/voice_service
     ../../shared/components/services/web_console_service
+    ../../shared/components/services/web_console_network_provider
     components/graphics/ui_platform
     components/data/dashboard_store
     components/data/pomodoro_store

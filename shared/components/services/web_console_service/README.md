@@ -246,6 +246,7 @@ journal 只包含版本、阶段、预期长度和规范逻辑目标路径。每
 | 私有调用 | `freertos` | Service 状态锁、完成信号量和一次性 HTTPD 清理 Task |
 | 可选私有调用 | `heap` | Files 开启时分配内部 RAM 请求工作区和共享 32 KiB PSRAM 传输缓冲区 |
 | 组件清单依赖 | `espressif__cjson` | Settings/Status 开启时才编译并链接，用于严格解析和有界编码 JSON |
+| 可选调用方 | [`web_console_network_provider`](../web_console_network_provider/README.md) | 通过公共 Status 契约提供 Network Manager 只读诊断；Core 不反向依赖 |
 | 被调用 | 目标 Application / Composition Root | 按产品时机装配生命周期并读取运行摘要 |
 
 本组件不初始化这些依赖，也不拥有存储 Provider 或网络链路的生命周期。Files 只使用 C/POSIX
