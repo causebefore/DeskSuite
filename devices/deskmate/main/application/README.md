@@ -104,7 +104,7 @@ Application 只消费这些事实，不把产品重试策略写回 Communication
 
 ```text
 button_service → app_key → app_settings → Presentation 设置动作 → UI
-UI 用户意图 → app_main → app_settings / app_ota / app_web_file → app_network / web_file_service
+UI 用户意图 → app_main → app_settings / app_ota / app_web_file → app_network / web_console_service
 ```
 
 焦点、菜单历史和子页位置只属于 LVGL。`app_settings` 不复制这些状态；离开设置页、UI
@@ -156,7 +156,7 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
 设备设置页选择“网页文件管理”
   → app_web_file 检查 /sdcard
   → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
-  → web_file_service 恢复事务并启动 HTTPD
+  → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → handler 串行浏览、下载、事务上传或执行单项目录/文件变更
   → 设备返回时 Service 安全停止后释放网络租约
@@ -164,7 +164,7 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
 
 `app_web_file.cpp` 拥有产品阶段、Web 文件租约代次、是否仍需清理 Service 的事实以及运行摘要
 边界；`app_web_file_task.cpp` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
-`web_file_service` 独占 HTTPD、认证、handler、文件事务和传输资源。
+`web_console_service` 独占 HTTPD、认证、handler、文件事务和传输资源。
 Application 在授予租约后还会复核 Network Manager `ONLINE` 与当前 STA IPv4；它不因 STA
 短暂断线停止 Service。Service 启动成功后，`app_web_file_task` 先在
 状态锁外读取当前内存链路与 Service 状态，验证六位访问码，再在一个状态锁临界区写入 URL、
@@ -196,13 +196,13 @@ Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当�
 
 ```text
 停止意图 → STOPPING
-  → web_file_service_stop(6000 ms)
-  → web_file_service_deinit()
+  → web_console_service_stop(6000 ms)
+  → web_console_service_deinit()
   → app_network_release_web_file_lease()
   → STOPPED
 ```
 
-`web_file_service_stop()` 超时、清理失败或 `deinit()` 未完成时，Application 保留租约和
+`web_console_service_stop()` 超时、清理失败或 `deinit()` 未完成时，Application 保留租约和
 明确错误态，后续停止意图只重试同一清理所有权；绝不在 HTTPD 或 handler 仍可能存活时释放
 租约。Service 已反初始化但租约释放失败时同样保留代次供幂等重试。启动失败只逆序释放本轮
 实际取得的资源；Service 报告 `STOPPING/CLEANUP_FAILED` 时保留租约，不能伪装为可退出。

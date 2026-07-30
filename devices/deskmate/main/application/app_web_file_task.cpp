@@ -10,7 +10,7 @@
 #include "freertos/task.h"
 #include "network_manager.h"
 #include "system_filesystem.h"
-#include "web_file_service.h"
+#include "web_console_service.h"
 
 #define APP_WEB_FILE_LEASE_TIMEOUT_MS         1000U
 #define APP_WEB_FILE_LEASE_ACQUIRE_TIMEOUT_MS 20000U
@@ -75,9 +75,9 @@ static void consume_stop_requests_for_round(void)
  * @param[out] out_status Service 运行摘要
  * @return ESP_OK 快照有效；其他值为 Service 状态读取错误
  */
-static esp_err_t get_service_status(web_file_service_status_t *out_status)
+static esp_err_t get_service_status(web_console_service_status_t *out_status)
 {
-    const esp_err_t error = web_file_service_get_status_copy(out_status);
+    const esp_err_t error = web_console_service_get_status_copy(out_status);
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "读取网页文件 Service 状态失败: %s", esp_err_to_name(error));
@@ -203,41 +203,41 @@ static esp_err_t wait_for_network_online(uint32_t timeout_ms)
  */
 static esp_err_t stop_owned_resources(void)
 {
-    web_file_service_status_t service_status;
+    web_console_service_status_t service_status;
     esp_err_t                 error = get_service_status(&service_status);
     if (error != ESP_OK)
     {
         return error;
     }
 
-    if (service_status.state == WEB_FILE_SERVICE_STATE_RUNNING
-        || service_status.state == WEB_FILE_SERVICE_STATE_STARTING
-        || service_status.state == WEB_FILE_SERVICE_STATE_STOPPING
-        || service_status.state == WEB_FILE_SERVICE_STATE_CLEANUP_FAILED)
+    if (service_status.state == WEB_CONSOLE_SERVICE_STATE_RUNNING
+        || service_status.state == WEB_CONSOLE_SERVICE_STATE_STARTING
+        || service_status.state == WEB_CONSOLE_SERVICE_STATE_STOPPING
+        || service_status.state == WEB_CONSOLE_SERVICE_STATE_CLEANUP_FAILED)
     {
         app_web_file_internal_set_service_cleanup_required(true);
-        error = web_file_service_stop(APP_WEB_FILE_STOP_TIMEOUT_MS);
+        error = web_console_service_stop(APP_WEB_FILE_STOP_TIMEOUT_MS);
         if (error != ESP_OK)
         {
             ESP_LOGE(TAG, "网页文件 Service 有界停止失败: %s", esp_err_to_name(error));
             return error;
         }
-        service_status.state = WEB_FILE_SERVICE_STATE_INITIALIZED;
+        service_status.state = WEB_CONSOLE_SERVICE_STATE_INITIALIZED;
     }
 
-    if (service_status.state == WEB_FILE_SERVICE_STATE_INITIALIZED)
+    if (service_status.state == WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
         app_web_file_internal_set_service_cleanup_required(true);
-        error = web_file_service_deinit();
+        error = web_console_service_deinit();
         if (error != ESP_OK)
         {
             ESP_LOGE(TAG, "反初始化网页文件 Service 失败: %s", esp_err_to_name(error));
             return error;
         }
-        service_status.state = WEB_FILE_SERVICE_STATE_UNINITIALIZED;
+        service_status.state = WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED;
     }
 
-    if (service_status.state != WEB_FILE_SERVICE_STATE_UNINITIALIZED)
+    if (service_status.state != WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
     {
         app_web_file_internal_set_service_cleanup_required(true);
         return ESP_ERR_INVALID_STATE;
@@ -255,32 +255,32 @@ static esp_err_t stop_owned_resources(void)
  */
 static esp_err_t rollback_start(bool initialized_this_attempt)
 {
-    web_file_service_status_t service_status;
+    web_console_service_status_t service_status;
     esp_err_t                 error = get_service_status(&service_status);
     if (error != ESP_OK)
     {
         return error;
     }
 
-    if (service_status.state == WEB_FILE_SERVICE_STATE_STARTING
-        || service_status.state == WEB_FILE_SERVICE_STATE_RUNNING
-        || service_status.state == WEB_FILE_SERVICE_STATE_STOPPING
-        || service_status.state == WEB_FILE_SERVICE_STATE_CLEANUP_FAILED)
+    if (service_status.state == WEB_CONSOLE_SERVICE_STATE_STARTING
+        || service_status.state == WEB_CONSOLE_SERVICE_STATE_RUNNING
+        || service_status.state == WEB_CONSOLE_SERVICE_STATE_STOPPING
+        || service_status.state == WEB_CONSOLE_SERVICE_STATE_CLEANUP_FAILED)
     {
         app_web_file_internal_set_service_cleanup_required(true);
-        error = web_file_service_stop(APP_WEB_FILE_STOP_TIMEOUT_MS);
+        error = web_console_service_stop(APP_WEB_FILE_STOP_TIMEOUT_MS);
         if (error != ESP_OK)
         {
             ESP_LOGE(TAG, "回滚网页文件 Service 失败，保留网络租约: %s", esp_err_to_name(error));
             return error;
         }
-        service_status.state = WEB_FILE_SERVICE_STATE_INITIALIZED;
+        service_status.state = WEB_CONSOLE_SERVICE_STATE_INITIALIZED;
     }
 
-    if (initialized_this_attempt && service_status.state == WEB_FILE_SERVICE_STATE_INITIALIZED)
+    if (initialized_this_attempt && service_status.state == WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
         app_web_file_internal_set_service_cleanup_required(true);
-        error = web_file_service_deinit();
+        error = web_console_service_deinit();
         if (error != ESP_OK)
         {
             ESP_LOGE(TAG, "回滚网页文件 Service 初始化失败，保留网络租约: %s", esp_err_to_name(error));
@@ -345,7 +345,7 @@ static esp_err_t start_owned_resources(void)
         return cleanup_error != ESP_OK ? cleanup_error : error;
     }
 
-    web_file_service_status_t service_status;
+    web_console_service_status_t service_status;
     error = get_service_status(&service_status);
     if (error != ESP_OK)
     {
@@ -354,9 +354,9 @@ static esp_err_t start_owned_resources(void)
     }
 
     bool initialized_this_attempt = false;
-    if (service_status.state == WEB_FILE_SERVICE_STATE_UNINITIALIZED)
+    if (service_status.state == WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
     {
-        error = web_file_service_init();
+        error = web_console_service_init();
         if (error != ESP_OK)
         {
             const esp_err_t cleanup_error = release_network_lease();
@@ -364,7 +364,7 @@ static esp_err_t start_owned_resources(void)
         }
         initialized_this_attempt = true;
     }
-    else if (service_status.state != WEB_FILE_SERVICE_STATE_INITIALIZED)
+    else if (service_status.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
         app_web_file_internal_set_service_cleanup_required(true);
         return ESP_ERR_INVALID_STATE;
@@ -376,7 +376,7 @@ static esp_err_t start_owned_resources(void)
     }
 
     app_web_file_internal_publish_state(APP_WEB_FILE_STATE_STARTING_SERVICE, ESP_OK, true);
-    error = web_file_service_start();
+    error = web_console_service_start();
     if (error != ESP_OK)
     {
         const esp_err_t cleanup_error = rollback_start(initialized_this_attempt);

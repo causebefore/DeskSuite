@@ -1,6 +1,6 @@
 /**
- * @file web_file_service_http.cpp
- * @brief 网页文件服务 HTTP 路由、首页与认证会话实现
+ * @file web_console_service_http.cpp
+ * @brief 网页控制台 Service 的 HTTP 路由、首页与认证会话实现
  */
 #include <stdio.h>
 #include <string.h>
@@ -10,8 +10,8 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
-#include "web_file_service_internal.hpp"
-#include "web_file_service_web.h"
+#include "web_console_service_internal.hpp"
+#include "web_console_service_web.h"
 
 #define WEB_FILE_TOKEN_RESPONSE_SIZE       45U
 #define WEB_FILE_INDEX_HANDLER_BIT         (1U << 0U)
@@ -24,7 +24,7 @@
 #define WEB_FILE_FILE_DELETE_HANDLER_BIT   (1U << 7U)
 #define WEB_FILE_HTTPD_MAX_URI_HANDLERS    8U
 
-static const char *TAG = "web_file_service";
+static const char *TAG = "web_console_service";
 
 enum web_file_session_body_result_t
 {
@@ -87,7 +87,7 @@ bool web_file_handler_enter(void)
     }
 
     ++s_context.active_handlers;
-    const bool accepting = s_context.accepting_requests && s_context.state == WEB_FILE_SERVICE_STATE_RUNNING;
+    const bool accepting = s_context.accepting_requests && s_context.state == WEB_CONSOLE_SERVICE_STATE_RUNNING;
     xSemaphoreGive(lock);
     return accepting;
 }
@@ -234,7 +234,7 @@ static web_file_auth_result_t web_file_probe_access_code(const char code[7], int
     web_file_auth_result_t result                                       = WEB_FILE_AUTH_UNAUTHORIZED;
 
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    *out_service_available = s_context.accepting_requests && s_context.state == WEB_FILE_SERVICE_STATE_RUNNING;
+    *out_service_available = s_context.accepting_requests && s_context.state == WEB_CONSOLE_SERVICE_STATE_RUNNING;
     if (*out_service_available)
     {
         candidate = s_context.auth;
@@ -274,7 +274,7 @@ static web_file_auth_result_t web_file_commit_session(const char    code[7],
     web_file_auth_result_t result = WEB_FILE_AUTH_UNAUTHORIZED;
 
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    *out_service_available = s_context.accepting_requests && s_context.state == WEB_FILE_SERVICE_STATE_RUNNING;
+    *out_service_available = s_context.accepting_requests && s_context.state == WEB_CONSOLE_SERVICE_STATE_RUNNING;
     if (*out_service_available)
     {
         result = web_file_auth_create_session(&s_context.auth, code, random_token, now_us, out_token);
@@ -521,7 +521,7 @@ static_assert(sizeof(s_routes) / sizeof(s_routes[0]) == WEB_FILE_HTTPD_MAX_URI_H
               "HTTPD handler 配置必须覆盖全部网页文件 URI");
 
 /**
- * @brief 注册网页文件服务的全部 HTTP URI
+ * @brief 注册网页控制台 Service 的全部 HTTP URI
  *
  * @param[in] server 已启动且由 Service 持有的 HTTPD 句柄
  * @return ESP_OK 全部注册完成；其他错误码来自 HTTPD

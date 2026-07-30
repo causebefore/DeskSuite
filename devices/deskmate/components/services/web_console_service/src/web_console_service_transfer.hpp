@@ -1,12 +1,12 @@
 /**
- * @file web_file_service_transfer.hpp
+ * @file web_console_service_transfer.hpp
  * @brief 网页文件服务各 C++ 传输实现共享的有界类型和私有接口
  */
 #pragma once
 
 #include <cstddef>
 
-#include "web_file_service_internal.hpp"
+#include "web_console_service_internal.hpp"
 
 #define WEB_FILE_AUTHORIZATION_BUFFER_SIZE 48U
 #define WEB_FILE_RESPONSE_SCRATCH_SIZE     1280U

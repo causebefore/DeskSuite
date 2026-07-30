@@ -1,8 +1,8 @@
 /**
- * @file web_file_service_path.cpp
+ * @file web_console_service_path.cpp
  * @brief 网页文件服务的路径、JSON 与响应头编码安全实现
  */
-#include "web_file_service_internal.hpp"
+#include "web_console_service_internal.hpp"
 
 #include <stdint.h>
 #include <string.h>

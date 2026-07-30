@@ -40,7 +40,7 @@ extern "C"
      * @brief 初始化网页文件管理 Application 状态
      *
      * 本同步函数只初始化受保护的产品状态，不启动一次性 Task，不访问 SD、网络或 HTTPD。
-     * Composition Root 必须先初始化 `web_file_service` 和 `app_network`。已处于无保留资源的
+     * Composition Root 必须先初始化 `web_console_service` 和 `app_network`。已处于无保留资源的
      * `STOPPED` 状态时重复调用保持幂等，支持顶层初始化失败后的安全重试。
      *
      * @return ESP_OK 初始化完成或已安全初始化；ESP_ERR_NO_MEM 无法创建展示推送互斥量；

@@ -32,7 +32,7 @@ set(EXTRA_COMPONENT_DIRS
     components/services/environment_service
     components/services/rtc_service
     components/services/voice_service
-    components/services/web_file_service
+    components/services/web_console_service
     components/graphics/ui_platform
     components/data/dashboard_store
     components/data/pomodoro_store

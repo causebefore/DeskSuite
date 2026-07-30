@@ -93,7 +93,7 @@ Presenter；Presentation 看到的仍然只是 Application 重新读取并收敛
 设备设置页选择“网页文件管理”
   → app_web_file 检查 /sdcard
   → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
-  → web_file_service 恢复事务并启动 HTTPD
+  → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → handler 串行浏览、下载或事务上传
   → 设备返回时 Service 安全停止后释放网络租约

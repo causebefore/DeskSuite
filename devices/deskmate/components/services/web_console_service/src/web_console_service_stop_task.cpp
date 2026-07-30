@@ -1,15 +1,15 @@
 /**
- * @file web_file_service_stop_task.cpp
+ * @file web_console_service_stop_task.cpp
  * @brief 在一次性 Task 中执行无超时的 ESP-IDF HTTPD 合法销毁流程
  */
-#include "web_file_service_internal.hpp"
+#include "web_console_service_internal.hpp"
 
 #include "esp_log.h"
 
 #define WEB_FILE_HTTPD_STOP_TASK_STACK_SIZE_BYTES 3072U
 #define WEB_FILE_HTTPD_STOP_TASK_PRIORITY         4U
 
-static const char *TAG = "web_file_service";
+static const char *TAG = "web_console_service";
 
 /**
  * @brief 独占 HTTPD 句柄并执行一次同步销毁
@@ -23,7 +23,7 @@ static const char *TAG = "web_file_service";
  */
 static void web_file_httpd_stop_task(void *argument)
 {
-    web_file_service_context_t *context = static_cast<web_file_service_context_t *>(argument);
+    web_console_service_context_t *context = static_cast<web_console_service_context_t *>(argument);
 
     xSemaphoreTake(context->lock, portMAX_DELAY);
     const httpd_handle_t    server     = context->server;
@@ -51,7 +51,7 @@ static void web_file_httpd_stop_task(void *argument)
     }
 }
 
-esp_err_t web_file_httpd_stop_task_create(web_file_service_context_t *context, TaskHandle_t *out_task)
+esp_err_t web_file_httpd_stop_task_create(web_console_service_context_t *context, TaskHandle_t *out_task)
 {
     if (context == NULL || out_task == NULL)
     {

@@ -2,7 +2,7 @@
 
 ## Crosslink 文件管理页面
 
-DeskMate 的 `components/services/web_file_service/web/index.html` 改编自 Crosslink
+DeskMate 的 `components/services/web_console_service/web/index.html` 改编自 Crosslink
 项目的 `src/network/html/FilesPage.html`，并参考了
 `scripts/build_html.py` 的 HTML 压缩处理方式。
 

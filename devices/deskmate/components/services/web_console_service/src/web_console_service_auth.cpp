@@ -1,8 +1,8 @@
 /**
- * @file web_file_service_auth.cpp
- * @brief 网页文件服务的访问码锁定与单会话认证实现
+ * @file web_console_service_auth.cpp
+ * @brief 网页控制台 Service 的访问码锁定与单会话认证实现
  */
-#include "web_file_service_internal.hpp"
+#include "web_console_service_internal.hpp"
 
 #include <limits.h>
 #include <string.h>

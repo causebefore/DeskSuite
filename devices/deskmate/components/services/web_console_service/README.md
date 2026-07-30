@@ -1,7 +1,8 @@
-# `web_file_service`
+# `web_console_service`
 
-> `web_file_service` 是 Service 层的本地认证文件事务所有者，统一管理端口 80 HTTPD、单会话
-> 凭据、URI 入口关闭、handler 排空和文件传输资源，不决定产品何时开放网页文件管理。
+> `web_console_service` 是 Service 层的本地认证网页控制台；当前实现仅开放 Files 能力，统一
+> 管理端口 80 HTTPD、单会话凭据、URI 入口关闭、handler 排空和文件传输资源，不决定产品何时
+> 开放网页文件管理。
 
 ## 1. 定位
 
@@ -39,7 +40,7 @@
 设备设置页选择“网页文件管理”
   → app_web_file 检查 /sdcard
   → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
-  → web_file_service 恢复事务并启动 HTTPD
+  → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → handler 串行浏览、下载、事务上传或执行单项文件变更
   → 设备返回时 Service 安全停止后释放网络租约
@@ -191,17 +192,17 @@ ESP-IDF FatFs；FatFs 不支持符号链接，其 VFS `stat` 只将目录和常�
 
 ## 5. 公共接口
 
-公共头文件：[`include/web_file_service.h`](include/web_file_service.h)
+公共头文件：[`include/web_console_service.h`](include/web_console_service.h)
 
 | API | 同步性 | 作用与完成语义 |
 | --- | --- | --- |
-| `web_file_service_init()` | 同步 | 创建固定锁与三个完成信号量，不访问 SD 卡、不启动 HTTPD |
-| `web_file_service_start()` | 同步 | 先恢复残留上传事务，再生成新访问码并在全部 handler 注册成功后进入 `RUNNING` |
-| `web_file_service_stop(timeout_ms)` | 同步有界等待 | 三阶段共用总期限；成功时 HTTPD、清理 Task 和运行期资源已释放 |
-| `web_file_service_get_status_copy()` | 同步 | 在短锁内复制完整有界快照，不返回内部指针 |
-| `web_file_service_deinit()` | 同步 | 仅在 HTTPD、handler、传输和缓冲区全部消失后释放固定同步资源 |
+| `web_console_service_init()` | 同步 | 创建固定锁与三个完成信号量，不访问 SD 卡、不启动 HTTPD |
+| `web_console_service_start()` | 同步 | 先恢复残留上传事务，再生成新访问码并在全部 handler 注册成功后进入 `RUNNING` |
+| `web_console_service_stop(timeout_ms)` | 同步有界等待 | 三阶段共用总期限；成功时 HTTPD、清理 Task 和运行期资源已释放 |
+| `web_console_service_get_status_copy()` | 同步 | 在短锁内复制完整有界快照，不返回内部指针 |
+| `web_console_service_deinit()` | 同步 | 仅在 HTTPD、handler、传输和缓冲区全部消失后释放固定同步资源 |
 
-`web_file_service_status_t.access_code` 是为上层本地呈现而提供的秘密副本，仅在运行态非空；调用方
+`web_console_service_status_t.access_code` 是为上层本地呈现而提供的秘密副本，仅在运行态非空；调用方
 不得记录或远程转发它。
 
 ## 6. 状态、生命周期与并发
@@ -272,22 +273,22 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - `max_open_sockets = 1`；HTTPD 另行占用 listen 和两个控制 socket。
 - recv/send timeout：各 5 秒；LRU purge 关闭；不注册 WebSocket。
 - 构建配置：无 Kconfig 开关。
-- [`src/web_file_service.cpp`](src/web_file_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
-- [`src/web_file_service_http.cpp`](src/web_file_service_http.cpp)：首页、认证会话、URI 注册与入口关闭。
-- [`src/web_file_service_stop_task.cpp`](src/web_file_service_stop_task.cpp)：一次性 HTTPD 销毁
+- [`src/web_console_service.cpp`](src/web_console_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
+- [`src/web_console_service_http.cpp`](src/web_console_service_http.cpp)：首页、认证会话、URI 注册与入口关闭。
+- [`src/web_console_service_stop_task.cpp`](src/web_console_service_stop_task.cpp)：一次性 HTTPD 销毁
   Task 及无界 SDK 调用隔离。
-- [`src/web_file_service_auth.cpp`](src/web_file_service_auth.cpp)：访问码锁定、单会话和 token 内核。
-- [`src/web_file_service_path.cpp`](src/web_file_service_path.cpp)：路径、JSON 和响应头编码安全内核。
-- [`src/web_file_service_transfer.cpp`](src/web_file_service_transfer.cpp)：共享鉴权传输守卫与原始
+- [`src/web_console_service_auth.cpp`](src/web_console_service_auth.cpp)：访问码锁定、单会话和 token 内核。
+- [`src/web_console_service_path.cpp`](src/web_console_service_path.cpp)：路径、JSON 和响应头编码安全内核。
+- [`src/web_console_service_transfer.cpp`](src/web_console_service_transfer.cpp)：共享鉴权传输守卫与原始
   PUT 接收。
-- [`src/web_file_service_read.cpp`](src/web_file_service_read.cpp)：目录双遍历 JSON 与 32 KiB
+- [`src/web_console_service_read.cpp`](src/web_console_service_read.cpp)：目录双遍历 JSON 与 32 KiB
   PSRAM 流式下载。
-- [`src/web_file_service_mutation.cpp`](src/web_file_service_mutation.cpp)：目录创建、常规文件移动和删除。
-- [`src/web_file_service_transaction.cpp`](src/web_file_service_transaction.cpp)：固定上传产物、
+- [`src/web_console_service_mutation.cpp`](src/web_console_service_mutation.cpp)：目录创建、常规文件移动和删除。
+- [`src/web_console_service_transaction.cpp`](src/web_console_service_transaction.cpp)：固定上传产物、
   journal 持久化、提交顺序与启动恢复矩阵。
-- [`src/web_file_service_internal.hpp`](src/web_file_service_internal.hpp) 和
-  [`src/web_file_service_transfer.hpp`](src/web_file_service_transfer.hpp)：组件私有 C++ 状态与协作接口。
-- [`src/web_file_service_web.h`](src/web_file_service_web.h)：生成的 gzip 首页符号声明。
+- [`src/web_console_service_internal.hpp`](src/web_console_service_internal.hpp) 和
+  [`src/web_console_service_transfer.hpp`](src/web_console_service_transfer.hpp)：组件私有 C++ 状态与协作接口。
+- [`src/web_console_service_web.h`](src/web_console_service_web.h)：生成的 gzip 首页符号声明。
 
 Service 手写实现均以 C++ 编译；构建期生成的 `web_file_index.generated.c` 只承载只读 gzip
 字节资源，并通过带 `extern "C"` 的符号声明与 C++ 实现连接。

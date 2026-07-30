@@ -1,6 +1,6 @@
 /**
- * @file web_file_service_internal.hpp
- * @brief 网页文件服务的内部安全边界接口
+ * @file web_console_service_internal.hpp
+ * @brief 网页控制台 Service 的内部安全边界接口
  */
 #pragma once
 
@@ -13,7 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "web_file_service.h"
+#include "web_console_service.h"
 
 #define WEB_FILE_ACCESS_CODE_LENGTH          6U
 #define WEB_FILE_ACCESS_CODE_BUFFER_SIZE     7U
@@ -75,7 +75,7 @@ struct web_file_transaction_t
 };
 
 /**
- * @brief 网页文件服务唯一运行期上下文及其资源所有权
+ * @brief 网页控制台 Service 唯一运行期上下文及其资源所有权
  *
  * `lock` 保护生命周期、认证、handler 计数和传输所有权等短时内存状态；任何网络、文件、
  * 等待或 HTTPD 外部调用都必须在锁外执行。`server` 在 HTTPD 清理成功前始终归 Service
@@ -85,7 +85,7 @@ struct web_file_transaction_t
  * 销毁调用，完成后通知等待方、发布结果并挂起，直到生命周期调用显式删除它。
  * `lifecycle_active` 串行化可能阻塞或失败的生命周期操作。
  */
-struct web_file_service_context_t
+struct web_console_service_context_t
 {
     SemaphoreHandle_t        lock;                    /**< `init()` 至 `deinit()` 持有的状态锁 */
     SemaphoreHandle_t        handlers_drained;        /**< handler 归零时发出的二值唤醒信号 */
@@ -93,7 +93,7 @@ struct web_file_service_context_t
     SemaphoreHandle_t        httpd_stop_completed;    /**< HTTPD 销毁调用返回时的二值唤醒信号 */
     httpd_handle_t           server;                  /**< Service 独占的 HTTPD 句柄 */
     TaskHandle_t             httpd_stop_task;         /**< 等待回收的一次性 HTTPD 清理 Task */
-    web_file_service_state_t state;                   /**< 当前生命周期状态 */
+    web_console_service_state_t state;                   /**< 当前生命周期状态 */
     web_file_auth_state_t    auth;                    /**< 锁内访问的访问码、token 与会话状态 */
     uint32_t                 active_handlers;         /**< 已进入且尚未离开的 handler 数 */
     bool                     accepting_requests;      /**< 是否允许新 handler 使用运行期资源 */
@@ -111,11 +111,11 @@ struct web_file_service_context_t
 };
 
 /**
- * @brief 网页文件 Service 的唯一运行期上下文
+ * @brief 网页控制台 Service 的唯一运行期上下文
  *
  * 生命周期实现与文件传输实现共享此对象；所有并发字段都必须在 `lock` 内访问。
  */
-extern web_file_service_context_t s_context;
+extern web_console_service_context_t s_context;
 
 /**
  * @brief 创建一次性 HTTPD 清理 Task
@@ -129,7 +129,7 @@ extern web_file_service_context_t s_context;
  * @param[out] out_task 创建成功时返回由 Service 独占的 Task 句柄
  * @return ESP_OK Task 已创建；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_NO_MEM 创建失败
  */
-esp_err_t web_file_httpd_stop_task_create(web_file_service_context_t *context, TaskHandle_t *out_task);
+esp_err_t web_file_httpd_stop_task_create(web_console_service_context_t *context, TaskHandle_t *out_task);
 
 /**
  * @brief 记账当前 HTTP handler 并读取请求接纳状态
@@ -153,7 +153,7 @@ bool web_file_handler_enter(void);
 void web_file_handler_leave(void);
 
 /**
- * @brief 注册网页文件服务的全部 HTTP URI
+ * @brief 注册网页控制台 Service 的全部 HTTP URI
  *
  * 每项注册成功后立即在 Service 上下文记录对应位，启动失败回滚据此只注销已经注册的入口。
  *

@@ -31,7 +31,7 @@ def render_c_source(compressed: bytes) -> str:
     """将 gzip 数据渲染为固定格式的 C 源码。"""
     lines = [
         "/* 由 scripts/build_html.py 自动生成，请勿手工修改。 */",
-        '#include "web_file_service_web.h"',
+        '#include "web_console_service_web.h"',
         "",
         "const uint8_t web_file_index_gz[] = {",
     ]

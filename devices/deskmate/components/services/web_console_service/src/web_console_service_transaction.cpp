@@ -1,8 +1,8 @@
 /**
- * @file web_file_service_transaction.cpp
+ * @file web_console_service_transaction.cpp
  * @brief 网页文件服务的上传事务提交与启动恢复实现
  */
-#include "web_file_service_internal.hpp"
+#include "web_console_service_internal.hpp"
 
 #include <dirent.h>
 #include <errno.h>
@@ -14,7 +14,7 @@
 
 #include "esp_log.h"
 
-static const char *TAG = "web_file_service";
+static const char *TAG = "web_console_service";
 
 struct web_file_transaction_artifacts_t
 {
@@ -698,7 +698,7 @@ esp_err_t web_file_transaction_abort_upload(void)
 static bool web_file_transaction_is_cancelled(void)
 {
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    const bool cancelled = !s_context.accepting_requests || s_context.state != WEB_FILE_SERVICE_STATE_RUNNING;
+    const bool cancelled = !s_context.accepting_requests || s_context.state != WEB_CONSOLE_SERVICE_STATE_RUNNING;
     xSemaphoreGive(s_context.lock);
     return cancelled;
 }

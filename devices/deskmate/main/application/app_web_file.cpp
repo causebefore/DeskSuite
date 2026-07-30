@@ -16,7 +16,7 @@
 #include "freertos/task.h"
 #include "presentation_dispatch.h"
 #include "web_file_presenter.h"
-#include "web_file_service.h"
+#include "web_console_service.h"
 
 static const char *TAG                    = "app_web_file";
 
@@ -344,13 +344,13 @@ esp_err_t app_web_file_internal_publish_running_snapshot(void)
     char url[sizeof(s_status.url)]{};
     make_current_url(url);
 
-    web_file_service_status_t service_status;
-    const esp_err_t           service_error = web_file_service_get_status_copy(&service_status);
+    web_console_service_status_t service_status;
+    const esp_err_t           service_error = web_console_service_get_status_copy(&service_status);
     if (service_error != ESP_OK)
     {
         return service_error;
     }
-    if (service_status.state != WEB_FILE_SERVICE_STATE_RUNNING || !access_code_is_valid(service_status.access_code))
+    if (service_status.state != WEB_CONSOLE_SERVICE_STATE_RUNNING || !access_code_is_valid(service_status.access_code))
     {
         memset(&service_status, 0, sizeof(service_status));
         return ESP_ERR_INVALID_STATE;
@@ -448,14 +448,14 @@ esp_err_t app_web_file_init(void)
         return mutex_error;
     }
 
-    web_file_service_status_t service_status;
-    const esp_err_t           error = web_file_service_get_status_copy(&service_status);
+    web_console_service_status_t service_status;
+    const esp_err_t           error = web_console_service_get_status_copy(&service_status);
     if (error != ESP_OK)
     {
         return error;
     }
-    if (service_status.state != WEB_FILE_SERVICE_STATE_UNINITIALIZED
-        && service_status.state != WEB_FILE_SERVICE_STATE_INITIALIZED)
+    if (service_status.state != WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED
+        && service_status.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
         return ESP_ERR_INVALID_STATE;
     }

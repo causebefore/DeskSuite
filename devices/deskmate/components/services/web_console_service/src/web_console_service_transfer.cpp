@@ -1,8 +1,8 @@
 /**
- * @file web_file_service_transfer.cpp
+ * @file web_console_service_transfer.cpp
  * @brief 网页文件服务的公共传输控制与上传实现
  */
-#include "web_file_service_transfer.hpp"
+#include "web_console_service_transfer.hpp"
 
 #include <dirent.h>
 #include <errno.h>
@@ -101,7 +101,7 @@ web_file_guard_result_t web_file_transfer_acquire(httpd_req_t *request)
 
     web_file_guard_result_t result = WEB_FILE_GUARD_UNAUTHORIZED;
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    if (!s_context.accepting_requests || s_context.state != WEB_FILE_SERVICE_STATE_RUNNING)
+    if (!s_context.accepting_requests || s_context.state != WEB_CONSOLE_SERVICE_STATE_RUNNING)
     {
         result = WEB_FILE_GUARD_UNAVAILABLE;
     }
@@ -176,7 +176,7 @@ bool web_file_publish_transfer_buffer(uint8_t *buffer)
 bool web_file_transfer_is_cancelled(void)
 {
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    const bool cancelled = !s_context.accepting_requests || s_context.state != WEB_FILE_SERVICE_STATE_RUNNING;
+    const bool cancelled = !s_context.accepting_requests || s_context.state != WEB_CONSOLE_SERVICE_STATE_RUNNING;
     xSemaphoreGive(s_context.lock);
     return cancelled;
 }

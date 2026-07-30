@@ -1,6 +1,6 @@
 /**
- * @file web_file_service.h
- * @brief 网页文件服务的公共生命周期与运行摘要接口
+ * @file web_console_service.h
+ * @brief 网页控制台 Service 的公共生命周期与运行摘要接口
  */
 #pragma once
 
@@ -15,32 +15,32 @@ extern "C"
 #endif
 
     /**
- * @brief 网页文件服务生命周期状态
+ * @brief 网页控制台 Service 生命周期状态
  */
     typedef enum
     {
-        WEB_FILE_SERVICE_STATE_UNINITIALIZED = 0, /**< 尚未创建固定同步资源 */
-        WEB_FILE_SERVICE_STATE_INITIALIZED,       /**< 同步资源就绪，未持有 HTTPD */
-        WEB_FILE_SERVICE_STATE_STARTING,          /**< 正在创建 HTTPD，尚不接纳请求 */
-        WEB_FILE_SERVICE_STATE_RUNNING,           /**< HTTPD 与认证状态就绪，正在接纳请求 */
-        WEB_FILE_SERVICE_STATE_STOPPING,          /**< 秘密已失效，正在等待入口、handler 或清理 Task */
-        WEB_FILE_SERVICE_STATE_CLEANUP_FAILED,    /**< URI、Task 或 HTTPD 清理失败，可重试停止 */
-    } web_file_service_state_t;
+        WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED = 0, /**< 尚未创建固定同步资源 */
+        WEB_CONSOLE_SERVICE_STATE_INITIALIZED,       /**< 同步资源就绪，未持有 HTTPD */
+        WEB_CONSOLE_SERVICE_STATE_STARTING,          /**< 正在创建 HTTPD，尚不接纳请求 */
+        WEB_CONSOLE_SERVICE_STATE_RUNNING,           /**< HTTPD 与认证状态就绪，正在接纳请求 */
+        WEB_CONSOLE_SERVICE_STATE_STOPPING,          /**< 秘密已失效，正在等待入口、handler 或清理 Task */
+        WEB_CONSOLE_SERVICE_STATE_CLEANUP_FAILED,    /**< URI、Task 或 HTTPD 清理失败，可重试停止 */
+    } web_console_service_state_t;
 
     /**
- * @brief 网页文件服务的有界运行摘要
+ * @brief 网页控制台 Service 的有界运行摘要
  */
     typedef struct
     {
-        web_file_service_state_t state;           /**< 当前生命周期状态 */
+        web_console_service_state_t state;           /**< 当前生命周期状态 */
         bool                     session_active;  /**< 是否存在活动认证会话；不包含会话 token */
         bool                     transfer_active; /**< 是否存在活动文件传输 */
         char                     access_code[7];  /**< NUL 结尾的六位访问码秘密；非运行态为空 */
         esp_err_t                last_error;      /**< 最近一次生命周期错误，成功收敛后为 ESP_OK */
-    } web_file_service_status_t;
+    } web_console_service_status_t;
 
     /**
- * @brief 初始化网页文件服务的固定同步资源
+ * @brief 初始化网页控制台 Service 的固定同步资源
  *
  * 本同步函数只创建 Service 自有的锁、URI 入口关闭信号量、handler 排空信号量和 HTTPD
  * 清理完成信号量，不访问 SD 卡、不分配文件传输缓冲区，也不启动 HTTPD。只能从普通 Task
@@ -49,7 +49,7 @@ extern "C"
  * @return ESP_OK 初始化完成；ESP_ERR_INVALID_STATE 已初始化或生命周期状态不允许；
  *         ESP_ERR_NO_MEM 无法创建同步资源
  */
-    esp_err_t web_file_service_init(void);
+    esp_err_t web_console_service_init(void);
 
     /**
  * @brief 生成本次运行周期的访问码并启动端口 80 的认证 HTTP 服务
@@ -64,7 +64,7 @@ extern "C"
  * @return ESP_OK 服务已运行；ESP_ERR_INVALID_STATE 当前状态不允许启动；
  *         其他错误码来自随机码格式化、HTTPD 启动、handler 注册或失败回滚
  */
-    esp_err_t web_file_service_start(void);
+    esp_err_t web_console_service_start(void);
 
     /**
  * @brief 拒绝新请求、清除秘密并同步停止 HTTP 服务
@@ -87,10 +87,10 @@ extern "C"
  *         失效且状态为 `STOPPING`；其他错误码来自工作排队、URI 注销、Task 创建或 HTTPD
  *         清理，此时状态为 `CLEANUP_FAILED`
  */
-    esp_err_t web_file_service_stop(uint32_t timeout_ms);
+    esp_err_t web_console_service_stop(uint32_t timeout_ms);
 
     /**
- * @brief 复制网页文件服务的完整有界运行摘要
+ * @brief 复制网页控制台 Service 的完整有界运行摘要
  *
  * 本同步函数只在 Service 状态锁内复制内存，不返回内部指针。未初始化时返回
  * `UNINITIALIZED` 零值摘要；成功返回后副本由调用方独立持有，即使 Service 状态随后变化也
@@ -101,10 +101,10 @@ extern "C"
  * @param[out] out_status 调用方提供的运行摘要输出，成功时完整写入
  * @return ESP_OK 运行摘要有效；ESP_ERR_INVALID_ARG `out_status` 为空
  */
-    esp_err_t web_file_service_get_status_copy(web_file_service_status_t *out_status);
+    esp_err_t web_console_service_get_status_copy(web_console_service_status_t *out_status);
 
     /**
- * @brief 释放网页文件服务的固定同步资源
+ * @brief 释放网页控制台 Service 的固定同步资源
  *
  * 本同步函数仅接受资源完整收敛后的 `INITIALIZED` 状态；HTTPD、一次性清理 Task 或待收取
  * 结果、已注册 URI、排队中的入口关闭工作、活动 handler、文件传输和传输缓冲区任一仍存在时
@@ -114,7 +114,7 @@ extern "C"
  *
  * @return ESP_OK 已回到 `UNINITIALIZED`；ESP_ERR_INVALID_STATE 状态或资源不满足释放条件
  */
-    esp_err_t web_file_service_deinit(void);
+    esp_err_t web_console_service_deinit(void);
 
 #ifdef __cplusplus
 }

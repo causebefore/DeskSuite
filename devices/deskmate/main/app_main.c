@@ -42,7 +42,7 @@
 #include "voice_service.h"
 #include "weather_presenter.h"
 #include "web_file_presenter.h"
-#include "web_file_service.h"
+#include "web_console_service.h"
 
 #define APP_UI_START_TIMEOUT_MS         5000
 #define APP_UI_STOP_TIMEOUT_MS          5000
@@ -359,27 +359,27 @@ static esp_err_t init_runtime_capabilities(void)
 /**
  * @brief 在顶层初始化失败时，仅于安全终态反初始化网页文件 Service
  */
-static void rollback_web_file_service_init(void)
+static void rollback_web_console_service_init(void)
 {
-    web_file_service_status_t status;
-    const esp_err_t           status_error = web_file_service_get_status_copy(&status);
+    web_console_service_status_t status;
+    const esp_err_t           status_error = web_console_service_get_status_copy(&status);
     if (status_error != ESP_OK)
     {
         ESP_LOGE(TAG, "读取网页文件 Service 回滚状态失败: %s", esp_err_to_name(status_error));
         return;
     }
 
-    if (status.state == WEB_FILE_SERVICE_STATE_UNINITIALIZED)
+    if (status.state == WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
     {
         return;
     }
-    if (status.state != WEB_FILE_SERVICE_STATE_INITIALIZED)
+    if (status.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
         ESP_LOGE(TAG, "网页文件 Service 未处于可反初始化终态，保留资源: state=%d", (int) status.state);
         return;
     }
 
-    const esp_err_t cleanup_error = web_file_service_deinit();
+    const esp_err_t cleanup_error = web_console_service_deinit();
     if (cleanup_error != ESP_OK)
     {
         ESP_LOGE(TAG, "回滚网页文件 Service 初始化失败: %s", esp_err_to_name(cleanup_error));
@@ -424,7 +424,7 @@ esp_err_t app_main_init(void)
     ESP_RETURN_ON_ERROR(ensure_default_event_loop(), TAG, "创建默认事件循环失败");
     ESP_RETURN_ON_ERROR(init_runtime_capabilities(), TAG, "初始化运行时能力失败");
 
-    esp_err_t error = web_file_service_init();
+    esp_err_t error = web_console_service_init();
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "初始化网页文件 Service 失败: %s", esp_err_to_name(error));
@@ -520,7 +520,7 @@ cleanup:
             ESP_LOGE(TAG, "回滚番茄钟 Application 失败: %s", esp_err_to_name(cleanup_error));
         }
     }
-    rollback_web_file_service_init();
+    rollback_web_console_service_init();
     return error;
 }
 
