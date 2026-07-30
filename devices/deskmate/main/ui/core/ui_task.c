@@ -1055,12 +1055,16 @@ esp_err_t ui_runtime_set_user_intent_callback_borrow(ui_user_intent_callback_t c
     return ESP_OK;
 }
 
-esp_err_t ui_runtime_emit_user_intent(const ui_user_intent_t *intent)
+esp_err_t ui_runtime_emit_user_intent(const ui_user_intent_t *intent, ui_user_intent_result_t *out_result)
 {
     ESP_RETURN_ON_FALSE(intent != NULL && (unsigned) intent->id < UI_USER_INTENT_COUNT,
                         ESP_ERR_INVALID_ARG,
                         TAG,
                         "UI 用户意图无效");
+    ESP_RETURN_ON_FALSE(intent->id != UI_USER_INTENT_POMODORO_SETTINGS_SAVE || out_result != NULL,
+                        ESP_ERR_INVALID_ARG,
+                        TAG,
+                        "番茄钟设置意图缺少请求结果输出");
     if (intent->id == UI_USER_INTENT_SCREEN_LOADED)
     {
         ESP_RETURN_ON_FALSE((unsigned) intent->page < PRESENTATION_PAGE_COUNT,
@@ -1074,7 +1078,11 @@ esp_err_t ui_runtime_emit_user_intent(const ui_user_intent_t *intent)
     void                     *context  = s_user_intent_context;
     taskEXIT_CRITICAL(&s_state_lock);
     ESP_RETURN_ON_FALSE(callback != NULL, ESP_ERR_INVALID_STATE, TAG, "UI 用户意图回调尚未注册");
-    return callback(intent, context);
+    if (out_result != NULL)
+    {
+        *out_result = (ui_user_intent_result_t) { 0 };
+    }
+    return callback(intent, out_result, context);
 }
 
 /**

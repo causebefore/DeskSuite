@@ -28,10 +28,11 @@ typedef enum
 
 typedef struct
 {
-    app_pomodoro_command_type_t type;
-    app_pomodoro_settings_t     settings;
-    uint64_t                    generation;
-    uint32_t                    request_id;
+    app_pomodoro_command_type_t    type;
+    app_pomodoro_settings_update_t settings_update;
+    uint64_t                       settings_request_id;
+    uint64_t                       generation;
+    uint32_t                       reconcile_request_id;
 } app_pomodoro_command_t;
 
 typedef struct
@@ -44,24 +45,28 @@ typedef struct
 
 typedef struct
 {
-    QueueHandle_t                queue;
-    SemaphoreHandle_t            state_lock;
-    SemaphoreHandle_t            ready_sem;
-    SemaphoreHandle_t            stopped_sem;
-    SemaphoreHandle_t            reconcile_lock;
-    SemaphoreHandle_t            reconcile_sem;
-    TaskHandle_t                 task;
-    esp_timer_handle_t           phase_timer;
-    esp_timer_handle_t           date_timer;
-    portMUX_TYPE                 timer_lock;
-    uint64_t                     scheduled_generation;
-    app_pomodoro_runtime_data_t  runtime_data;
-    uint32_t                     next_request_id;
-    uint32_t                     completed_request_id;
-    app_pomodoro_wakeup_result_t reconcile_result;
-    bool                         initialized;
-    bool                         running;
-    bool                         stopping;
+    QueueHandle_t                        queue;
+    SemaphoreHandle_t                    state_lock;
+    SemaphoreHandle_t                    ready_sem;
+    SemaphoreHandle_t                    stopped_sem;
+    SemaphoreHandle_t                    reconcile_lock;
+    SemaphoreHandle_t                    reconcile_sem;
+    TaskHandle_t                         task;
+    esp_timer_handle_t                   phase_timer;
+    esp_timer_handle_t                   date_timer;
+    portMUX_TYPE                         timer_lock;
+    uint64_t                             scheduled_generation;
+    app_pomodoro_runtime_data_t          runtime_data;
+    uint32_t                             next_reconcile_request_id;
+    uint32_t                             completed_reconcile_request_id;
+    app_pomodoro_wakeup_result_t         reconcile_result;
+    uint64_t                             next_settings_request_id;
+    uint64_t                             latest_settings_request_id;
+    app_pomodoro_settings_update_result_t latest_settings_update_result;
+    bool                                 latest_settings_update_result_valid;
+    bool                                 initialized;
+    bool                                 running;
+    bool                                 stopping;
 } app_pomodoro_runtime_t;
 
 extern app_pomodoro_runtime_t g_app_pomodoro_runtime;

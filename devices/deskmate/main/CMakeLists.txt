@@ -12,6 +12,7 @@ idf_component_register(SRCS
                            "application/app_settings.c"
                            "application/app_voice.c"
                            "application/app_web_console.cpp"
+                           "application/app_web_console_provider.c"
                            "application/app_web_console_task.cpp"
                            "presentation/calendar_presenter.c"
                            "presentation/home_presenter.c"

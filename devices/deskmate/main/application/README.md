@@ -65,11 +65,11 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | --- | --- |
 | `app_key` | 把稳定按键事实转换为产品输入 |
 | `app_page` | 维护顶层环形页面、Screen 切换门控和 500 ms 完成事件兜底 |
-| `app_pomodoro` | 拥有本地番茄钟状态机、单调 deadline、日期归一化、NVS 计数、前台秒级显示事实和睡眠唤醒补算 |
+| `app_pomodoro` | 拥有本地番茄钟状态机、设置版本与异步更新结果、单调 deadline、日期归一化、NVS 计数、前台秒级显示事实和睡眠唤醒补算 |
 | `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页控制台明确停止后清理会话 |
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
 | `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
-| `app_web_console` | SD/在线前置检查、网页控制台网络租约、网页控制台 Service 启停与安全回滚 |
+| `app_web_console` | SD/在线前置检查、产品 Settings/Status Provider 装配、网页控制台网络租约、Service 启停与安全回滚 |
 | `app_power` | 拥有 60 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、可配置维护源刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
 | `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和通用低功耗停网握手 |
@@ -77,7 +77,8 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 番茄钟数据流为：
 
 ```text
-按键或 UI 设置意图
+按键、本机 UI 设置意图或浏览器 Settings Provider
+  → 携带读取时的 settings_version
   → app_pomodoro 命令队列
   → app_pomodoro_task 串行推进状态
   → pomodoro_store 保存设置/完成计数
@@ -89,6 +90,13 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 可信系统时间只用于把完成数归入本地日期、安排午夜 one-shot Timer，以及生成预计结束时间。
 阶段状态、暂停剩余和当前轮次不写 NVS，设备重启固定回到 `IDLE`。Power Application 的同步
 补算命令返回前已经更新状态和 Presenter，因此睡眠后恢复 UI 的首帧可直接显示 `DONE`。
+番茄钟设置版本独立于阶段 `generation`，从 1 开始且只在 Task 采用新内存设置时递增。本机 UI
+草稿与浏览器稀疏更新都携带读取时版本；请求接受点和 Task 执行点再次检查版本与 `IDLE`，从而
+拒绝陈旧提交。一次只允许一个 pending 设置请求，请求 ID 单调且不回绕，终态可按 ID 查询。
+内存和版本先原子采用，再在锁外写 NVS；保存失败不回滚已经采用的设置，结果返回 `FAILED`、
+真实存储错误和新版本，同时快照中的 `settings_saved` 为 false。本机 UI 意图的同步接受结果
+返回同一个请求 ID；Application Task 把最新 ID 与结果按值推送给 Presenter，UI 只消费匹配
+ID 的终态，不能把“已入队”当成“已保存”。
 
 `app_network` 不直接操作 Wi‑Fi Driver、Portal HTTP/DNS 或底层重连状态机；这些技术能力属于
 Communication 的 `network_manager` 和 `connect`。Network Manager 一轮内部重试结束后，
@@ -158,13 +166,18 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → app_network 授予 APP_NETWORK_LEASE_WEB_CONSOLE
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
-  → handler 串行浏览、下载、事务上传或执行单项目录/文件变更
+  → Files handler 串行浏览、下载、事务上传或执行单项目录/文件变更
+  → Settings handler 经 app_web_console_provider 提交版本化番茄钟更新并查询结果
+  → Status handler 经 app_web_console_provider 读取单份系统快照
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
 `app_web_console.cpp` 拥有产品阶段、网页控制台网络租约代次、是否仍需清理 Service 的事实以及运行摘要
 边界；`app_web_console_task.cpp` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
-`web_console_service` 独占 HTTPD、认证、handler、文件事务和传输资源。
+`app_web_console_provider.c` 是无状态产品适配层，只把通用字段映射到 `app_pomodoro` 和
+`system_info` 公共 API，不拥有请求、版本、队列、持久化或 HTTPD。`web_console_service`
+独占 HTTPD、认证、handler、文件事务和传输资源。Composition Root 必须先初始化
+`app_pomodoro`，再初始化会借用其 Provider 的 `app_web_console`；失败时按相反顺序回滚。
 Application 在授予租约后还会复核 Network Manager `ONLINE` 与当前 STA IPv4；它不因 STA
 短暂断线停止 Service。Service 启动成功后，`app_web_console_task` 先在
 状态锁外读取当前内存链路与 Service 状态，验证六位访问码，再在一个状态锁临界区写入 URL、
@@ -207,9 +220,10 @@ Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当�
 租约。Service 已反初始化但租约释放失败时同样保留代次供幂等重试。启动失败只逆序释放本轮
 实际取得的资源；Service 报告 `STOPPING/CLEANUP_FAILED` 时保留租约，不能伪装为可退出。
 任何 request API 返回非 `ESP_OK` 时均不承诺后续 Presentation 事件，调用方直接处理同步错误。
-当前产品契约支持创建目录、常规文件移动/重命名，以及常规文件和空目录的单项删除；不包含
-配置编辑、递归目录删除、目录移动/重命名、WebDAV 或 WebSocket。浏览器批量操作只是顺序调用
-单项接口，不声明跨多个目录项的原子事务。
+当前 Files 契约支持创建目录、常规文件移动/重命名，以及常规文件和空目录的单项删除；不包含
+递归目录删除、目录移动/重命名、WebDAV 或 WebSocket。Settings 当前只暴露四项番茄钟设置，
+Status 当前只暴露系统只读事实；敏感凭据、OTA 和 Dashboard 不进入字段表。浏览器批量文件操作
+只是顺序调用单项接口，不声明跨多个目录项的原子事务。
 
 同步回执 waiter 在同一个 `s_state_lock` 临界区完成 deadline 最终仲裁：`COMPLETED` 先复制
 结果并释放槽，`EXECUTING` 解锁后等待最终信号，已到期的 `PENDING` 当场释放；不存在检查
@@ -224,6 +238,7 @@ Manager 快照，不使用周期轮询或额外 Task。
 | `app_power_task.c` | 无活动窗口、离线显示状态、睡眠编号、Timer/RTC INT 刷新计数、按键唤醒状态和失败终态 |
 | `app_environment_task.c` | 两类产品采样截止时间和采样命令 |
 | `app_network_task.c` | 网络产品命令队列、Dashboard 绝对截止与失败退避、OTA、类型化互斥租约、会话退避和策略 Timer |
+| `app_pomodoro_task.c` | 番茄钟阶段状态、设置版本、单 pending 设置请求及其最新结果 |
 | `app_web_console_task.cpp` | 网页控制台启动、运行和可失败停止的一次性产品状态机 |
 
 Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 API 不暴露 RTOS 句柄。

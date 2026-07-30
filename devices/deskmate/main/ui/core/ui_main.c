@@ -138,13 +138,16 @@ esp_err_t ui_main_handle_message(const ui_msg_t *msg)
         }
         case UI_MSG_POMODORO_UPDATE: {
             err = refresh_status_bar();
-            if (err == ESP_OK && ui_router_get_current() == PRESENTATION_PAGE_POMODORO)
+            const presentation_page_id_t current_page = ui_router_get_current();
+            if (err == ESP_OK
+                && (current_page == PRESENTATION_PAGE_POMODORO
+                    || current_page == PRESENTATION_PAGE_SETTINGS))
             {
                 err = ui_router_refresh_current();
             }
             if (err == ESP_OK)
             {
-                err = ui_pomodoro_banner_sync(ui_router_get_current());
+                err = ui_pomodoro_banner_sync(current_page);
             }
             break;
         }

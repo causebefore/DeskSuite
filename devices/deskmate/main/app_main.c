@@ -53,8 +53,11 @@
 
 static const char *TAG = "app_main";
 
-/** @brief 把 UI Task 上报的窄意图转交给对应 Application */
-static esp_err_t app_main_ui_user_intent_callback(const ui_user_intent_t *intent, void *context)
+/** @brief 把 UI Task 上报的窄意图转交给对应 Application，并返回异步请求接受结果 */
+static esp_err_t app_main_ui_user_intent_callback(
+    const ui_user_intent_t *intent,
+    ui_user_intent_result_t *out_result,
+    void *context)
 {
     (void) context;
     if (intent == NULL)
@@ -81,13 +84,26 @@ static esp_err_t app_main_ui_user_intent_callback(const ui_user_intent_t *intent
         case UI_USER_INTENT_SETTINGS_STOP_WEB_CONSOLE:
             return app_web_console_request_stop();
         case UI_USER_INTENT_POMODORO_SETTINGS_SAVE: {
-            const app_pomodoro_settings_t settings = {
-                .focus_minutes       = intent->pomodoro_settings.focus_minutes,
-                .short_break_minutes = intent->pomodoro_settings.short_break_minutes,
-                .long_break_minutes  = intent->pomodoro_settings.long_break_minutes,
-                .long_break_interval = intent->pomodoro_settings.long_break_interval,
+            if (out_result == NULL)
+            {
+                return ESP_ERR_INVALID_ARG;
+            }
+            const app_pomodoro_settings_update_t update = {
+                .settings = {
+                    .focus_minutes       = intent->pomodoro_settings.focus_minutes,
+                    .short_break_minutes = intent->pomodoro_settings.short_break_minutes,
+                    .long_break_minutes  = intent->pomodoro_settings.long_break_minutes,
+                    .long_break_interval = intent->pomodoro_settings.long_break_interval,
+                },
+                .expected_version = intent->pomodoro_settings.expected_version,
             };
-            return app_pomodoro_request_update_settings_copy(&settings);
+            uint64_t request_id = 0U;
+            const esp_err_t error = app_pomodoro_request_update_settings_copy(&update, &request_id);
+            if (error == ESP_OK)
+            {
+                out_result->request_id = request_id;
+            }
+            return error;
         }
         default:
             return ESP_ERR_NOT_SUPPORTED;
@@ -414,8 +430,6 @@ static esp_err_t init_applications(void)
     ESP_RETURN_ON_ERROR(app_voice_init(), TAG, "语音 Application 初始化失败");
     ESP_RETURN_ON_ERROR(app_ota_init(), TAG, "OTA Application 初始化失败");
     ESP_RETURN_ON_ERROR(app_key_init(), TAG, "按键策略初始化失败");
-    ESP_RETURN_ON_ERROR(app_web_console_init(), TAG, "网页控制台 Application 初始化失败");
-    ESP_RETURN_ON_ERROR(app_pomodoro_init(), TAG, "番茄钟 Application 初始化失败");
     return ESP_OK;
 }
 
@@ -446,8 +460,20 @@ esp_err_t app_main_init(void)
         ESP_LOGE(TAG, "初始化 Application 失败: %s", esp_err_to_name(error));
         goto cleanup;
     }
+    error = app_pomodoro_init();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "番茄钟 Application 初始化失败: %s", esp_err_to_name(error));
+        goto cleanup;
+    }
     pomodoro_initialized = true;
-    error                = app_environment_init();
+    error                = app_web_console_init();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "网页控制台 Application 初始化失败: %s", esp_err_to_name(error));
+        goto cleanup;
+    }
+    error = app_environment_init();
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "初始化环境 Application 失败: %s", esp_err_to_name(error));
@@ -505,6 +531,7 @@ cleanup:
             ESP_LOGE(TAG, "回滚环境 Task 失败: %s", esp_err_to_name(cleanup_error));
         }
     }
+    rollback_web_console_service_init();
     if (pomodoro_initialized)
     {
         const esp_err_t cleanup_error = app_pomodoro_deinit();
@@ -513,7 +540,6 @@ cleanup:
             ESP_LOGE(TAG, "回滚番茄钟 Application 失败: %s", esp_err_to_name(cleanup_error));
         }
     }
-    rollback_web_console_service_init();
     return error;
 }
 

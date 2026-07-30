@@ -42,7 +42,7 @@ static void emit_screen_loaded(ui_page_id_t page)
         .id   = UI_USER_INTENT_SCREEN_LOADED,
         .page = page,
     };
-    const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+    const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
     if (error != ESP_OK)
     {
         ESP_LOGW(TAG, "上报 Screen 加载完成失败: page=%u err=%s", (unsigned) page, esp_err_to_name(error));

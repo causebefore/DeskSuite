@@ -37,10 +37,11 @@ typedef enum
 /** @brief UI 提交的完整番茄钟设置副本 */
 typedef struct
 {
-    uint8_t focus_minutes;       /*!< 专注时长 */
-    uint8_t short_break_minutes; /*!< 短休时长 */
-    uint8_t long_break_minutes;  /*!< 长休时长 */
-    uint8_t long_break_interval; /*!< 长休间隔 */
+    uint8_t  focus_minutes;       /*!< 专注时长 */
+    uint8_t  short_break_minutes; /*!< 短休时长 */
+    uint8_t  long_break_minutes;  /*!< 长休时长 */
+    uint8_t  long_break_interval; /*!< 长休间隔 */
+    uint64_t expected_version;    /*!< 开始本地编辑时看到的设置版本 */
 } ui_pomodoro_settings_intent_t;
 
 /** @brief UI 用户意图的按值载荷 */
@@ -51,6 +52,12 @@ typedef struct
     ui_pomodoro_settings_intent_t  pomodoro_settings; /*!< 番茄钟设置意图副本 */
 } ui_user_intent_t;
 
+/** @brief UI 用户意图同步接受结果 */
+typedef struct
+{
+    uint64_t request_id; /*!< 异步请求已接受时的非零领域请求 ID；无异步请求时为 0 */
+} ui_user_intent_result_t;
+
 /**
  * @brief UI 用户意图借用回调
  *
@@ -58,10 +65,14 @@ typedef struct
  * 禁止调用 LVGL 或重新进入 UI Runtime。
  *
  * @param[in] intent 按值意图的只读地址
+ * @param[out] out_result 调用方提供的同步接受结果；不需要结果时可为空
  * @param[in] context 注册时长期借用的上下文
  * @return ESP_OK 意图已接收；其他值表示产品层拒绝或命令投递失败
  */
-typedef esp_err_t (*ui_user_intent_callback_t)(const ui_user_intent_t *intent, void *context);
+typedef esp_err_t (*ui_user_intent_callback_t)(
+    const ui_user_intent_t *intent,
+    ui_user_intent_result_t *out_result,
+    void *context);
 
 /**
  * @brief 初始化 UI Runtime 生命周期资源
@@ -89,11 +100,15 @@ esp_err_t ui_runtime_set_user_intent_callback_borrow(ui_user_intent_callback_t c
  *
  * 本函数只复制回调和上下文后同步调用，不持有 Runtime 状态锁执行外部代码。
  *
+ * 番茄钟设置保存必须提供 `out_result`，成功时返回后续查询终态所需的非零请求 ID；其他意图
+ * 可以传入 NULL。输出在调用回调前清零。
+ *
  * @param[in] intent 按值意图的只读地址
+ * @param[out] out_result 可选的同步接受结果
  * @return ESP_OK 已接收；ESP_ERR_INVALID_ARG 意图无效；
  *         ESP_ERR_INVALID_STATE 尚未注册回调；其他值由回调返回
  */
-esp_err_t ui_runtime_emit_user_intent(const ui_user_intent_t *intent);
+esp_err_t ui_runtime_emit_user_intent(const ui_user_intent_t *intent, ui_user_intent_result_t *out_result);
 
 /**
  * @brief 启动 UI Runtime 并等待平台、字体、控件树和恢复画面 READY

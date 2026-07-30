@@ -9,6 +9,7 @@
 
 #include "app_network.h"
 #include "app_web_console_internal.hpp"
+#include "app_web_console_provider.h"
 #include "connect.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -77,19 +78,6 @@ static const web_console_files_config_t s_web_console_files_config = {
     .reserved_free_bytes = 1ULL * 1024ULL * 1024ULL,
 };
 #endif
-
-static const web_console_service_config_t s_web_console_service_config = {
-    .server_port = 80U,
-#if CONFIG_WEB_CONSOLE_FILES
-    .files = &s_web_console_files_config,
-#else
-    .files = NULL,
-#endif
-    .settings_providers      = NULL,
-    .settings_provider_count = 0U,
-    .status_providers        = NULL,
-    .status_provider_count   = 0U,
-};
 
 /**
  * @brief 初始化串行化 Presenter 更新与事件派发的静态互斥量
@@ -503,7 +491,25 @@ app_web_console_state_t app_web_console_internal_get_state(void)
 
 esp_err_t app_web_console_internal_initialize_service(void)
 {
-    return web_console_service_init_borrow(&s_web_console_service_config);
+    size_t settings_provider_count = 0U;
+    size_t status_provider_count   = 0U;
+    const web_console_settings_provider_t *settings_providers =
+        app_web_console_provider_get_settings_borrow(&settings_provider_count);
+    const web_console_status_provider_t *status_providers =
+        app_web_console_provider_get_status_borrow(&status_provider_count);
+    const web_console_service_config_t config = {
+        .server_port = 80U,
+#if CONFIG_WEB_CONSOLE_FILES
+        .files = &s_web_console_files_config,
+#else
+        .files = NULL,
+#endif
+        .settings_providers      = settings_providers,
+        .settings_provider_count = settings_provider_count,
+        .status_providers        = status_providers,
+        .status_provider_count   = status_provider_count,
+    };
+    return web_console_service_init_borrow(&config);
 }
 
 esp_err_t app_web_console_init(void)
@@ -564,6 +570,14 @@ esp_err_t app_web_console_init(void)
     const esp_err_t callback_error = app_network_register_link_change_callback_borrow(on_network_link_change, NULL);
     if (callback_error != ESP_OK)
     {
+        taskENTER_CRITICAL(&s_state_lock);
+        memset(&s_status, 0, sizeof(s_status));
+        s_service_cleanup_required       = false;
+        s_lease_generation               = 0U;
+        s_presentation_revision          = 0U;
+        s_status_update_dispatch_pending = false;
+        s_initialized                    = false;
+        taskEXIT_CRITICAL(&s_state_lock);
         return callback_error;
     }
     push_presenter_status(false);

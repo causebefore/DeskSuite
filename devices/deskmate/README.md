@@ -60,11 +60,13 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 - 网络：`app_network` 拥有 DeskMate 的 Dashboard、OTA、语音租约和会话退避策略；
   Communication 的 `network_manager` 只拥有 Wi‑Fi/Portal 技术状态机，协议与传输不决定产品时机。
 - 网页控制台：设备设置页选择“网页控制台”后，Application 申请专用网络租约并启动本地
-  认证文件 Service；页面返回必须等待 Service 完整停止后才释放租约。
+  认证管理 Service；产品显式组合 Files、番茄钟 Settings 与系统 Status，页面返回必须等待
+  Service 完整停止后才释放租约。
 - 呈现：Service、Communication 或 Application 报告事实，Presenter 更新 View Model 并发布呈现事件，
   UI Runtime 在唯一 LVGL 上下文读取并渲染。
-- 番茄钟：`app_pomodoro_task` 使用单调 deadline 串行推进专注、短休和长休；设置与本地完成数
-  由 `pomodoro_store` 保存，系统 UTC 只负责本地日期归一化和预计结束时间。
+- 番茄钟：`app_pomodoro_task` 使用单调 deadline 串行推进专注、短休和长休；设置以独立版本
+  仲裁本机与浏览器并发更新，设置与本地完成数由 `pomodoro_store` 保存，系统 UTC 只负责
+  本地日期归一化和预计结束时间。
 - 低功耗：`app_power` 在 60 秒无按键活动且产品事务空闲时先选择模式。运行中的番茄钟页进入
   `OFFLINE_DISPLAY`，只停止 Network Manager 和 Wi-Fi Driver，保留 UI 与一秒刷新；其他场景
   可逆停止 UI Runtime，再通过 `device_power`/BSP 进入 Light-sleep。普通模式使用左右键 EXT1

@@ -47,6 +47,7 @@ extern "C"
     typedef struct
     {
         app_pomodoro_settings_t  settings;               /**< 当前完整设置 */
+        uint64_t                 settings_version;       /**< 当前设置版本，非零且只在采用内存设置时递增 */
         app_pomodoro_phase_t     phase;                  /**< 当前阶段 */
         app_pomodoro_phase_t     next_phase;             /**< DONE 确认后进入的阶段 */
         app_pomodoro_run_state_t run_state;              /**< 当前运行状态 */
@@ -64,6 +65,33 @@ extern "C"
         time_t                   expected_end_utc;       /**< 可信 UTC 下预计结束时间 */
         esp_err_t                last_error;             /**< 最近一次存储或 Timer 错误 */
     } app_pomodoro_snapshot_t;
+
+    /**
+     * @brief 一次基于版本的完整番茄钟设置更新
+     *
+     * `expected_version` 必须来自此前读取的 `app_pomodoro_snapshot_t.settings_version`。
+     */
+    typedef struct
+    {
+        app_pomodoro_settings_t settings;         /**< 待采用的完整设置副本 */
+        uint64_t                expected_version; /**< 调用方读取设置时的版本 */
+    } app_pomodoro_settings_update_t;
+
+    /** @brief 一次异步番茄钟设置更新的状态 */
+    typedef enum
+    {
+        APP_POMODORO_SETTINGS_UPDATE_STATE_PENDING = 0, /**< 已接受，尚未形成最终结果 */
+        APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED,   /**< 内存设置已采用且 NVS 已保存 */
+        APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED,      /**< 已形成失败结果，详情见 error */
+    } app_pomodoro_settings_update_state_t;
+
+    /** @brief 一次异步番茄钟设置更新的当前或最终结果 */
+    typedef struct
+    {
+        app_pomodoro_settings_update_state_t state;   /**< 当前请求状态 */
+        uint64_t                             version; /**< 当前或最终设置版本 */
+        esp_err_t                            error;   /**< PENDING/SUCCEEDED 为 ESP_OK；FAILED 为最终错误 */
+    } app_pomodoro_settings_update_result_t;
 
     /** @brief Light-sleep 返回后的番茄钟补算结果 */
     typedef enum
@@ -122,15 +150,52 @@ extern "C"
     esp_err_t app_pomodoro_request_reset(void);
 
     /**
-     * @brief 异步提交完整番茄钟设置副本
+     * @brief 同步校验一个完整番茄钟设置更新
      *
-     * 只有 IDLE 状态会接受最终修改；本函数返回成功只表示命令已复制入队。
+     * 本函数只执行有界参数、当前设置版本、IDLE 状态和单 pending 检查，不修改状态或访问 NVS。
+     * 校验成功不构成提交保证；请求接受点和业务 Task 执行点仍会原子地重新校验。
      *
-     * @param[in] settings 调用期间借用的完整设置
-     * @return ESP_OK 已入队；ESP_ERR_INVALID_ARG 参数或范围非法；
-     *         ESP_ERR_INVALID_STATE 未运行；ESP_ERR_TIMEOUT 队列已满
+     * @param[in] update 调用期间借用的完整设置更新
+     * @return ESP_OK 当前可以提交；ESP_ERR_INVALID_ARG 参数或设置范围非法；
+     *         ESP_ERR_INVALID_VERSION 设置版本冲突；ESP_ERR_INVALID_STATE 未运行、不是 IDLE、
+     *         已有 pending 请求或设置版本/请求 ID 已耗尽
      */
-    esp_err_t app_pomodoro_request_update_settings_copy(const app_pomodoro_settings_t *settings);
+    esp_err_t app_pomodoro_validate_settings_update(const app_pomodoro_settings_update_t *update);
+
+    /**
+     * @brief 异步提交完整番茄钟设置更新副本
+     *
+     * 本函数在设置状态锁内重新校验版本、IDLE 和单 pending 约束，并以零等待方式把命令复制
+     * 入队。返回成功只表示请求已接受；最终 NVS 结果必须通过
+     * `app_pomodoro_get_settings_update_result_copy()` 查询。
+     *
+     * 请求 ID 在一次 Application 生命周期内从 1 严格递增，不回绕或复用。每个终态至少保留
+     * 到下一请求成功接受；同步拒绝不产生请求 ID。
+     *
+     * @param[in] update 调用期间借用的完整设置更新
+     * @param[out] out_request_id 成功时写入非零请求 ID
+     * @return ESP_OK 请求已接受；ESP_ERR_INVALID_ARG 参数、范围或输出无效；
+     *         ESP_ERR_INVALID_VERSION 设置版本冲突；ESP_ERR_INVALID_STATE 未运行、不是 IDLE、
+     *         已有 pending 请求或版本/请求 ID 已耗尽；ESP_ERR_TIMEOUT 队列已满
+     */
+    esp_err_t app_pomodoro_request_update_settings_copy(
+        const app_pomodoro_settings_update_t *update,
+        uint64_t *out_request_id);
+
+    /**
+     * @brief 复制一次已接受番茄钟设置更新的当前结果
+     *
+     * 同一时刻只保留当前 pending 或最近一个终态。NVS 失败不会回滚已经采用的内存设置，
+     * 此时返回 FAILED、真实 NVS 错误和已经递增的新设置版本。
+     *
+     * @param[in] request_id 请求接受时返回的非零 ID
+     * @param[out] out_result 当前或最终结果副本
+     * @return ESP_OK 结果有效；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE 尚未初始化；
+     *         ESP_ERR_NOT_FOUND 请求未知或已被下一请求淘汰
+     */
+    esp_err_t app_pomodoro_get_settings_update_result_copy(
+        uint64_t request_id,
+        app_pomodoro_settings_update_result_t *out_result);
 
     /**
      * @brief 复制最新番茄钟快照

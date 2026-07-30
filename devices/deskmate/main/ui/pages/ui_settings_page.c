@@ -72,6 +72,7 @@ typedef struct
     bool                web_console_exit_pending;
     uint8_t             pomodoro_selected;
     bool                pomodoro_editing;
+    uint64_t            pomodoro_settings_request_id;
     ui_pomodoro_settings_intent_t pomodoro_draft;
 } settings_ui_state_t;
 
@@ -357,7 +358,7 @@ static void on_network_action_clicked(lv_event_t *event)
     const ui_user_intent_t intent = {
         .id = UI_USER_INTENT_SETTINGS_START_PORTAL,
     };
-    const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+    const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
     render_network(true, error);
 }
 
@@ -474,7 +475,7 @@ static void on_web_console_retry_clicked(lv_event_t *event)
     const ui_user_intent_t intent = {
         .id = UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE,
     };
-    const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+    const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
     render_web_console(error);
 }
 
@@ -614,7 +615,7 @@ static void on_ota_install_clicked(lv_event_t *event)
     const ui_user_intent_t intent = {
         .id = UI_USER_INTENT_SETTINGS_OTA_INSTALL,
     };
-    const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+    const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
     render_ota(error);
 }
 
@@ -686,15 +687,37 @@ static void render_pomodoro(esp_err_t action_error)
     {
         return;
     }
+    esp_err_t result_error = action_error;
+    if (s_view.pomodoro_settings_request_id != 0U && view.settings_update_result_valid)
+    {
+        if (view.settings_update_request_id == s_view.pomodoro_settings_request_id)
+        {
+            if (view.settings_update_state == POMODORO_VIEW_SETTINGS_UPDATE_SUCCEEDED)
+            {
+                s_view.pomodoro_settings_request_id = 0U;
+            }
+            else if (view.settings_update_state == POMODORO_VIEW_SETTINGS_UPDATE_FAILED)
+            {
+                result_error = view.settings_update_error;
+                s_view.pomodoro_settings_request_id = 0U;
+            }
+        }
+        else if (view.settings_update_request_id > s_view.pomodoro_settings_request_id)
+        {
+            result_error = ESP_ERR_NOT_FOUND;
+            s_view.pomodoro_settings_request_id = 0U;
+        }
+    }
     prepare_child_group();
     lv_obj_clean(s_view.pomodoro_body);
-    if (!s_view.pomodoro_editing)
+    if (!s_view.pomodoro_editing && s_view.pomodoro_settings_request_id == 0U)
     {
         s_view.pomodoro_draft = (ui_pomodoro_settings_intent_t) {
             .focus_minutes       = view.focus_minutes,
             .short_break_minutes = view.short_break_minutes,
             .long_break_minutes  = view.long_break_minutes,
             .long_break_interval = view.long_break_interval,
+            .expected_version    = view.settings_version,
         };
     }
     for (uint8_t index = 0U; index < 4U; ++index)
@@ -703,20 +726,22 @@ static void render_pomodoro(esp_err_t action_error)
     }
 
     const bool editable = view.run_state == POMODORO_VIEW_RUN_IDLE;
-    const char *hint = s_view.pomodoro_editing
-                           ? "左右调整 / 右长保存 / 左长取消"
-                           : (editable ? "左右选择 / 右长编辑 / 左长返回"
-                                       : "结束当前番茄钟后可修改");
+    const char *hint = s_view.pomodoro_settings_request_id != 0U
+                           ? "正在保存，请稍候"
+                           : (s_view.pomodoro_editing
+                                  ? "左右调整 / 右长保存 / 左长取消"
+                                  : (editable ? "左右选择 / 右长编辑 / 左长返回"
+                                              : "结束当前番茄钟后可修改"));
     (void) new_text16(s_view.pomodoro_body, hint, 12, 168, 360, 20);
-    if (!view.settings_saved)
-    {
-        (void) new_text16(s_view.pomodoro_body, "未保存，将继续使用当前内存值", 12, 190, 360, 20);
-    }
-    else if (action_error != ESP_OK)
+    if (result_error != ESP_OK)
     {
         char error_text[64];
-        (void) snprintf(error_text, sizeof(error_text), "保存请求失败：%s", esp_err_to_name(action_error));
+        (void) snprintf(error_text, sizeof(error_text), "保存请求失败：%s", esp_err_to_name(result_error));
         (void) new_text16(s_view.pomodoro_body, error_text, 12, 190, 360, 20);
+    }
+    else if (!view.settings_saved)
+    {
+        (void) new_text16(s_view.pomodoro_body, "未保存，将继续使用当前内存值", 12, 190, 360, 20);
     }
 }
 
@@ -773,6 +798,10 @@ static esp_err_t handle_pomodoro_action(presentation_settings_action_t action)
     }
     if (action == PRESENTATION_SETTINGS_ACTION_BACK)
     {
+        if (s_view.pomodoro_settings_request_id != 0U)
+        {
+            return ESP_ERR_INVALID_STATE;
+        }
         if (s_view.pomodoro_editing)
         {
             s_view.pomodoro_editing = false;
@@ -807,8 +836,15 @@ static esp_err_t handle_pomodoro_action(presentation_settings_action_t action)
     }
     if (!s_view.pomodoro_editing)
     {
-        if (view.run_state == POMODORO_VIEW_RUN_IDLE)
+        if (view.run_state == POMODORO_VIEW_RUN_IDLE && s_view.pomodoro_settings_request_id == 0U)
         {
+            s_view.pomodoro_draft = (ui_pomodoro_settings_intent_t) {
+                .focus_minutes       = view.focus_minutes,
+                .short_break_minutes = view.short_break_minutes,
+                .long_break_minutes  = view.long_break_minutes,
+                .long_break_interval = view.long_break_interval,
+                .expected_version    = view.settings_version,
+            };
             s_view.pomodoro_editing = true;
             render_pomodoro(ESP_OK);
         }
@@ -819,8 +855,18 @@ static esp_err_t handle_pomodoro_action(presentation_settings_action_t action)
         .id                = UI_USER_INTENT_POMODORO_SETTINGS_SAVE,
         .pomodoro_settings = s_view.pomodoro_draft,
     };
-    const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+    ui_user_intent_result_t intent_result = { 0 };
+    esp_err_t error = ui_runtime_emit_user_intent(&intent, &intent_result);
+    if (error == ESP_OK && intent_result.request_id == 0U)
+    {
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
     if (error == ESP_OK)
+    {
+        s_view.pomodoro_settings_request_id = intent_result.request_id;
+        s_view.pomodoro_editing             = false;
+    }
+    else if (error == ESP_ERR_INVALID_VERSION)
     {
         s_view.pomodoro_editing = false;
     }
@@ -847,7 +893,7 @@ static void on_root_item_clicked(lv_event_t *event)
             const ui_user_intent_t intent = {
                 .id = UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE,
             };
-            const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+            const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
             render_web_console(error);
             break;
         }
@@ -862,7 +908,7 @@ static void on_root_item_clicked(lv_event_t *event)
             const ui_user_intent_t intent = {
                 .id = UI_USER_INTENT_SETTINGS_OTA_CHECK,
             };
-            const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+            const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
             render_ota(error);
             break;
         }
@@ -992,7 +1038,7 @@ static esp_err_t close_menu(void)
     const ui_user_intent_t intent = {
         .id = UI_USER_INTENT_SETTINGS_MENU_CLOSED,
     };
-    const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+    const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
     if (error != ESP_OK)
     {
         return error;
@@ -1040,7 +1086,7 @@ static esp_err_t handle_ota_action(presentation_settings_action_t action)
             const ui_user_intent_t intent = {
                 .id = UI_USER_INTENT_SETTINGS_OTA_DISCARD,
             };
-            const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+            const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
             render_ota(error);
             if (error != ESP_OK)
             {
@@ -1085,7 +1131,7 @@ static esp_err_t handle_web_console_action(presentation_settings_action_t action
         const ui_user_intent_t intent = {
             .id = UI_USER_INTENT_SETTINGS_STOP_WEB_CONSOLE,
         };
-        const esp_err_t error        = ui_runtime_emit_user_intent(&intent);
+        const esp_err_t error        = ui_runtime_emit_user_intent(&intent, NULL);
         s_view.web_console_exit_pending = error == ESP_OK;
         render_web_console(error);
         return error;
@@ -1104,7 +1150,7 @@ static esp_err_t handle_web_console_action(presentation_settings_action_t action
             const ui_user_intent_t intent = {
                 .id = UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE,
             };
-            const esp_err_t error = ui_runtime_emit_user_intent(&intent);
+            const esp_err_t error = ui_runtime_emit_user_intent(&intent, NULL);
             render_web_console(error);
             return error;
         }
@@ -1194,7 +1240,7 @@ esp_err_t ui_settings_page_handle_action(presentation_settings_action_t action)
             const ui_user_intent_t intent = {
                 .id = UI_USER_INTENT_SETTINGS_MENU_CLOSED,
             };
-            (void) ui_runtime_emit_user_intent(&intent);
+            (void) ui_runtime_emit_user_intent(&intent, NULL);
         }
         return error;
     }

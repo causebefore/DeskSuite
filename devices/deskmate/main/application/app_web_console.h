@@ -45,7 +45,7 @@ extern "C"
      *
      * @return ESP_OK 初始化完成或已安全初始化；ESP_ERR_NO_MEM 无法创建展示推送互斥量；
      *         ESP_ERR_INVALID_STATE 已初始化但产品状态仍活动，或下层 Service 状态不允许接管；
-     *         其他值为 Service 运行摘要读取错误
+     *         其他值为 Service 运行摘要读取或网络链路回调注册错误；注册失败恢复未初始化状态
      */
     esp_err_t app_web_console_init(void);
 

@@ -28,6 +28,14 @@ typedef enum
     POMODORO_VIEW_RUN_DONE,
 } pomodoro_view_run_state_t;
 
+/** @brief 番茄钟设置异步更新的 Presenter 状态 */
+typedef enum
+{
+    POMODORO_VIEW_SETTINGS_UPDATE_PENDING = 0,
+    POMODORO_VIEW_SETTINGS_UPDATE_SUCCEEDED,
+    POMODORO_VIEW_SETTINGS_UPDATE_FAILED,
+} pomodoro_view_settings_update_state_t;
+
 /** @brief Application 按值推送的完整番茄钟展示事实 */
 typedef struct
 {
@@ -44,6 +52,12 @@ typedef struct
     uint8_t                   short_break_minutes;
     uint8_t                   long_break_minutes;
     uint8_t                   long_break_interval;
+    uint64_t                  settings_version;
+    bool                      settings_update_result_valid;
+    uint64_t                  settings_update_request_id;
+    pomodoro_view_settings_update_state_t settings_update_state;
+    uint64_t                  settings_update_version;
+    esp_err_t                 settings_update_error;
     bool                      date_verified;
     bool                      settings_saved;
     bool                      completion_latched;
@@ -68,6 +82,12 @@ typedef struct
     uint8_t                   short_break_minutes;
     uint8_t                   long_break_minutes;
     uint8_t                   long_break_interval;
+    uint64_t                  settings_version;
+    bool                      settings_update_result_valid;
+    uint64_t                  settings_update_request_id;
+    pomodoro_view_settings_update_state_t settings_update_state;
+    uint64_t                  settings_update_version;
+    esp_err_t                 settings_update_error;
     bool                      date_verified;
     bool                      settings_saved;
     bool                      completion_latched;

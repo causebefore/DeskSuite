@@ -58,7 +58,10 @@ View Model，再恢复显示、同步提交完整刷新并等待显示传输完�
 
 设置根菜单按“网络设置 → 网页控制台 → 系统信息 → 检查更新 → 番茄钟设置”排列且焦点循环
 （末项按右键绕回首项，首项按左键绕回末项）。番茄钟设置在 `IDLE` 可逐项编辑并以完整副本
-上报用户意图；运行、暂停和完成待确认状态只读。进入
+上报用户意图；草稿保存开始编辑时的 `settings_version`，若浏览器已先更新则 Owner 拒绝陈旧
+提交，UI 重新读取最新 View Model。同步接受结果返回非零请求 ID；设置页在匹配
+`PENDING/SUCCEEDED/FAILED` 终态前保持保存中并禁止离开，Task 执行点或 NVS 保存失败会显示
+该请求的真实错误。运行、暂停和完成待确认状态只读。进入
 “网页控制台”子页才提交非阻塞启动意图；子页只展示启动阶段、本地 URL、六位访问码、
 SD 总/剩余容量和中文错误，不提供配置表单或二维码。离开子页时 UI 先提交停止意图，并持续
 等待 Presenter 报告 `STOPPED` 或其他允许退出的安全终态后才返回根菜单。
@@ -71,13 +74,14 @@ SD 总/剩余容量和中文错误，不提供配置表单或二维码。离开�
   → app_network 授予 APP_NETWORK_LEASE_WEB_CONSOLE
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
-  → handler 串行浏览、下载或事务上传
+  → handler 提供 Files、番茄钟 Settings 与系统 Status
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
 UI 只负责流程两端的启动/停止用户意图和 View Model 呈现。`app_network` 链路变化借用回调、
-Application 状态收敛、Presenter 版本仲裁、认证和文件传输都不在 UI 上下文执行。本阶段页面
-不提供配置编辑、删除、重命名、创建目录、WebDAV 或 WebSocket 入口。
+Application 状态收敛、Presenter 版本仲裁、认证和浏览器交互都不在 UI 上下文执行。设备端
+“网页控制台”子页不复刻浏览器配置表单、文件操作或状态表格；本机番茄钟设置仍只通过独立设置
+子页提交版本化完整副本。
 
 阶段自然完成且当前页不是番茄钟时，`ui_pomodoro_banner` 在状态栏下显示十秒全宽反白提示。
 提示是否需要创建由 Presenter 的 latch 和 generation 决定，而非依赖瞬时事件；UI Runtime

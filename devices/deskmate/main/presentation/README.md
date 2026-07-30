@@ -54,6 +54,9 @@ Application 或下层不可变事实
 预计结束、轮次和按键提示文本，并同步更新状态栏角标事实。它不读取 Application、NVS 或系统
 时钟；运行/暂停/完成三态只映射到本地静态图标。`completion_latched` 与非零
 `completion_generation` 保留在 View Model 中，供 UI Runtime 恢复时补画一次全局完成提示。
+独立的 `settings_version` 也按值保留，供设置页创建带版本草稿；Presenter 不自行生成或推进
+领域版本。最新设置请求的有效位、请求 ID、状态、结果版本和错误也作为一组完整事实复制，
+设置页只把与本机提交 ID 匹配的 `SUCCEEDED/FAILED` 解释为终态。
 
 - Presenter：`<feature>_presenter.[ch]`
 - View Model 类型：`<feature>_view_model_t`
@@ -95,15 +98,15 @@ Presenter；Presentation 看到的仍然只是 Application 重新读取并收敛
   → app_network 授予 APP_NETWORK_LEASE_WEB_CONSOLE
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
-  → handler 串行浏览、下载或事务上传
+  → handler 提供 Files、Settings 与 Status 模块
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
 在这条产品流程中，Application 每次状态迁移或 URL 变化都映射并调用
 `web_console_presenter_update_copy()`；Presenter 按展示版本原子替换完整 View Model，只有新版本
 被接受后才发布轻量刷新事件，UI Runtime 随后调用 `web_console_presenter_get_view_copy()` 并在
-LVGL 上渲染。Presentation 不提供配置编辑、删除、重命名、创建目录、WebDAV 或 WebSocket
-对应的 View Model 或事件。
+LVGL 上渲染。Presentation 不复刻浏览器的 Files、Settings 或 Status 表格；这些 HTTP 交互由
+Service 与产品 Provider 直接完成，不产生新的设备端 View Model 或事件。
 
 ## 6. 并发与所有权
 

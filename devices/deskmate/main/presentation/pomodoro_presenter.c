@@ -105,6 +105,12 @@ static void build_view(const pomodoro_presenter_input_t *input, pomodoro_view_mo
     view->short_break_minutes   = input->short_break_minutes;
     view->long_break_minutes    = input->long_break_minutes;
     view->long_break_interval   = input->long_break_interval;
+    view->settings_version      = input->settings_version;
+    view->settings_update_result_valid = input->settings_update_result_valid;
+    view->settings_update_request_id   = input->settings_update_request_id;
+    view->settings_update_state        = input->settings_update_state;
+    view->settings_update_version      = input->settings_update_version;
+    view->settings_update_error        = input->settings_update_error;
     view->date_verified         = input->date_verified;
     view->settings_saved        = input->settings_saved;
     view->completion_latched    = input->completion_latched;
@@ -186,7 +192,16 @@ esp_err_t pomodoro_presenter_apply(const pomodoro_presenter_input_t *input, bool
     if (input == NULL || out_accepted == NULL || input->revision == 0U
         || (unsigned) input->phase > POMODORO_VIEW_PHASE_LONG_BREAK
         || (unsigned) input->next_phase > POMODORO_VIEW_PHASE_LONG_BREAK
-        || (unsigned) input->run_state > POMODORO_VIEW_RUN_DONE || input->long_break_interval < 2U
+        || (unsigned) input->run_state > POMODORO_VIEW_RUN_DONE || input->settings_version == 0U
+        || (input->settings_update_result_valid
+            && (input->settings_update_request_id == 0U || input->settings_update_version == 0U
+                || (unsigned) input->settings_update_state > POMODORO_VIEW_SETTINGS_UPDATE_FAILED
+                || ((input->settings_update_state == POMODORO_VIEW_SETTINGS_UPDATE_PENDING
+                     || input->settings_update_state == POMODORO_VIEW_SETTINGS_UPDATE_SUCCEEDED)
+                    && input->settings_update_error != ESP_OK)
+                || (input->settings_update_state == POMODORO_VIEW_SETTINGS_UPDATE_FAILED
+                    && input->settings_update_error == ESP_OK)))
+        || input->long_break_interval < 2U
         || input->long_break_interval > 8U)
     {
         return ESP_ERR_INVALID_ARG;
