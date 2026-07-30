@@ -21,6 +21,7 @@
 | [API 与所有权规范](api_conventions.md) | API 命名、错误、生命周期、指针和内存所有权 |
 | [C/C++ 语言边界规范](c_cpp_boundary.md) | 全项目语言选择、公共 C ABI、RAII 和跨语言约束 |
 | [Application 与 Service 组件 README 规范](component_readmes.md) | 组件 README 的创建时机、统一模板和执行流程 |
+| [Web Console 可移植组件契约](web_console_service.md) | 本地认证管理控制台的目标边界、可裁剪模块、Provider 与共享迁移顺序 |
 | [Service 层补充规范](../../components/services/README.md) | 可选执行/事务层的进入条件和边界 |
 | [时间校准流程](../时间校准流程.md) | DeskMate 当前 RTC、系统时钟与 SNTP 的实际数据流 |
 | [低功耗流程](../低功耗流程.md) | DeskMate 当前轻睡眠、Timer 维护刷新与按键唤醒流程 |
