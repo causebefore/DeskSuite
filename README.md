@@ -18,7 +18,9 @@ DeskSuite/
 │  └─ deskmate/           # DeskMate ESP32-S3 固件
 ├─ shared/
 │  └─ components/
-│     └─ communication/   # 两套固件共用的唯一 Communication 源码
+│     ├─ communication/                 # 两套固件共用的唯一 Communication 源码
+│     └─ services/
+│        └─ web_console_service/        # 可裁剪、Provider 驱动的本地网页控制台
 ├─ services/
 │  └─ hub/                # DeskSuite Hub（FastAPI）
 ├─ products.toml           # 产品 ID、固件目标、工程和默认串口
@@ -27,8 +29,9 @@ DeskSuite/
 ```
 
 两套固件共享 Wi-Fi/Portal、网络状态机、HTTP/WebSocket、设备身份、远端日志和 OTA 实现。
-PhotoPainter 显示/状态协议与 DeskMate Dashboard 协议分别位于设备目录下的
-`components/product_protocols/`，不进入共享目录。
+`web_console_service` 与 Communication 可随产品一起移植，但 Console Core 不反向依赖
+`communication`，PhotoPainter 也无需发现或链接该 Service。PhotoPainter 显示/状态协议与
+DeskMate Dashboard 协议分别位于设备目录下的 `components/product_protocols/`，不进入共享目录。
 
 ## 常用命令
 

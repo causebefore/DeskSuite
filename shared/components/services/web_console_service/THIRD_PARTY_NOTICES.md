@@ -2,11 +2,10 @@
 
 ## Crosslink 文件管理页面
 
-DeskMate 的 `components/services/web_console_service/web/index.html` 改编自 Crosslink
-项目的 `src/network/html/FilesPage.html`，并参考了
+本组件的 `web/index.html` 改编自 Crosslink 项目的 `src/network/html/FilesPage.html`，并参考了
 `scripts/build_html.py` 的 HTML 压缩处理方式。
 
-DeskMate 已移除 Crosslink 中不受支持的功能，并改为 DeskMate 的认证 HTTP 文件管理传输。
+本组件已移除 Crosslink 中不受支持的功能，并改为带本地认证的 HTTP 文件管理传输。
 
 Copyright (c) 2025 Dave Allie
 

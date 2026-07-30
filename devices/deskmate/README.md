@@ -42,6 +42,7 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 | UI | [`main/ui/`](main/ui/) | LVGL 页面、控件、UI Runtime Task 和视觉呈现 |
 | Service | [`components/services/`](components/services/) | 可选的持续执行、自动恢复、完整事务与资源协调 |
 | Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的 Wi‑Fi/Portal、网络诊断、传输、身份、后端上下文、SNTP、OTA 和日志能力 |
+| Shared Service | [`../../shared/components/services/`](../../shared/components/services/) | 可跨产品显式装配、但不反向依赖 Communication 的网页控制台等通用 Service |
 | Product Protocols | [`components/product_protocols/`](components/product_protocols/) | DeskMate Dashboard 产品协议 |
 | Data | [`components/data/`](components/data/) | 产品数据结构、缓存和持久化语义 |
 | System | [`components/sys/`](components/sys/) | 可信时间、存储基础、复位和看门狗等系统级能力 |

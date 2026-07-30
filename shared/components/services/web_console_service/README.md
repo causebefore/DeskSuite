@@ -305,6 +305,7 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
   私有状态、领域路由与生命周期协作接口。
 - [`src/files/web_console_service_transfer.hpp`](src/files/web_console_service_transfer.hpp)：Files 传输私有类型。
 - [`src/core/web_console_service_web.h`](src/core/web_console_service_web.h)：生成的 gzip 首页符号声明。
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)：随组件移植的 Crosslink 页面许可声明。
 
 Service 手写实现均以 C++ 编译；构建期生成的 `web_file_index.generated.c` 只承载只读 gzip
 字节资源，并通过带 `extern "C"` 的符号声明与 C++ 实现连接。
