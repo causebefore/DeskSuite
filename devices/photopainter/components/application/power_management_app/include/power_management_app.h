@@ -31,8 +31,8 @@ extern "C"
         POWER_MANAGEMENT_APP_STATE_SLEEP_REQUESTED, /**< 休眠请求已提交 */
         POWER_MANAGEMENT_APP_STATE_RETRY_SLEEP_REQUESTED, /**< 启动失败退避休眠已提交 */
         POWER_MANAGEMENT_APP_STATE_PREPARING_SLEEP, /**< 正在同步停止运行期组件 */
-        POWER_MANAGEMENT_APP_STATE_AUTO_SLEEP_BLOCKED, /**< 自动休眠被清理或显示错误阻止 */
-        POWER_MANAGEMENT_APP_STATE_CLEANUP_FAILED, /**< 停机或回滚失败 */
+        POWER_MANAGEMENT_APP_STATE_AUTO_SLEEP_BLOCKED, /**< 自动休眠受阻，等待失败退避停机 */
+        POWER_MANAGEMENT_APP_STATE_CLEANUP_FAILED, /**< 停机或回滚失败，等待保底深睡 */
     } power_management_app_state_t;
 
     /** @brief 电源管理 App 初始化配置 */

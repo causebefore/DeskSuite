@@ -16,6 +16,7 @@
 #include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "firmware_ota.h"
 #include "network_manager.h"
 #include "photo_playback_app.h"
@@ -215,6 +216,32 @@ static void power_management_publish_schedule(uint32_t wakeup_seconds,
     g_power_management_runtime.status.target_collection_generation =
         collection_generation;
     taskEXIT_CRITICAL(&g_power_management_runtime.state_lock);
+}
+
+/**
+ * @brief 复制需要由有界失败休眠收敛的终态错误
+ *
+ * OTA 正在写入固件时保持 INSTALLING 状态，不会被此处误判为可强制休眠的错误。
+ *
+ * @param[out] out_error 阻塞原因；状态未携带错误时使用 ESP_FAIL
+ * @return true 表示应立即进入失败退避休眠
+ */
+static bool power_management_get_failure_sleep_error(esp_err_t *out_error)
+{
+    power_management_app_state_t state;
+    esp_err_t                    error;
+    taskENTER_CRITICAL(&g_power_management_runtime.state_lock);
+    state = g_power_management_runtime.status.state;
+    error = g_power_management_runtime.status.last_error;
+    taskEXIT_CRITICAL(&g_power_management_runtime.state_lock);
+
+    if (state != POWER_MANAGEMENT_APP_STATE_AUTO_SLEEP_BLOCKED
+        && state != POWER_MANAGEMENT_APP_STATE_CLEANUP_FAILED)
+    {
+        return false;
+    }
+    *out_error = error != ESP_OK ? error : ESP_FAIL;
+    return true;
 }
 
 /** @brief 在最新可信系统时间上把服务端绝对目标换算为深睡定时器相对秒数 */
@@ -699,6 +726,43 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
         ESP_LOGW(TAG, "深睡准备失败，运行期组件已恢复: %s", esp_err_to_name(error));
     }
     return error;
+}
+
+/**
+ * @brief 完整停机重试仍失败时，以最小动作进入失败退避深睡
+ *
+ * 此路径不再依赖各组件的终态确认，只最佳努力关闭蜂鸣器和 LED、重建唤醒源并清除
+ * 绝对调度目标。若连唤醒源都无法配置，则重启并由启动流程重新收敛，避免无限保持唤醒。
+ *
+ * @param[in] wakeup_seconds 失败退避唤醒间隔，必须大于 0
+ * @param[in] reason 触发保底深睡的原始错误
+ */
+[[noreturn]] static void power_management_enter_forced_failure_sleep(uint32_t wakeup_seconds,
+                                                                     esp_err_t reason)
+{
+    ESP_LOGE(TAG,
+             "完整停机重试仍失败，进入保底深睡: reason=%s interval=%lu 秒",
+             esp_err_to_name(reason),
+             (unsigned long) wakeup_seconds);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(device_buzzer_stop());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(device_led_off());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(device_power_cancel_deep_sleep());
+
+    const uint64_t wakeup_us = static_cast<uint64_t>(wakeup_seconds) * 1000000ULL;
+    const esp_err_t prepare_error = device_power_prepare_deep_sleep(wakeup_us);
+    if (prepare_error != ESP_OK)
+    {
+        ESP_LOGE(TAG,
+                 "保底深睡无法配置唤醒源，立即重启重新收敛: %s",
+                 esp_err_to_name(prepare_error));
+        esp_restart();
+    }
+
+    power_management_set_retained_wakeup_target(0);
+    ESP_LOGW(TAG,
+             "保底深睡唤醒源已配置；任意按键可唤醒，内部定时器将在 %lu 秒后唤醒",
+             (unsigned long) wakeup_seconds);
+    device_power_start_deep_sleep();
 }
 
 esp_err_t power_management_app_prepare_startup_sleep(
@@ -1212,27 +1276,6 @@ static esp_err_t power_management_finish_ota_interaction(bool *inout_network_hel
     return first_error;
 }
 
-/** @brief 深睡准备失败后恢复 OTA 前已停止的内容刷新能力 */
-static esp_err_t power_management_resume_content_after_failed_sleep(bool *inout_content_suspended)
-{
-    if (!*inout_content_suspended)
-    {
-        return ESP_OK;
-    }
-    content_refresh_app_status_t status = {};
-    const esp_err_t status_error = content_refresh_app_get_status_copy(&status);
-    if (status_error != ESP_OK)
-    {
-        return status_error;
-    }
-    if (status.state == CONTENT_REFRESH_APP_STATE_STOPPED)
-    {
-        ESP_RETURN_ON_ERROR(content_refresh_app_start(), TAG, "恢复 OTA 前暂停的内容刷新失败");
-    }
-    *inout_content_suspended = false;
-    return ESP_OK;
-}
-
 /** @brief 使用有符号差值安全判断短期 Tick 截止时间是否已到 */
 static bool power_management_deadline_reached(TickType_t now, TickType_t deadline)
 {
@@ -1712,6 +1755,24 @@ static void power_management_task(void *context)
             }
         }
 
+        esp_err_t failure_sleep_error = ESP_OK;
+        if (power_management_get_failure_sleep_error(&failure_sleep_error))
+        {
+            sleep_wakeup_seconds =
+                power_management_update_retained_schedule(failure_sleep_error);
+            sleep_wakeup_at_utc = 0;
+            power_management_publish_schedule(sleep_wakeup_seconds, 0, 0U);
+            power_management_log_wakeup_schedule(
+                sleep_wakeup_seconds, failure_sleep_error, 0);
+            retry_sleep_requested = true;
+            sleep_now = true;
+            round_ready = false;
+            awake_window_active = false;
+            ESP_LOGW(TAG,
+                     "休眠阻塞状态已收敛为失败退避深睡，不再无限保持唤醒: error=%s",
+                     esp_err_to_name(failure_sleep_error));
+        }
+
         if (sleep_now)
         {
             if (sleep_wakeup_at_utc > 0)
@@ -1740,27 +1801,33 @@ static void power_management_task(void *context)
             }
             power_management_app_publish(POWER_MANAGEMENT_APP_STATE_PREPARING_SLEEP, ESP_OK);
             bool cleanup_failed = false;
-            const esp_err_t error = power_management_prepare_and_sleep(
+            esp_err_t error = power_management_prepare_and_sleep(
                 sleep_wakeup_seconds, sleep_wakeup_at_utc, false, &cleanup_failed);
-            const esp_err_t resume_error = power_management_resume_content_after_failed_sleep(
-                &content_suspended_for_ota);
-            if (resume_error != ESP_OK)
+            if (error != ESP_OK && !retry_sleep_requested)
             {
-                cleanup_failed = true;
-                ESP_LOGE(TAG, "深睡失败后恢复 OTA 前内容刷新失败: %s",
-                         esp_err_to_name(resume_error));
+                sleep_wakeup_seconds = power_management_update_retained_schedule(error);
+                sleep_wakeup_at_utc = 0;
+                power_management_publish_schedule(sleep_wakeup_seconds, 0, 0U);
+                power_management_log_wakeup_schedule(sleep_wakeup_seconds, error, 0);
+                retry_sleep_requested = true;
+                cleanup_failed = false;
+                power_management_app_publish(
+                    POWER_MANAGEMENT_APP_STATE_RETRY_SLEEP_REQUESTED, error);
+                ESP_LOGW(TAG,
+                         "首次深睡准备失败，按失败退避计划再执行一次完整停机: %s",
+                         esp_err_to_name(error));
+                error = power_management_prepare_and_sleep(
+                    sleep_wakeup_seconds, 0, false, &cleanup_failed);
             }
-            power_management_publish_schedule(0U, 0, 0U);
-            round_ready = false;
-            awake_window_active = false;
+
             power_management_app_publish(
-                cleanup_failed
-                    ? POWER_MANAGEMENT_APP_STATE_CLEANUP_FAILED
-                    : (retry_sleep_requested
-                           ? POWER_MANAGEMENT_APP_STATE_AUTO_SLEEP_BLOCKED
-                           : (automatic_sleep ? POWER_MANAGEMENT_APP_STATE_WAIT_REFRESH
-                                              : POWER_MANAGEMENT_APP_STATE_IDLE)),
-                resume_error != ESP_OK ? resume_error : error);
+                cleanup_failed ? POWER_MANAGEMENT_APP_STATE_CLEANUP_FAILED
+                               : POWER_MANAGEMENT_APP_STATE_AUTO_SLEEP_BLOCKED,
+                error != ESP_OK ? error : ESP_FAIL);
+            const esp_err_t forced_reason =
+                failure_sleep_error != ESP_OK ? failure_sleep_error : error;
+            power_management_enter_forced_failure_sleep(
+                sleep_wakeup_seconds, forced_reason != ESP_OK ? forced_reason : ESP_FAIL);
         }
     }
 
