@@ -1,7 +1,7 @@
 /*
- * 文件职责：拥有网页文件管理一次性 Task，并执行存储、网络租约、运行链路和 Service 生命周期。
+ * 文件职责：拥有网页控制台一次性 Task，并执行存储、网络租约、运行链路和 Service 生命周期。
  */
-#include "app_web_file_internal.hpp"
+#include "app_web_console_internal.hpp"
 
 #include "app_network.h"
 #include "connect.h"
@@ -15,16 +15,16 @@
 #endif
 #include "web_console_service.h"
 
-#define APP_WEB_FILE_LEASE_TIMEOUT_MS         1000U
-#define APP_WEB_FILE_LEASE_ACQUIRE_TIMEOUT_MS 20000U
-#define APP_WEB_FILE_NETWORK_WAIT_MS          ((uint32_t) CONFIG_DESKMATE_WEB_FILE_NETWORK_WAIT_MS)
-#define APP_WEB_FILE_NETWORK_POLL_MS          100U
-#define APP_WEB_FILE_STOP_TIMEOUT_MS          6000U
-#define APP_WEB_FILE_TASK_STACK_SIZE          4096U
-#define APP_WEB_FILE_TASK_PRIORITY            4U
-#define APP_WEB_FILE_PRESENTATION_RETRY_MS    50U
+#define APP_WEB_CONSOLE_LEASE_TIMEOUT_MS         1000U
+#define APP_WEB_CONSOLE_LEASE_ACQUIRE_TIMEOUT_MS 20000U
+#define APP_WEB_CONSOLE_NETWORK_WAIT_MS          ((uint32_t) CONFIG_DESKMATE_WEB_CONSOLE_NETWORK_WAIT_MS)
+#define APP_WEB_CONSOLE_NETWORK_POLL_MS          100U
+#define APP_WEB_CONSOLE_STOP_TIMEOUT_MS          6000U
+#define APP_WEB_CONSOLE_TASK_STACK_SIZE          4096U
+#define APP_WEB_CONSOLE_TASK_PRIORITY            4U
+#define APP_WEB_CONSOLE_PRESENTATION_RETRY_MS    50U
 
-static const char *TAG          = "app_web_file";
+static const char *TAG          = "app_web_console";
 
 static portMUX_TYPE s_task_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_task;
@@ -38,7 +38,7 @@ static esp_err_t resume_pending_stop_request(void);
 /** @brief 把展示重试间隔换算为至少一个 FreeRTOS Tick */
 static TickType_t presentation_retry_ticks(void)
 {
-    const TickType_t ticks = pdMS_TO_TICKS(APP_WEB_FILE_PRESENTATION_RETRY_MS);
+    const TickType_t ticks = pdMS_TO_TICKS(APP_WEB_CONSOLE_PRESENTATION_RETRY_MS);
     return ticks == 0 ? 1 : ticks;
 }
 
@@ -83,35 +83,35 @@ static esp_err_t get_service_status(web_console_service_status_t *out_status)
     const esp_err_t error = web_console_service_get_status_copy(out_status);
     if (error != ESP_OK)
     {
-        ESP_LOGE(TAG, "读取网页文件 Service 状态失败: %s", esp_err_to_name(error));
+        ESP_LOGE(TAG, "读取网页控制台 Service 状态失败: %s", esp_err_to_name(error));
     }
     return error;
 }
 
 /**
- * @brief 释放当前 Web 文件网络租约，失败时保留代次供后续停止意图重试
+ * @brief 释放当前网页控制台网络租约，失败时保留代次供后续停止意图重试
  *
  * @return ESP_OK 不再持有租约；其他值表示租约所有权尚未安全收敛
  */
 static esp_err_t release_network_lease(void)
 {
-    const uint32_t generation = app_web_file_internal_get_lease_generation();
+    const uint32_t generation = app_web_console_internal_get_lease_generation();
     if (generation == 0U)
     {
         return ESP_OK;
     }
 
-    const esp_err_t error = app_network_release_web_file_lease(generation, APP_WEB_FILE_LEASE_TIMEOUT_MS);
+    const esp_err_t error = app_network_release_web_console_lease(generation, APP_WEB_CONSOLE_LEASE_TIMEOUT_MS);
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG,
-                 "释放网页文件网络租约失败: generation=%lu err=%s",
+                 "释放网页控制台网络租约失败: generation=%lu err=%s",
                  (unsigned long) generation,
                  esp_err_to_name(error));
         return error;
     }
 
-    app_web_file_internal_set_lease_generation(0U);
+    app_web_console_internal_set_lease_generation(0U);
     return ESP_OK;
 }
 
@@ -193,7 +193,7 @@ static esp_err_t wait_for_network_online(uint32_t timeout_ms)
         {
             return ESP_ERR_TIMEOUT;
         }
-        vTaskDelay(pdMS_TO_TICKS(APP_WEB_FILE_NETWORK_POLL_MS));
+        vTaskDelay(pdMS_TO_TICKS(APP_WEB_CONSOLE_NETWORK_POLL_MS));
     }
 }
 
@@ -218,11 +218,11 @@ static esp_err_t stop_owned_resources(void)
         || service_status.state == WEB_CONSOLE_SERVICE_STATE_STOPPING
         || service_status.state == WEB_CONSOLE_SERVICE_STATE_CLEANUP_FAILED)
     {
-        app_web_file_internal_set_service_cleanup_required(true);
-        error = web_console_service_stop(APP_WEB_FILE_STOP_TIMEOUT_MS);
+        app_web_console_internal_set_service_cleanup_required(true);
+        error = web_console_service_stop(APP_WEB_CONSOLE_STOP_TIMEOUT_MS);
         if (error != ESP_OK)
         {
-            ESP_LOGE(TAG, "网页文件 Service 有界停止失败: %s", esp_err_to_name(error));
+            ESP_LOGE(TAG, "网页控制台 Service 有界停止失败: %s", esp_err_to_name(error));
             return error;
         }
         service_status.state = WEB_CONSOLE_SERVICE_STATE_INITIALIZED;
@@ -230,11 +230,11 @@ static esp_err_t stop_owned_resources(void)
 
     if (service_status.state == WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
-        app_web_file_internal_set_service_cleanup_required(true);
+        app_web_console_internal_set_service_cleanup_required(true);
         error = web_console_service_deinit();
         if (error != ESP_OK)
         {
-            ESP_LOGE(TAG, "反初始化网页文件 Service 失败: %s", esp_err_to_name(error));
+            ESP_LOGE(TAG, "反初始化网页控制台 Service 失败: %s", esp_err_to_name(error));
             return error;
         }
         service_status.state = WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED;
@@ -242,11 +242,11 @@ static esp_err_t stop_owned_resources(void)
 
     if (service_status.state != WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
     {
-        app_web_file_internal_set_service_cleanup_required(true);
+        app_web_console_internal_set_service_cleanup_required(true);
         return ESP_ERR_INVALID_STATE;
     }
 
-    app_web_file_internal_set_service_cleanup_required(false);
+    app_web_console_internal_set_service_cleanup_required(false);
     return release_network_lease();
 }
 
@@ -270,11 +270,11 @@ static esp_err_t rollback_start(bool initialized_this_attempt)
         || service_status.state == WEB_CONSOLE_SERVICE_STATE_STOPPING
         || service_status.state == WEB_CONSOLE_SERVICE_STATE_CLEANUP_FAILED)
     {
-        app_web_file_internal_set_service_cleanup_required(true);
-        error = web_console_service_stop(APP_WEB_FILE_STOP_TIMEOUT_MS);
+        app_web_console_internal_set_service_cleanup_required(true);
+        error = web_console_service_stop(APP_WEB_CONSOLE_STOP_TIMEOUT_MS);
         if (error != ESP_OK)
         {
-            ESP_LOGE(TAG, "回滚网页文件 Service 失败，保留网络租约: %s", esp_err_to_name(error));
+            ESP_LOGE(TAG, "回滚网页控制台 Service 失败，保留网络租约: %s", esp_err_to_name(error));
             return error;
         }
         service_status.state = WEB_CONSOLE_SERVICE_STATE_INITIALIZED;
@@ -282,16 +282,16 @@ static esp_err_t rollback_start(bool initialized_this_attempt)
 
     if (initialized_this_attempt && service_status.state == WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
-        app_web_file_internal_set_service_cleanup_required(true);
+        app_web_console_internal_set_service_cleanup_required(true);
         error = web_console_service_deinit();
         if (error != ESP_OK)
         {
-            ESP_LOGE(TAG, "回滚网页文件 Service 初始化失败，保留网络租约: %s", esp_err_to_name(error));
+            ESP_LOGE(TAG, "回滚网页控制台 Service 初始化失败，保留网络租约: %s", esp_err_to_name(error));
             return error;
         }
     }
 
-    app_web_file_internal_set_service_cleanup_required(false);
+    app_web_console_internal_set_service_cleanup_required(false);
     return release_network_lease();
 }
 
@@ -315,9 +315,9 @@ static esp_err_t start_owned_resources(void)
     {
         return error;
     }
-    app_web_file_internal_set_capacity(filesystem_info.total_bytes, filesystem_info.free_bytes);
+    app_web_console_internal_set_capacity(filesystem_info.total_bytes, filesystem_info.free_bytes);
 #else
-    app_web_file_internal_set_capacity(0U, 0U);
+    app_web_console_internal_set_capacity(0U, 0U);
 #endif
 
     if (has_unconsumed_stop_request())
@@ -325,21 +325,21 @@ static esp_err_t start_owned_resources(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    app_web_file_internal_publish_state(APP_WEB_FILE_STATE_ACQUIRING_NETWORK, ESP_OK, true);
+    app_web_console_internal_publish_state(APP_WEB_CONSOLE_STATE_ACQUIRING_NETWORK, ESP_OK, true);
 
-    error = wait_for_network_online(APP_WEB_FILE_NETWORK_WAIT_MS);
+    error = wait_for_network_online(APP_WEB_CONSOLE_NETWORK_WAIT_MS);
     if (error != ESP_OK)
     {
         return error;
     }
 
     uint32_t generation = 0U;
-    error               = app_network_acquire_web_file_lease(APP_WEB_FILE_LEASE_ACQUIRE_TIMEOUT_MS, &generation);
+    error               = app_network_acquire_web_console_lease(APP_WEB_CONSOLE_LEASE_ACQUIRE_TIMEOUT_MS, &generation);
     if (error != ESP_OK)
     {
         return error;
     }
-    app_web_file_internal_set_lease_generation(generation);
+    app_web_console_internal_set_lease_generation(generation);
 
     if (has_unconsumed_stop_request())
     {
@@ -364,7 +364,7 @@ static esp_err_t start_owned_resources(void)
     bool initialized_this_attempt = false;
     if (service_status.state == WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
     {
-        error = app_web_file_internal_initialize_service();
+        error = app_web_console_internal_initialize_service();
         if (error != ESP_OK)
         {
             const esp_err_t cleanup_error = release_network_lease();
@@ -374,7 +374,7 @@ static esp_err_t start_owned_resources(void)
     }
     else if (service_status.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
-        app_web_file_internal_set_service_cleanup_required(true);
+        app_web_console_internal_set_service_cleanup_required(true);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -383,7 +383,7 @@ static esp_err_t start_owned_resources(void)
         return stop_owned_resources();
     }
 
-    app_web_file_internal_publish_state(APP_WEB_FILE_STATE_STARTING_SERVICE, ESP_OK, true);
+    app_web_console_internal_publish_state(APP_WEB_CONSOLE_STATE_STARTING_SERVICE, ESP_OK, true);
     error = web_console_service_start();
     if (error != ESP_OK)
     {
@@ -391,13 +391,13 @@ static esp_err_t start_owned_resources(void)
         return cleanup_error != ESP_OK ? cleanup_error : error;
     }
 
-    app_web_file_internal_set_service_cleanup_required(true);
+    app_web_console_internal_set_service_cleanup_required(true);
     if (has_unconsumed_stop_request())
     {
         return ESP_OK;
     }
 
-    error = app_web_file_internal_publish_running_snapshot();
+    error = app_web_console_internal_publish_running_snapshot();
     if (error != ESP_OK)
     {
         const esp_err_t cleanup_error = rollback_start(initialized_this_attempt);
@@ -457,7 +457,7 @@ static bool deliver_terminal_status_update(void)
         {
             return false;
         }
-        if (app_web_file_internal_retry_status_update() == ESP_OK)
+        if (app_web_console_internal_retry_status_update() == ESP_OK)
         {
             return true;
         }
@@ -485,7 +485,7 @@ static void wait_for_stop_request(void)
             return;
         }
 
-        const esp_err_t dispatch_error = app_web_file_internal_retry_status_update();
+        const esp_err_t dispatch_error = app_web_console_internal_retry_status_update();
         if (has_unconsumed_stop_request())
         {
             return;
@@ -497,10 +497,10 @@ static void wait_for_stop_request(void)
             {
                 return;
             }
-            const esp_err_t error = app_web_file_internal_refresh_running_link();
+            const esp_err_t error = app_web_console_internal_refresh_running_link();
             if (error != ESP_OK && error != ESP_ERR_INVALID_STATE)
             {
-                ESP_LOGW(TAG, "刷新网页文件运行地址失败: %s", esp_err_to_name(error));
+                ESP_LOGW(TAG, "刷新网页控制台运行地址失败: %s", esp_err_to_name(error));
             }
             continue;
         }
@@ -511,25 +511,25 @@ static void wait_for_stop_request(void)
 }
 
 /**
- * @brief 一次性拥有网页文件产品状态机的 Application Task
+ * @brief 一次性拥有网页控制台产品状态机的 Application Task
  *
  * Task 先等待创建方发布句柄，再根据入口状态执行启动或清理重试；运行期间阻塞等待合并的
  * 停止或链路 notification，不轮询网络。停止请求优先，链路变化只刷新当前 URL。
  */
-static void app_web_file_task(void *arg)
+static void app_web_console_task(void *arg)
 {
     (void) arg;
     (void) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    const app_web_file_state_t entry_state = app_web_file_internal_get_state();
-    if (entry_state != APP_WEB_FILE_STATE_STOPPING)
+    const app_web_console_state_t entry_state = app_web_console_internal_get_state();
+    if (entry_state != APP_WEB_CONSOLE_STATE_STOPPING)
     {
         const esp_err_t start_error = start_owned_resources();
         if (start_error != ESP_OK)
         {
             if (!has_unconsumed_stop_request())
             {
-                app_web_file_internal_publish_state(APP_WEB_FILE_STATE_ERROR, start_error, true);
+                app_web_console_internal_publish_state(APP_WEB_CONSOLE_STATE_ERROR, start_error, true);
                 if (deliver_terminal_status_update() && detach_task_if_no_stop_retry())
                 {
                     delete_detached_task();
@@ -545,11 +545,11 @@ static void app_web_file_task(void *arg)
     for (;;)
     {
         consume_stop_requests_for_round();
-        app_web_file_internal_publish_state(APP_WEB_FILE_STATE_STOPPING, ESP_OK, true);
+        app_web_console_internal_publish_state(APP_WEB_CONSOLE_STATE_STOPPING, ESP_OK, true);
         const esp_err_t stop_error = stop_owned_resources();
         if (stop_error == ESP_OK)
         {
-            app_web_file_internal_publish_state(APP_WEB_FILE_STATE_STOPPED, ESP_OK, true);
+            app_web_console_internal_publish_state(APP_WEB_CONSOLE_STATE_STOPPED, ESP_OK, true);
             if (!deliver_terminal_status_update())
             {
                 continue;
@@ -563,7 +563,7 @@ static void app_web_file_task(void *arg)
          * 当前清理轮次已记录消费序列。发布 ERROR 后在同一 Task 锁内比较最新与已消费序列；
          * 若期间到达了更晚的停止请求，则继续下一轮，否则安全解绑并退出。
          */
-        app_web_file_internal_publish_state(APP_WEB_FILE_STATE_ERROR, stop_error, true);
+        app_web_console_internal_publish_state(APP_WEB_CONSOLE_STATE_ERROR, stop_error, true);
         if (deliver_terminal_status_update() && detach_task_if_no_stop_retry())
         {
             delete_detached_task();
@@ -581,11 +581,11 @@ static void app_web_file_task(void *arg)
 static esp_err_t create_application_task(bool for_stop)
 {
     TaskHandle_t     task    = NULL;
-    const BaseType_t created = xTaskCreate(app_web_file_task,
-                                           "app_web_file_task",
-                                           APP_WEB_FILE_TASK_STACK_SIZE,
+    const BaseType_t created = xTaskCreate(app_web_console_task,
+                                           "app_web_console",
+                                           APP_WEB_CONSOLE_TASK_STACK_SIZE,
                                            NULL,
-                                           APP_WEB_FILE_TASK_PRIORITY,
+                                           APP_WEB_CONSOLE_TASK_PRIORITY,
                                            &task);
     if (created != pdPASS)
     {
@@ -593,7 +593,7 @@ static esp_err_t create_application_task(bool for_stop)
          * 创建门仍保持占用，且 s_task 从未发布；同步拒绝因此可以在 Presenter 推送互斥量内
          * 清理本请求准备态的 pending，不会与活动 Task 的更高版本并发。
          */
-        app_web_file_internal_publish_synchronous_rejection(ESP_ERR_NO_MEM);
+        app_web_console_internal_publish_synchronous_rejection(ESP_ERR_NO_MEM);
 
         bool concurrent_stop_pending = false;
         taskENTER_CRITICAL(&s_task_lock);
@@ -629,7 +629,7 @@ static esp_err_t create_application_task(bool for_stop)
 static esp_err_t prepare_claimed_stop_task(void)
 {
     bool            needs_task = false;
-    const esp_err_t error      = app_web_file_internal_prepare_stop_retry(&needs_task);
+    const esp_err_t error      = app_web_console_internal_prepare_stop_retry(&needs_task);
     if (error != ESP_OK || !needs_task)
     {
         taskENTER_CRITICAL(&s_task_lock);
@@ -663,7 +663,7 @@ static esp_err_t resume_pending_stop_request(void)
     return prepare_claimed_stop_task();
 }
 
-esp_err_t app_web_file_task_request_start(void)
+esp_err_t app_web_console_task_request_start(void)
 {
     taskENTER_CRITICAL(&s_task_lock);
     if (s_task != NULL || s_task_creation_pending || s_stop_request_sequence != s_consumed_stop_request_sequence
@@ -675,7 +675,7 @@ esp_err_t app_web_file_task_request_start(void)
     s_task_creation_pending = true;
     taskEXIT_CRITICAL(&s_task_lock);
 
-    const esp_err_t error = app_web_file_internal_prepare_start();
+    const esp_err_t error = app_web_console_internal_prepare_start();
     if (error != ESP_OK)
     {
         bool stop_was_requested;
@@ -692,9 +692,9 @@ esp_err_t app_web_file_task_request_start(void)
     return create_application_task(false);
 }
 
-esp_err_t app_web_file_task_request_stop(void)
+esp_err_t app_web_console_task_request_stop(void)
 {
-    const esp_err_t validation_error = app_web_file_internal_validate_stop_request();
+    const esp_err_t validation_error = app_web_console_internal_validate_stop_request();
     if (validation_error != ESP_OK)
     {
         return validation_error;
@@ -723,7 +723,7 @@ esp_err_t app_web_file_task_request_stop(void)
     return prepare_claimed_stop_task();
 }
 
-void app_web_file_task_notify_link_change(void)
+void app_web_console_task_notify_link_change(void)
 {
     taskENTER_CRITICAL(&s_task_lock);
     if (s_task != NULL)

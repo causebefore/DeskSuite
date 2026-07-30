@@ -16,7 +16,7 @@
 - 把 Presentation 事件转换为 UI 私有 `ui_msg_t`。
 - 在唯一 LVGL 上下文串行处理页面切换和刷新。
 - 使用独立 Screen 管理顶层页面，使用 `lv_menu + lv_group` 管理两层设置菜单。
-- 把菜单激活转换为启动配网、检查/安装/丢弃 OTA、启停网页文件管理等窄用户意图。
+- 把菜单激活转换为启动配网、检查/安装/丢弃 OTA、启停网页控制台等窄用户意图。
 - 管理 UI Runtime 的启动、停止、消息队列和控制握手。
 
 不负责：
@@ -56,19 +56,19 @@ View Model，再恢复显示、同步提交完整刷新并等待显示传输完�
 番茄钟页使用 48px 等宽倒计时、灰阶四段时间轨道和反白阶段/完成状态；其他页面只在剩余分钟、
 运行状态或完成 latch 变化时刷新状态栏角标，不因每秒节拍重绘。
 
-设置根菜单按“网络设置 → 网页文件管理 → 系统信息 → 检查更新 → 番茄钟设置”排列且焦点循环
+设置根菜单按“网络设置 → 网页控制台 → 系统信息 → 检查更新 → 番茄钟设置”排列且焦点循环
 （末项按右键绕回首项，首项按左键绕回末项）。番茄钟设置在 `IDLE` 可逐项编辑并以完整副本
 上报用户意图；运行、暂停和完成待确认状态只读。进入
-“网页文件管理”子页才提交非阻塞启动意图；子页只展示启动阶段、本地 URL、六位访问码、
+“网页控制台”子页才提交非阻塞启动意图；子页只展示启动阶段、本地 URL、六位访问码、
 SD 总/剩余容量和中文错误，不提供配置表单或二维码。离开子页时 UI 先提交停止意图，并持续
 等待 Presenter 报告 `STOPPED` 或其他允许退出的安全终态后才返回根菜单。
 
 设备到浏览器的完整流程为：
 
 ```text
-设备设置页选择“网页文件管理”
-  → app_web_file 检查 /sdcard
-  → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
+设备设置页选择“网页控制台”
+  → app_web_console 检查 /sdcard
+  → app_network 授予 APP_NETWORK_LEASE_WEB_CONSOLE
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → handler 串行浏览、下载或事务上传
@@ -104,7 +104,7 @@ UI 通过 [`include/ui_runtime.h`](include/ui_runtime.h) 对外暴露启停和�
 只能调用这组生命周期 API，页面数据和刷新仍完全通过 Presentation 解耦。
 UI 用户意图回调由 Composition Root 注册，只允许非阻塞投递或短临界区操作，禁止在回调中调用
 LVGL 或重新进入 UI Runtime。
-设置菜单关闭意图还会由 Application 再次提交网页文件停止请求，作为页面切换或控件树重建绕过
+设置菜单关闭意图还会由 Application 再次提交网页控制台停止请求，作为页面切换或控件树重建绕过
 子页 Back 处理时的产品级清理门；只有 Application 状态快照明确为 `STOPPED` 后才接受关闭，
 否则保留设置菜单门控并等待后续刷新。UI 页面反初始化本身不直接调用 Application。
 
@@ -126,7 +126,7 @@ Task 栈必须位于内部 SRAM；停止态不得释放其队列、字体映射�
 `PRESENTATION_EVENT_STATUS_UPDATE` 使用独立的持久可合并 pending：默认 Event Loop handler
 先在 Runtime 状态锁内置位，再以零等待尽力投递业务队列 marker，并始终用 Task notification
 唤醒。UI Task 每次阻塞前、控制命令之后和两条业务消息之间主动取得 pending 并读取最新 View
-Model；重复 marker 只作幂等唤醒。因此业务队列已满不会丢失网页文件终态刷新，也不会从 Event
+Model；重复 marker 只作幂等唤醒。因此业务队列已满不会丢失网页控制台终态刷新，也不会从 Event
 Loop 阻塞等待 UI。锁序固定为短时 Runtime 状态锁后释放，再访问 Queue/Task notification；
 停止先关闭 `business_open`，等待已登记发送者退出并排空 marker 后清除运行态 pending；
 期间丢弃的消息以及入口关闭后到达的状态刷新会合并到恢复快照，Task、队列和控件树继续保留。

@@ -59,7 +59,7 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 - 环境：Application 调度环境采样，`environment_service` 通过稳定 Device API 完成采样事务。
 - 网络：`app_network` 拥有 DeskMate 的 Dashboard、OTA、语音租约和会话退避策略；
   Communication 的 `network_manager` 只拥有 Wi‑Fi/Portal 技术状态机，协议与传输不决定产品时机。
-- 网页文件管理：设备设置页选择“网页文件管理”后，Application 申请专用网络租约并启动本地
+- 网页控制台：设备设置页选择“网页控制台”后，Application 申请专用网络租约并启动本地
   认证文件 Service；页面返回必须等待 Service 完整停止后才释放租约。
 - 呈现：Service、Communication 或 Application 报告事实，Presenter 更新 View Model 并发布呈现事件，
   UI Runtime 在唯一 LVGL 上下文读取并渲染。

@@ -174,12 +174,12 @@ config DESKMATE_OTA_HTTP_TIMEOUT_MS
     help
         OTA check 与固件下载的 HTTP 超时，单位毫秒。
 
-config DESKMATE_WEB_FILE_NETWORK_WAIT_MS
-    int "Web file network wait timeout (ms)"
+config DESKMATE_WEB_CONSOLE_NETWORK_WAIT_MS
+    int "Web console network wait timeout (ms)"
     default 20000
     range 1000 120000
     help
-        网页文件管理启动前等待网络 ONLINE 的最长时间，单位毫秒。
+        网页控制台启动前等待网络 ONLINE 的最长时间，单位毫秒。
         需覆盖唤醒重连与上线后 Dashboard 同步占用网络任务的窗口。
 
 config DESKMATE_SETTINGS_NAMESPACE

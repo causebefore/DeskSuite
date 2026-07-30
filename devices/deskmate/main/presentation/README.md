@@ -68,7 +68,7 @@ Application 或下层不可变事实
 `ota_presenter` 保存带锁快照，并以检查中、无更新、有更新、下载中、检查失败和安装失败表达
 设置子页状态。旧的全局 OTA 弹层状态和百分比载荷已删除。
 
-`web_file_presenter` 只接收 Application 主动推送的 `web_file_presenter_input_t` 纯展示事实，
+`web_console_presenter` 只接收 Application 主动推送的 `web_console_presenter_input_t` 纯展示事实，
 把独立 Presenter 状态映射为固定中文标题，并把字节容量格式化为 B/KiB/MiB/GiB。它只在
 `RUNNING` 时把本地 URL 和六位访问码保存到有界 View Model，不读取或持有浏览器 Bearer
 token，也不读取 Application、Service、Network 或文件系统。是否允许退出由 Application
@@ -76,23 +76,23 @@ token，也不读取 Application、Service、Network 或文件系统。是否允
 Application 分配的严格单调 64 位展示版本；Presenter 只接受晚于当前已应用版本的输入，
 相同或更旧的并发到达快照不会覆盖新 View Model。首次初始化把已应用版本设为 0，重复初始化
 保留当前 View Model 和版本；版本 0 非法，`UINT64_MAX` 后禁止回绕。唯一写入方
-`app_web_file` 还用私有静态互斥量串行化版本仲裁和事件入队，避免已接受版本在派发前被更高
+`app_web_console` 还用私有静态互斥量串行化版本仲裁和事件入队，避免已接受版本在派发前被更高
 版本覆盖。
 Application 只会在 Service `RUNNING` 快照包含合法六位访问码后一次性发布完整运行事实；
 后续 Network Manager 断线、重连或 IPv4 变化只替换 URL 并保留访问码。Presenter 不补查或
 猜测这些字段，UI 因此读取到的运行信息始终来自 Application 已收敛快照。
-`app_network` 的链路变化借用回调只唤醒 Application 所有的 `app_web_file_task`，不会调用
+`app_network` 的链路变化借用回调只唤醒 Application 所有的 `app_web_console_task`，不会调用
 Presenter；Presentation 看到的仍然只是 Application 重新读取并收敛后的不可变完整事实。
 
-`web_file_view_model_t.title` 使用 32 字节：精确标题“网页文件管理已开启”的 UTF-8 正文为
+`web_console_view_model_t.title` 使用 32 字节：精确标题“网页控制台已开启”的 UTF-8 正文为
 27 字节，加 NUL 需要 28 字节；原计划的 24 字节会截断多字节字符。
 
-网页文件呈现链路为：
+网页控制台呈现链路为：
 
 ```text
-设备设置页选择“网页文件管理”
-  → app_web_file 检查 /sdcard
-  → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
+设备设置页选择“网页控制台”
+  → app_web_console 检查 /sdcard
+  → app_network 授予 APP_NETWORK_LEASE_WEB_CONSOLE
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → handler 串行浏览、下载或事务上传
@@ -100,8 +100,8 @@ Presenter；Presentation 看到的仍然只是 Application 重新读取并收敛
 ```
 
 在这条产品流程中，Application 每次状态迁移或 URL 变化都映射并调用
-`web_file_presenter_update_copy()`；Presenter 按展示版本原子替换完整 View Model，只有新版本
-被接受后才发布轻量刷新事件，UI Runtime 随后调用 `web_file_presenter_get_view_copy()` 并在
+`web_console_presenter_update_copy()`；Presenter 按展示版本原子替换完整 View Model，只有新版本
+被接受后才发布轻量刷新事件，UI Runtime 随后调用 `web_console_presenter_get_view_copy()` 并在
 LVGL 上渲染。Presentation 不提供配置编辑、删除、重命名、创建目录、WebDAV 或 WebSocket
 对应的 View Model 或事件。
 
@@ -111,7 +111,7 @@ LVGL 上渲染。Presentation 不提供配置编辑、删除、重命名、创�
 - `status_bar_presenter` 的页面、电池和服务可达事实可能来自不同 Task，使用短临界区保证 Getter
   复制到完整快照；查询下层快照和发布时间转换均在锁外执行。
 - `ota_presenter` 使用短临界区原子替换完整 OTA 快照；事件只通知 UI 重新读取，不携带目标指针。
-- `web_file_presenter` 只拥有当前有界 View Model 和已应用展示版本；访问码仅供本地页面读取，
+- `web_console_presenter` 只拥有当前有界 View Model 和已应用展示版本；访问码仅供本地页面读取，
   更新输入和 Getter 都按值复制，不保存输入指针。
 - 事件载荷只在回调期间有效；UI 不保存事件指针。
 - Presenter 回调只做有界内存转换和事件发布，不执行阻塞 I/O。

@@ -191,6 +191,6 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 
 每一阶段必须独立编译并提交；命名、移动、行为重构和新增功能不得合并成一个提交。
 
-阶段 2～7 可以暂时保留只负责 Files 产品入口的 `app_web_file` 与对应租约名称；当产品在后续
-阶段实际开放 Settings、Status 或维护入口时，必须在独立命名提交中迁移为
-`app_web_console` 与语义一致的租约名称。共享 Console 和 Provider 不得依赖这些产品符号。
+`app_web_console` 与 `APP_NETWORK_LEASE_WEB_CONSOLE` 是 DeskMate 产品编排符号；当前入口仍因
+启用 Files 能力而执行 SD 前置检查，但后续开放 Settings、Status 或维护入口时不得重新引入
+`web_file` 产品命名。共享 Console 和 Provider 不得依赖这些产品符号。

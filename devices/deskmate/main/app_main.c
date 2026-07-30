@@ -12,7 +12,7 @@
 #include "app_power.h"
 #include "app_settings.h"
 #include "app_voice.h"
-#include "app_web_file.h"
+#include "app_web_console.h"
 #include "audio_processor_service.h"
 #include "audio_service.h"
 #include "button_service.h"
@@ -41,7 +41,7 @@
 #include "voice_presenter.h"
 #include "voice_service.h"
 #include "weather_presenter.h"
-#include "web_file_presenter.h"
+#include "web_console_presenter.h"
 #include "web_console_service.h"
 
 #define APP_UI_START_TIMEOUT_MS         5000
@@ -76,10 +76,10 @@ static esp_err_t app_main_ui_user_intent_callback(const ui_user_intent_t *intent
             return app_ota_request_install();
         case UI_USER_INTENT_SETTINGS_OTA_DISCARD:
             return app_ota_clear_pending_update();
-        case UI_USER_INTENT_SETTINGS_START_WEB_FILE:
-            return app_web_file_request_start();
-        case UI_USER_INTENT_SETTINGS_STOP_WEB_FILE:
-            return app_web_file_request_stop();
+        case UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE:
+            return app_web_console_request_start();
+        case UI_USER_INTENT_SETTINGS_STOP_WEB_CONSOLE:
+            return app_web_console_request_stop();
         case UI_USER_INTENT_POMODORO_SETTINGS_SAVE: {
             const app_pomodoro_settings_t settings = {
                 .focus_minutes       = intent->pomodoro_settings.focus_minutes,
@@ -357,7 +357,7 @@ static esp_err_t init_runtime_capabilities(void)
 }
 
 /**
- * @brief 在顶层初始化失败时，仅于安全终态反初始化网页文件 Service
+ * @brief 在顶层初始化失败时，仅于安全终态反初始化网页控制台 Service
  */
 static void rollback_web_console_service_init(void)
 {
@@ -365,7 +365,7 @@ static void rollback_web_console_service_init(void)
     const esp_err_t           status_error = web_console_service_get_status_copy(&status);
     if (status_error != ESP_OK)
     {
-        ESP_LOGE(TAG, "读取网页文件 Service 回滚状态失败: %s", esp_err_to_name(status_error));
+        ESP_LOGE(TAG, "读取网页控制台 Service 回滚状态失败: %s", esp_err_to_name(status_error));
         return;
     }
 
@@ -375,14 +375,14 @@ static void rollback_web_console_service_init(void)
     }
     if (status.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
-        ESP_LOGE(TAG, "网页文件 Service 未处于可反初始化终态，保留资源: state=%d", (int) status.state);
+        ESP_LOGE(TAG, "网页控制台 Service 未处于可反初始化终态，保留资源: state=%d", (int) status.state);
         return;
     }
 
     const esp_err_t cleanup_error = web_console_service_deinit();
     if (cleanup_error != ESP_OK)
     {
-        ESP_LOGE(TAG, "回滚网页文件 Service 初始化失败: %s", esp_err_to_name(cleanup_error));
+        ESP_LOGE(TAG, "回滚网页控制台 Service 初始化失败: %s", esp_err_to_name(cleanup_error));
     }
 }
 
@@ -401,7 +401,7 @@ static esp_err_t init_presenters(void)
     ESP_RETURN_ON_ERROR(quota_presenter_init(), TAG, "限额页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(voice_presenter_init(), TAG, "语音页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(ota_presenter_init(), TAG, "OTA Presenter 初始化失败");
-    ESP_RETURN_ON_ERROR(web_file_presenter_init(), TAG, "网页文件 Presenter 初始化失败");
+    ESP_RETURN_ON_ERROR(web_console_presenter_init(), TAG, "网页控制台 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(pomodoro_presenter_init(), TAG, "番茄钟 Presenter 初始化失败");
     return ESP_OK;
 }
@@ -414,7 +414,7 @@ static esp_err_t init_applications(void)
     ESP_RETURN_ON_ERROR(app_voice_init(), TAG, "语音 Application 初始化失败");
     ESP_RETURN_ON_ERROR(app_ota_init(), TAG, "OTA Application 初始化失败");
     ESP_RETURN_ON_ERROR(app_key_init(), TAG, "按键策略初始化失败");
-    ESP_RETURN_ON_ERROR(app_web_file_init(), TAG, "网页文件 Application 初始化失败");
+    ESP_RETURN_ON_ERROR(app_web_console_init(), TAG, "网页控制台 Application 初始化失败");
     ESP_RETURN_ON_ERROR(app_pomodoro_init(), TAG, "番茄钟 Application 初始化失败");
     return ESP_OK;
 }

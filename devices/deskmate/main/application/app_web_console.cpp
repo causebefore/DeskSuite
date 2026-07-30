@@ -1,14 +1,14 @@
 /*
- * 文件职责：提供网页文件管理公共 C ABI，并拥有产品状态与 Presenter 推送边界。
+ * 文件职责：提供网页控制台公共 C ABI，并拥有产品状态与 Presenter 推送边界。
  */
-#include "app_web_file.h"
+#include "app_web_console.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "app_network.h"
-#include "app_web_file_internal.hpp"
+#include "app_web_console_internal.hpp"
 #include "connect.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -20,13 +20,13 @@
 #include "system_filesystem.h"
 #include "web_console_files.h"
 #endif
-#include "web_file_presenter.h"
+#include "web_console_presenter.h"
 #include "web_console_service.h"
 
-static const char *TAG                    = "app_web_file";
+static const char *TAG                    = "app_web_console";
 
 static portMUX_TYPE          s_state_lock = portMUX_INITIALIZER_UNLOCKED;
-static app_web_file_status_t s_status;
+static app_web_console_status_t s_status;
 static bool                  s_initialized;
 static bool                  s_service_cleanup_required;
 static uint32_t              s_lease_generation;
@@ -104,32 +104,32 @@ static esp_err_t initialize_presenter_push_mutex(void)
     }
     if (s_presenter_push_mutex == NULL)
     {
-        ESP_LOGE(TAG, "创建网页文件展示推送互斥量失败");
+        ESP_LOGE(TAG, "创建网页控制台展示推送互斥量失败");
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
 }
 
 /** @brief 把 Application 产品状态映射为不反向依赖 Application 的 Presenter 状态 */
-static web_file_presenter_state_t map_presenter_state(app_web_file_state_t state)
+static web_console_presenter_state_t map_presenter_state(app_web_console_state_t state)
 {
     switch (state)
     {
-        case APP_WEB_FILE_STATE_STOPPED:
-            return WEB_FILE_PRESENTER_STATE_STOPPED;
-        case APP_WEB_FILE_STATE_CHECKING_STORAGE:
-            return WEB_FILE_PRESENTER_STATE_CHECKING_STORAGE;
-        case APP_WEB_FILE_STATE_ACQUIRING_NETWORK:
-            return WEB_FILE_PRESENTER_STATE_ACQUIRING_NETWORK;
-        case APP_WEB_FILE_STATE_STARTING_SERVICE:
-            return WEB_FILE_PRESENTER_STATE_STARTING_SERVICE;
-        case APP_WEB_FILE_STATE_RUNNING:
-            return WEB_FILE_PRESENTER_STATE_RUNNING;
-        case APP_WEB_FILE_STATE_STOPPING:
-            return WEB_FILE_PRESENTER_STATE_STOPPING;
-        case APP_WEB_FILE_STATE_ERROR:
+        case APP_WEB_CONSOLE_STATE_STOPPED:
+            return WEB_CONSOLE_PRESENTER_STATE_STOPPED;
+        case APP_WEB_CONSOLE_STATE_CHECKING_STORAGE:
+            return WEB_CONSOLE_PRESENTER_STATE_CHECKING_STORAGE;
+        case APP_WEB_CONSOLE_STATE_ACQUIRING_NETWORK:
+            return WEB_CONSOLE_PRESENTER_STATE_ACQUIRING_NETWORK;
+        case APP_WEB_CONSOLE_STATE_STARTING_SERVICE:
+            return WEB_CONSOLE_PRESENTER_STATE_STARTING_SERVICE;
+        case APP_WEB_CONSOLE_STATE_RUNNING:
+            return WEB_CONSOLE_PRESENTER_STATE_RUNNING;
+        case APP_WEB_CONSOLE_STATE_STOPPING:
+            return WEB_CONSOLE_PRESENTER_STATE_STOPPING;
+        case APP_WEB_CONSOLE_STATE_ERROR:
         default:
-            return WEB_FILE_PRESENTER_STATE_ERROR;
+            return WEB_CONSOLE_PRESENTER_STATE_ERROR;
     }
 }
 
@@ -162,14 +162,14 @@ static bool access_code_is_valid(const char access_code[7])
 }
 
 /**
- * @brief 接收网络 Application 的快速通知并转交网页文件 Task 合并处理
+ * @brief 接收网络 Application 的快速通知并转交网页控制台 Task 合并处理
  *
  * @param[in] context 固件进程期静态上下文，本实现不使用
  */
 static void on_network_link_change(void *context)
 {
     (void) context;
-    app_web_file_task_notify_link_change();
+    app_web_console_task_notify_link_change();
 }
 
 /**
@@ -177,14 +177,14 @@ static void on_network_link_change(void *context)
  *
  * @param[out] out_input Presenter 输入副本
  */
-static void make_presenter_input_locked(web_file_presenter_input_t *out_input)
+static void make_presenter_input_locked(web_console_presenter_input_t *out_input)
 {
     memset(out_input, 0, sizeof(*out_input));
     out_input->presentation_revision = s_presentation_revision;
     out_input->state                 = map_presenter_state(s_status.state);
     out_input->exit_allowed =
-        s_status.state == APP_WEB_FILE_STATE_STOPPED
-        || (s_status.state == APP_WEB_FILE_STATE_ERROR && !s_service_cleanup_required && s_lease_generation == 0U);
+        s_status.state == APP_WEB_CONSOLE_STATE_STOPPED
+        || (s_status.state == APP_WEB_CONSOLE_STATE_ERROR && !s_service_cleanup_required && s_lease_generation == 0U);
     (void) memcpy(out_input->url, s_status.url, sizeof(out_input->url));
     (void) memcpy(out_input->access_code, s_status.access_code, sizeof(out_input->access_code));
     out_input->total_bytes = s_status.total_bytes;
@@ -205,12 +205,12 @@ static void make_presenter_input_locked(web_file_presenter_input_t *out_input)
  */
 static bool push_presenter_status_locked(bool dispatch, bool synchronous_rejection)
 {
-    web_file_presenter_input_t input;
+    web_console_presenter_input_t input;
     taskENTER_CRITICAL(&s_state_lock);
     if (s_presentation_revision == UINT64_MAX)
     {
         taskEXIT_CRITICAL(&s_state_lock);
-        ESP_LOGE(TAG, "网页文件展示版本已耗尽，拒绝继续推送");
+        ESP_LOGE(TAG, "网页控制台展示版本已耗尽，拒绝继续推送");
         return false;
     }
     ++s_presentation_revision;
@@ -218,10 +218,10 @@ static bool push_presenter_status_locked(bool dispatch, bool synchronous_rejecti
     taskEXIT_CRITICAL(&s_state_lock);
 
     bool            accepted     = false;
-    const esp_err_t update_error = web_file_presenter_update_copy(&input, &accepted);
+    const esp_err_t update_error = web_console_presenter_update_copy(&input, &accepted);
     if (update_error != ESP_OK)
     {
-        ESP_LOGW(TAG, "推送网页文件展示状态失败: %s", esp_err_to_name(update_error));
+        ESP_LOGW(TAG, "推送网页控制台展示状态失败: %s", esp_err_to_name(update_error));
         return false;
     }
 
@@ -242,7 +242,7 @@ static bool push_presenter_status_locked(bool dispatch, bool synchronous_rejecti
         }
         else
         {
-            ESP_LOGW(TAG, "发布网页文件管理状态更新失败: %s", esp_err_to_name(dispatch_error));
+            ESP_LOGW(TAG, "发布网页控制台状态更新失败: %s", esp_err_to_name(dispatch_error));
         }
     }
     return accepted;
@@ -263,7 +263,7 @@ static bool push_presenter_status(bool dispatch)
 {
     if (s_presenter_push_mutex == NULL || xSemaphoreTake(s_presenter_push_mutex, portMAX_DELAY) != pdTRUE)
     {
-        ESP_LOGE(TAG, "获取网页文件展示推送互斥量失败");
+        ESP_LOGE(TAG, "获取网页控制台展示推送互斥量失败");
         return false;
     }
     const bool accepted = push_presenter_status_locked(dispatch, false);
@@ -271,7 +271,7 @@ static bool push_presenter_status(bool dispatch)
     return accepted;
 }
 
-esp_err_t app_web_file_internal_retry_status_update(void)
+esp_err_t app_web_console_internal_retry_status_update(void)
 {
     if (s_presenter_push_mutex == NULL || xSemaphoreTake(s_presenter_push_mutex, portMAX_DELAY) != pdTRUE)
     {
@@ -291,7 +291,7 @@ esp_err_t app_web_file_internal_retry_status_update(void)
     return error;
 }
 
-esp_err_t app_web_file_internal_validate_stop_request(void)
+esp_err_t app_web_console_internal_validate_stop_request(void)
 {
     taskENTER_CRITICAL(&s_state_lock);
     const bool initialized = s_initialized;
@@ -299,17 +299,17 @@ esp_err_t app_web_file_internal_validate_stop_request(void)
     return initialized ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t app_web_file_internal_prepare_start(void)
+esp_err_t app_web_console_internal_prepare_start(void)
 {
     taskENTER_CRITICAL(&s_state_lock);
-    if (!s_initialized || (s_status.state != APP_WEB_FILE_STATE_STOPPED && s_status.state != APP_WEB_FILE_STATE_ERROR)
+    if (!s_initialized || (s_status.state != APP_WEB_CONSOLE_STATE_STOPPED && s_status.state != APP_WEB_CONSOLE_STATE_ERROR)
         || s_service_cleanup_required || s_lease_generation != 0U || s_presentation_revision == UINT64_MAX)
     {
         taskEXIT_CRITICAL(&s_state_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
-    s_status.state          = APP_WEB_FILE_STATE_CHECKING_STORAGE;
+    s_status.state          = APP_WEB_CONSOLE_STATE_CHECKING_STORAGE;
     s_status.last_error     = ESP_OK;
     s_status.url[0]         = '\0';
     s_status.access_code[0] = '\0';
@@ -318,7 +318,7 @@ esp_err_t app_web_file_internal_prepare_start(void)
     return ESP_OK;
 }
 
-esp_err_t app_web_file_internal_prepare_stop_retry(bool *out_needs_task)
+esp_err_t app_web_console_internal_prepare_stop_retry(bool *out_needs_task)
 {
     if (out_needs_task == NULL)
     {
@@ -333,13 +333,13 @@ esp_err_t app_web_file_internal_prepare_stop_retry(bool *out_needs_task)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (s_status.state == APP_WEB_FILE_STATE_STOPPED)
+    if (s_status.state == APP_WEB_CONSOLE_STATE_STOPPED)
     {
         *out_needs_task = false;
     }
     else if (s_service_cleanup_required || s_lease_generation != 0U)
     {
-        s_status.state          = APP_WEB_FILE_STATE_STOPPING;
+        s_status.state          = APP_WEB_CONSOLE_STATE_STOPPING;
         s_status.last_error     = ESP_OK;
         s_status.url[0]         = '\0';
         s_status.access_code[0] = '\0';
@@ -348,7 +348,7 @@ esp_err_t app_web_file_internal_prepare_stop_retry(bool *out_needs_task)
     }
     else
     {
-        s_status.state          = APP_WEB_FILE_STATE_STOPPING;
+        s_status.state          = APP_WEB_CONSOLE_STATE_STOPPING;
         s_status.last_error     = ESP_OK;
         s_status.url[0]         = '\0';
         s_status.access_code[0] = '\0';
@@ -364,7 +364,7 @@ esp_err_t app_web_file_internal_prepare_stop_retry(bool *out_needs_task)
     return ESP_OK;
 }
 
-void app_web_file_internal_publish_state(app_web_file_state_t state, esp_err_t error, bool clear_runtime)
+void app_web_console_internal_publish_state(app_web_console_state_t state, esp_err_t error, bool clear_runtime)
 {
     taskENTER_CRITICAL(&s_state_lock);
     s_status.state      = state;
@@ -378,16 +378,16 @@ void app_web_file_internal_publish_state(app_web_file_state_t state, esp_err_t e
     push_presenter_status(true);
 }
 
-void app_web_file_internal_publish_synchronous_rejection(esp_err_t error)
+void app_web_console_internal_publish_synchronous_rejection(esp_err_t error)
 {
     if (s_presenter_push_mutex == NULL || xSemaphoreTake(s_presenter_push_mutex, portMAX_DELAY) != pdTRUE)
     {
-        ESP_LOGE(TAG, "获取网页文件同步拒绝展示互斥量失败");
+        ESP_LOGE(TAG, "获取网页控制台同步拒绝展示互斥量失败");
         return;
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    s_status.state          = APP_WEB_FILE_STATE_ERROR;
+    s_status.state          = APP_WEB_CONSOLE_STATE_ERROR;
     s_status.last_error     = error;
     s_status.url[0]         = '\0';
     s_status.access_code[0] = '\0';
@@ -395,12 +395,12 @@ void app_web_file_internal_publish_synchronous_rejection(esp_err_t error)
 
     if (!push_presenter_status_locked(false, true))
     {
-        ESP_LOGW(TAG, "更新网页文件同步拒绝展示失败: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "更新网页控制台同步拒绝展示失败: %s", esp_err_to_name(error));
     }
     (void) xSemaphoreGive(s_presenter_push_mutex);
 }
 
-esp_err_t app_web_file_internal_publish_running_snapshot(void)
+esp_err_t app_web_console_internal_publish_running_snapshot(void)
 {
     char url[sizeof(s_status.url)]{};
     make_current_url(url);
@@ -418,14 +418,14 @@ esp_err_t app_web_file_internal_publish_running_snapshot(void)
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    if (!s_initialized || s_status.state != APP_WEB_FILE_STATE_STARTING_SERVICE || !s_service_cleanup_required
+    if (!s_initialized || s_status.state != APP_WEB_CONSOLE_STATE_STARTING_SERVICE || !s_service_cleanup_required
         || s_lease_generation == 0U)
     {
         taskEXIT_CRITICAL(&s_state_lock);
         memset(&service_status, 0, sizeof(service_status));
         return ESP_ERR_INVALID_STATE;
     }
-    s_status.state      = APP_WEB_FILE_STATE_RUNNING;
+    s_status.state      = APP_WEB_CONSOLE_STATE_RUNNING;
     s_status.last_error = ESP_OK;
     memcpy(s_status.url, url, sizeof(s_status.url));
     memcpy(s_status.access_code, service_status.access_code, sizeof(s_status.access_code));
@@ -435,14 +435,14 @@ esp_err_t app_web_file_internal_publish_running_snapshot(void)
     return push_presenter_status(true) ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t app_web_file_internal_refresh_running_link(void)
+esp_err_t app_web_console_internal_refresh_running_link(void)
 {
     char url[sizeof(s_status.url)]{};
     make_current_url(url);
 
     bool changed = false;
     taskENTER_CRITICAL(&s_state_lock);
-    if (!s_initialized || s_status.state != APP_WEB_FILE_STATE_RUNNING)
+    if (!s_initialized || s_status.state != APP_WEB_CONSOLE_STATE_RUNNING)
     {
         taskEXIT_CRITICAL(&s_state_lock);
         return ESP_ERR_INVALID_STATE;
@@ -461,7 +461,7 @@ esp_err_t app_web_file_internal_refresh_running_link(void)
     return push_presenter_status(true) ? ESP_OK : ESP_FAIL;
 }
 
-void app_web_file_internal_set_capacity(uint64_t total_bytes, uint64_t free_bytes)
+void app_web_console_internal_set_capacity(uint64_t total_bytes, uint64_t free_bytes)
 {
     taskENTER_CRITICAL(&s_state_lock);
     s_status.total_bytes = total_bytes;
@@ -469,14 +469,14 @@ void app_web_file_internal_set_capacity(uint64_t total_bytes, uint64_t free_byte
     taskEXIT_CRITICAL(&s_state_lock);
 }
 
-void app_web_file_internal_set_lease_generation(uint32_t generation)
+void app_web_console_internal_set_lease_generation(uint32_t generation)
 {
     taskENTER_CRITICAL(&s_state_lock);
     s_lease_generation = generation;
     taskEXIT_CRITICAL(&s_state_lock);
 }
 
-uint32_t app_web_file_internal_get_lease_generation(void)
+uint32_t app_web_console_internal_get_lease_generation(void)
 {
     uint32_t generation;
     taskENTER_CRITICAL(&s_state_lock);
@@ -485,28 +485,28 @@ uint32_t app_web_file_internal_get_lease_generation(void)
     return generation;
 }
 
-void app_web_file_internal_set_service_cleanup_required(bool required)
+void app_web_console_internal_set_service_cleanup_required(bool required)
 {
     taskENTER_CRITICAL(&s_state_lock);
     s_service_cleanup_required = required;
     taskEXIT_CRITICAL(&s_state_lock);
 }
 
-app_web_file_state_t app_web_file_internal_get_state(void)
+app_web_console_state_t app_web_console_internal_get_state(void)
 {
-    app_web_file_state_t state;
+    app_web_console_state_t state;
     taskENTER_CRITICAL(&s_state_lock);
     state = s_status.state;
     taskEXIT_CRITICAL(&s_state_lock);
     return state;
 }
 
-esp_err_t app_web_file_internal_initialize_service(void)
+esp_err_t app_web_console_internal_initialize_service(void)
 {
     return web_console_service_init_borrow(&s_web_console_service_config);
 }
 
-esp_err_t app_web_file_init(void)
+esp_err_t app_web_console_init(void)
 {
     const esp_err_t mutex_error = initialize_presenter_push_mutex();
     if (mutex_error != ESP_OK)
@@ -522,7 +522,7 @@ esp_err_t app_web_file_init(void)
     }
     if (service_status.state == WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
     {
-        const esp_err_t init_error = app_web_file_internal_initialize_service();
+        const esp_err_t init_error = app_web_console_internal_initialize_service();
         if (init_error != ESP_OK)
         {
             return init_error;
@@ -538,7 +538,7 @@ esp_err_t app_web_file_init(void)
     if (s_initialized)
     {
         const bool safely_initialized =
-            s_status.state == APP_WEB_FILE_STATE_STOPPED && !s_service_cleanup_required && s_lease_generation == 0U;
+            s_status.state == APP_WEB_CONSOLE_STATE_STOPPED && !s_service_cleanup_required && s_lease_generation == 0U;
         taskEXIT_CRITICAL(&s_state_lock);
         if (safely_initialized)
         {
@@ -554,7 +554,7 @@ esp_err_t app_web_file_init(void)
         return ESP_ERR_INVALID_STATE;
     }
     memset(&s_status, 0, sizeof(s_status));
-    s_status.state             = APP_WEB_FILE_STATE_STOPPED;
+    s_status.state             = APP_WEB_CONSOLE_STATE_STOPPED;
     s_status.last_error        = ESP_OK;
     s_service_cleanup_required = false;
     s_lease_generation         = 0U;
@@ -570,17 +570,17 @@ esp_err_t app_web_file_init(void)
     return ESP_OK;
 }
 
-esp_err_t app_web_file_request_start(void)
+esp_err_t app_web_console_request_start(void)
 {
-    return app_web_file_task_request_start();
+    return app_web_console_task_request_start();
 }
 
-esp_err_t app_web_file_request_stop(void)
+esp_err_t app_web_console_request_stop(void)
 {
-    return app_web_file_task_request_stop();
+    return app_web_console_task_request_stop();
 }
 
-esp_err_t app_web_file_get_status_copy(app_web_file_status_t *out_status)
+esp_err_t app_web_console_get_status_copy(app_web_console_status_t *out_status)
 {
     if (out_status == NULL)
     {

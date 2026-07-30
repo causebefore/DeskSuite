@@ -1,11 +1,11 @@
 /*
- * 文件职责：维护设置菜单与网页文件安全退出门控，并把物理按键转换为设置动作。
+ * 文件职责：维护设置菜单与网页控制台安全退出门控，并把物理按键转换为设置动作。
  */
 #include "app_settings.h"
 
 #include "app_network.h"
 #include "app_ota.h"
-#include "app_web_file.h"
+#include "app_web_console.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,19 +22,19 @@ esp_err_t app_settings_request_portal(void)
 
 esp_err_t app_settings_reset(void)
 {
-    const esp_err_t stop_error = app_web_file_request_stop();
+    const esp_err_t stop_error = app_web_console_request_stop();
     if (stop_error != ESP_OK)
     {
         return stop_error;
     }
 
-    app_web_file_status_t web_file_status;
-    const esp_err_t       status_error = app_web_file_get_status_copy(&web_file_status);
+    app_web_console_status_t web_console_status;
+    const esp_err_t          status_error = app_web_console_get_status_copy(&web_console_status);
     if (status_error != ESP_OK)
     {
         return status_error;
     }
-    if (web_file_status.state != APP_WEB_FILE_STATE_STOPPED)
+    if (web_console_status.state != APP_WEB_CONSOLE_STATE_STOPPED)
     {
         return ESP_ERR_INVALID_STATE;
     }

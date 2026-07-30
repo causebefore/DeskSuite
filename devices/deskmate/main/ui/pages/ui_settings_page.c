@@ -18,14 +18,14 @@
 #include "ui_platform_font.h"
 #include "ui_runtime.h"
 #include "ui_system_page.h"
-#include "web_file_presenter.h"
+#include "web_console_presenter.h"
 
 typedef enum
 {
     SETTINGS_LOCATION_OVERVIEW = 0,
     SETTINGS_LOCATION_ROOT,
     SETTINGS_LOCATION_NETWORK,
-    SETTINGS_LOCATION_WEB_FILE,
+    SETTINGS_LOCATION_WEB_CONSOLE,
     SETTINGS_LOCATION_SYSTEM,
     SETTINGS_LOCATION_OTA,
     SETTINGS_LOCATION_POMODORO,
@@ -34,7 +34,7 @@ typedef enum
 typedef enum
 {
     SETTINGS_ITEM_NETWORK = 0,
-    SETTINGS_ITEM_WEB_FILE,
+    SETTINGS_ITEM_WEB_CONSOLE,
     SETTINGS_ITEM_SYSTEM,
     SETTINGS_ITEM_OTA,
     SETTINGS_ITEM_POMODORO,
@@ -51,12 +51,12 @@ typedef struct
     lv_obj_t *menu;
     lv_obj_t *root_page;
     lv_obj_t *network_page;
-    lv_obj_t *web_file_page;
+    lv_obj_t *web_console_page;
     lv_obj_t *system_page;
     lv_obj_t *ota_page;
     lv_obj_t *pomodoro_page;
     lv_obj_t *network_body;
-    lv_obj_t *web_file_body;
+    lv_obj_t *web_console_body;
     lv_obj_t *system_body;
     lv_obj_t *ota_body;
     lv_obj_t *pomodoro_body;
@@ -69,7 +69,7 @@ typedef struct
 
     settings_location_t location;
     int                 rendered_ota_state;
-    bool                web_file_exit_pending;
+    bool                web_console_exit_pending;
     uint8_t             pomodoro_selected;
     bool                pomodoro_editing;
     ui_pomodoro_settings_intent_t pomodoro_draft;
@@ -83,7 +83,7 @@ static settings_ui_state_t s_view = {
 static void return_to_root(void);
 static void on_network_action_clicked(lv_event_t *event);
 static void on_ota_install_clicked(lv_event_t *event);
-static void on_web_file_retry_clicked(lv_event_t *event);
+static void on_web_console_retry_clicked(lv_event_t *event);
 static void render_pomodoro(esp_err_t action_error);
 
 /** @brief 创建并定位一个 16 像素正文标签 */
@@ -362,120 +362,120 @@ static void on_network_action_clicked(lv_event_t *event)
 }
 
 /**
- * @brief 按网页文件 Presenter 快照完整重绘子页，并只在安全终态完成待定返回
+ * @brief 按网页控制台 Presenter 快照完整重绘子页，并只在安全终态完成待定返回
  *
- * `web_file_exit_pending` 只表示停止请求已被 Application 接收；页面仍等待 Presenter 报告
+ * `web_console_exit_pending` 只表示停止请求已被 Application 接收；页面仍等待 Presenter 报告
  * `STOPPED` 或允许退出的错误态。清理错误保留在当前子页，等待用户再次长按左键请求停止。
  *
  * @param[in] action_error 最近一次 UI 意图同步提交结果
  */
-static void render_web_file(esp_err_t action_error)
+static void render_web_console(esp_err_t action_error)
 {
-    web_file_view_model_t view;
-    web_file_presenter_get_view_copy(&view);
+    web_console_view_model_t view;
+    web_console_presenter_get_view_copy(&view);
 
-    if (s_view.web_file_exit_pending
-        && (view.state == WEB_FILE_PRESENTER_STATE_STOPPED
-            || (view.state == WEB_FILE_PRESENTER_STATE_ERROR && view.exit_allowed)))
+    if (s_view.web_console_exit_pending
+        && (view.state == WEB_CONSOLE_PRESENTER_STATE_STOPPED
+            || (view.state == WEB_CONSOLE_PRESENTER_STATE_ERROR && view.exit_allowed)))
     {
-        s_view.web_file_exit_pending = false;
+        s_view.web_console_exit_pending = false;
         return_to_root();
         return;
     }
 
-    if (s_view.web_file_exit_pending && view.state == WEB_FILE_PRESENTER_STATE_ERROR && !view.exit_allowed)
+    if (s_view.web_console_exit_pending && view.state == WEB_CONSOLE_PRESENTER_STATE_ERROR && !view.exit_allowed)
     {
-        s_view.web_file_exit_pending = false;
+        s_view.web_console_exit_pending = false;
     }
 
     prepare_child_group();
-    lv_obj_clean(s_view.web_file_body);
+    lv_obj_clean(s_view.web_console_body);
 
     char            text[128];
     const esp_err_t display_error = view.error != ESP_OK ? view.error : action_error;
-    const bool      start_failed  = (view.state == WEB_FILE_PRESENTER_STATE_ERROR && view.exit_allowed)
-                                    || (view.state == WEB_FILE_PRESENTER_STATE_STOPPED && action_error != ESP_OK);
+    const bool      start_failed  = (view.state == WEB_CONSOLE_PRESENTER_STATE_ERROR && view.exit_allowed)
+                                    || (view.state == WEB_CONSOLE_PRESENTER_STATE_STOPPED && action_error != ESP_OK);
 
-    if (s_view.web_file_exit_pending)
+    if (s_view.web_console_exit_pending)
     {
-        (void) new_text24(s_view.web_file_body, "正在关闭服务", 12, 28, 360, 30);
-        (void) new_text16(s_view.web_file_body, "请等待文件传输与网络资源安全释放", 12, 78, 360, 22);
+        (void) new_text24(s_view.web_console_body, "正在关闭服务", 12, 28, 360, 30);
+        (void) new_text16(s_view.web_console_body, "请等待文件传输与网络资源安全释放", 12, 78, 360, 22);
         return;
     }
 
-    if (view.state == WEB_FILE_PRESENTER_STATE_RUNNING)
+    if (view.state == WEB_CONSOLE_PRESENTER_STATE_RUNNING)
     {
-        (void) new_text24(s_view.web_file_body, view.title, 12, 4, 360, 30);
+        (void) new_text24(s_view.web_console_body, view.title, 12, 4, 360, 30);
         (void) snprintf(text, sizeof(text), "地址  %s", view.url[0] != '\0' ? view.url : "--");
-        (void) new_text16(s_view.web_file_body, text, 12, 42, 360, 22);
+        (void) new_text16(s_view.web_console_body, text, 12, 42, 360, 22);
         (void) snprintf(text, sizeof(text), "访问码  %s", view.access_code[0] != '\0' ? view.access_code : "------");
-        (void) new_text16(s_view.web_file_body, text, 12, 72, 360, 22);
+        (void) new_text16(s_view.web_console_body, text, 12, 72, 360, 22);
         (void) snprintf(text, sizeof(text), "总容量  %s", view.total_size);
-        (void) new_text16(s_view.web_file_body, text, 12, 102, 360, 22);
+        (void) new_text16(s_view.web_console_body, text, 12, 102, 360, 22);
         (void) snprintf(text, sizeof(text), "剩余容量  %s", view.free_size);
-        (void) new_text16(s_view.web_file_body, text, 12, 132, 360, 22);
+        (void) new_text16(s_view.web_console_body, text, 12, 132, 360, 22);
         if (action_error != ESP_OK)
         {
             (void) snprintf(text, sizeof(text), "操作失败：%s", esp_err_to_name(action_error));
-            (void) new_text16(s_view.web_file_body, text, 12, 162, 360, 22);
+            (void) new_text16(s_view.web_console_body, text, 12, 162, 360, 22);
         }
-        (void) new_text16(s_view.web_file_body, "长按左键关闭并返回", 12, 190, 360, 18);
+        (void) new_text16(s_view.web_console_body, "长按左键关闭并返回", 12, 190, 360, 18);
         return;
     }
 
     if (start_failed)
     {
-        (void) new_text24(s_view.web_file_body, "启动失败", 12, 24, 360, 30);
+        (void) new_text24(s_view.web_console_body, "启动失败", 12, 24, 360, 30);
         (void) snprintf(text, sizeof(text), "错误：%s", esp_err_to_name(display_error));
-        (void) new_text16(s_view.web_file_body, text, 12, 70, 360, 22);
-        (void) create_child_action(s_view.web_file_body, "长按右键重试", 132, on_web_file_retry_clicked);
-        (void) new_text16(s_view.web_file_body, "长按左键返回", 12, 188, 360, 18);
+        (void) new_text16(s_view.web_console_body, text, 12, 70, 360, 22);
+        (void) create_child_action(s_view.web_console_body, "长按右键重试", 132, on_web_console_retry_clicked);
+        (void) new_text16(s_view.web_console_body, "长按左键返回", 12, 188, 360, 18);
         return;
     }
 
-    if (view.state == WEB_FILE_PRESENTER_STATE_ERROR)
+    if (view.state == WEB_CONSOLE_PRESENTER_STATE_ERROR)
     {
-        (void) new_text24(s_view.web_file_body, "关闭失败", 12, 24, 360, 30);
+        (void) new_text24(s_view.web_console_body, "关闭失败", 12, 24, 360, 30);
         (void) snprintf(text, sizeof(text), "错误：%s", esp_err_to_name(display_error));
-        (void) new_text16(s_view.web_file_body, text, 12, 70, 360, 22);
-        (void) new_text16(s_view.web_file_body, "仍在保留服务或网络资源", 12, 108, 360, 22);
-        (void) new_text16(s_view.web_file_body, "长按左键重试关闭", 12, 166, 360, 22);
+        (void) new_text16(s_view.web_console_body, text, 12, 70, 360, 22);
+        (void) new_text16(s_view.web_console_body, "仍在保留服务或网络资源", 12, 108, 360, 22);
+        (void) new_text16(s_view.web_console_body, "长按左键重试关闭", 12, 166, 360, 22);
         return;
     }
 
-    (void) new_text24(s_view.web_file_body, view.title, 12, 34, 360, 30);
-    if (view.state == WEB_FILE_PRESENTER_STATE_STOPPED)
+    (void) new_text24(s_view.web_console_body, view.title, 12, 34, 360, 30);
+    if (view.state == WEB_CONSOLE_PRESENTER_STATE_STOPPED)
     {
-        (void) new_text16(s_view.web_file_body, "服务未启动", 12, 82, 360, 22);
-        (void) new_text16(s_view.web_file_body, "长按左键返回", 12, 166, 360, 22);
+        (void) new_text16(s_view.web_console_body, "服务未启动", 12, 82, 360, 22);
+        (void) new_text16(s_view.web_console_body, "长按左键返回", 12, 166, 360, 22);
     }
-    else if (view.state == WEB_FILE_PRESENTER_STATE_STOPPING)
+    else if (view.state == WEB_CONSOLE_PRESENTER_STATE_STOPPING)
     {
-        (void) new_text16(s_view.web_file_body, "请等待资源安全释放", 12, 82, 360, 22);
+        (void) new_text16(s_view.web_console_body, "请等待资源安全释放", 12, 82, 360, 22);
     }
     else
     {
-        (void) new_text16(s_view.web_file_body, "请稍候", 12, 82, 360, 22);
-        (void) new_text16(s_view.web_file_body, "长按左键可请求停止", 12, 166, 360, 22);
+        (void) new_text16(s_view.web_console_body, "请稍候", 12, 82, 360, 22);
+        (void) new_text16(s_view.web_console_body, "长按左键可请求停止", 12, 166, 360, 22);
     }
 
     if (action_error != ESP_OK)
     {
         (void) snprintf(text, sizeof(text), "操作失败：%s", esp_err_to_name(action_error));
-        (void) new_text16(s_view.web_file_body, text, 12, 120, 360, 22);
+        (void) new_text16(s_view.web_console_body, text, 12, 120, 360, 22);
     }
 }
 
-/** @brief 网页文件启动失败操作项点击后重新提交启动意图 */
-static void on_web_file_retry_clicked(lv_event_t *event)
+/** @brief 网页控制台启动失败操作项点击后重新提交启动意图 */
+static void on_web_console_retry_clicked(lv_event_t *event)
 {
     (void) event;
-    s_view.web_file_exit_pending  = false;
+    s_view.web_console_exit_pending  = false;
     const ui_user_intent_t intent = {
-        .id = UI_USER_INTENT_SETTINGS_START_WEB_FILE,
+        .id = UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE,
     };
     const esp_err_t error = ui_runtime_emit_user_intent(&intent);
-    render_web_file(error);
+    render_web_console(error);
 }
 
 /** @brief 将固件字节数格式化为紧凑 KiB/MiB 文本 */
@@ -841,14 +841,14 @@ static void on_root_item_clicked(lv_event_t *event)
             s_view.location = SETTINGS_LOCATION_NETWORK;
             render_network(false, ESP_OK);
             break;
-        case SETTINGS_ITEM_WEB_FILE: {
-            s_view.location               = SETTINGS_LOCATION_WEB_FILE;
-            s_view.web_file_exit_pending  = false;
+        case SETTINGS_ITEM_WEB_CONSOLE: {
+            s_view.location               = SETTINGS_LOCATION_WEB_CONSOLE;
+            s_view.web_console_exit_pending  = false;
             const ui_user_intent_t intent = {
-                .id = UI_USER_INTENT_SETTINGS_START_WEB_FILE,
+                .id = UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE,
             };
             const esp_err_t error = ui_runtime_emit_user_intent(&intent);
-            render_web_file(error);
+            render_web_console(error);
             break;
         }
         case SETTINGS_ITEM_SYSTEM:
@@ -924,7 +924,7 @@ static esp_err_t open_menu(void)
 
     s_view.root_page     = lv_menu_page_create(s_view.menu, NULL);
     s_view.network_page  = lv_menu_page_create(s_view.menu, "网络设置");
-    s_view.web_file_page = lv_menu_page_create(s_view.menu, "网页文件管理");
+    s_view.web_console_page = lv_menu_page_create(s_view.menu, "网页控制台");
     s_view.system_page   = lv_menu_page_create(s_view.menu, "系统信息");
     s_view.ota_page      = lv_menu_page_create(s_view.menu, "检查更新");
     s_view.pomodoro_page = lv_menu_page_create(s_view.menu, "番茄钟设置");
@@ -932,13 +932,13 @@ static esp_err_t open_menu(void)
     lv_obj_set_style_pad_all(s_view.root_page, 0, 0);
     lv_obj_set_style_pad_row(s_view.root_page, 0, 0);
     s_view.network_body  = create_page_body(s_view.network_page);
-    s_view.web_file_body = create_page_body(s_view.web_file_page);
+    s_view.web_console_body = create_page_body(s_view.web_console_page);
     s_view.system_body   = create_page_body(s_view.system_page);
     s_view.ota_body      = create_page_body(s_view.ota_page);
     s_view.pomodoro_body = create_page_body(s_view.pomodoro_page);
 
     (void) create_root_item(SETTINGS_ITEM_NETWORK, s_view.network_page, "网络设置");
-    (void) create_root_item(SETTINGS_ITEM_WEB_FILE, s_view.web_file_page, "网页文件管理");
+    (void) create_root_item(SETTINGS_ITEM_WEB_CONSOLE, s_view.web_console_page, "网页控制台");
     (void) create_root_item(SETTINGS_ITEM_SYSTEM, s_view.system_page, "系统信息");
     (void) create_root_item(SETTINGS_ITEM_OTA, s_view.ota_page, "检查更新");
     (void) create_root_item(SETTINGS_ITEM_POMODORO, s_view.pomodoro_page, "番茄钟设置");
@@ -975,7 +975,7 @@ static void return_to_root(void)
     style_menu_header_title();
     s_view.location              = SETTINGS_LOCATION_ROOT;
     s_view.rendered_ota_state    = -1;
-    s_view.web_file_exit_pending = false;
+    s_view.web_console_exit_pending = false;
     for (settings_item_t item = SETTINGS_ITEM_NETWORK; item < SETTINGS_ITEM_COUNT; item = (settings_item_t) (item + 1))
     {
         lv_group_add_obj(s_view.group, s_view.root_items[item]);
@@ -1060,22 +1060,22 @@ static esp_err_t handle_ota_action(presentation_settings_action_t action)
 }
 
 /**
- * @brief 处理网页文件子页动作，并在 Application 安全收敛前锁定导航
+ * @brief 处理网页控制台子页动作，并在 Application 安全收敛前锁定导航
  *
- * Back 只提交非阻塞停止意图；真正返回由 `render_web_file()` 在 Presenter 报告安全终态后
+ * Back 只提交非阻塞停止意图；真正返回由 `render_web_console()` 在 Presenter 报告安全终态后
  * 完成。启动或停止进行中的焦点与激活动作只被消费，不改变页面层级。
  *
  * @param[in] action 当前设置菜单动作
  * @return ESP_OK 动作已消费或意图已提交；其他值表示状态读取或意图提交失败
  */
-static esp_err_t handle_web_file_action(presentation_settings_action_t action)
+static esp_err_t handle_web_console_action(presentation_settings_action_t action)
 {
-    web_file_view_model_t view;
-    web_file_presenter_get_view_copy(&view);
+    web_console_view_model_t view;
+    web_console_presenter_get_view_copy(&view);
 
-    if (action == PRESENTATION_SETTINGS_ACTION_BACK && view.state == WEB_FILE_PRESENTER_STATE_STOPPED)
+    if (action == PRESENTATION_SETTINGS_ACTION_BACK && view.state == WEB_CONSOLE_PRESENTER_STATE_STOPPED)
     {
-        s_view.web_file_exit_pending = false;
+        s_view.web_console_exit_pending = false;
         return_to_root();
         return ESP_OK;
     }
@@ -1083,17 +1083,17 @@ static esp_err_t handle_web_file_action(presentation_settings_action_t action)
     if (action == PRESENTATION_SETTINGS_ACTION_BACK)
     {
         const ui_user_intent_t intent = {
-            .id = UI_USER_INTENT_SETTINGS_STOP_WEB_FILE,
+            .id = UI_USER_INTENT_SETTINGS_STOP_WEB_CONSOLE,
         };
         const esp_err_t error        = ui_runtime_emit_user_intent(&intent);
-        s_view.web_file_exit_pending = error == ESP_OK;
-        render_web_file(error);
+        s_view.web_console_exit_pending = error == ESP_OK;
+        render_web_console(error);
         return error;
     }
 
     if (action == PRESENTATION_SETTINGS_ACTION_ACTIVATE
-        && ((view.state == WEB_FILE_PRESENTER_STATE_ERROR && view.exit_allowed)
-            || (view.state == WEB_FILE_PRESENTER_STATE_STOPPED && s_view.child_action != NULL)))
+        && ((view.state == WEB_CONSOLE_PRESENTER_STATE_ERROR && view.exit_allowed)
+            || (view.state == WEB_CONSOLE_PRESENTER_STATE_STOPPED && s_view.child_action != NULL)))
     {
         if (s_view.child_action != NULL)
         {
@@ -1102,10 +1102,10 @@ static esp_err_t handle_web_file_action(presentation_settings_action_t action)
         else
         {
             const ui_user_intent_t intent = {
-                .id = UI_USER_INTENT_SETTINGS_START_WEB_FILE,
+                .id = UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE,
             };
             const esp_err_t error = ui_runtime_emit_user_intent(&intent);
-            render_web_file(error);
+            render_web_console(error);
             return error;
         }
     }
@@ -1157,8 +1157,8 @@ esp_err_t ui_settings_page_update(lv_obj_t *parent)
         case SETTINGS_LOCATION_NETWORK:
             render_network(false, ESP_OK);
             break;
-        case SETTINGS_LOCATION_WEB_FILE:
-            render_web_file(ESP_OK);
+        case SETTINGS_LOCATION_WEB_CONSOLE:
+            render_web_console(ESP_OK);
             break;
         case SETTINGS_LOCATION_SYSTEM:
             return ui_system_page_update(s_view.system_body);
@@ -1249,8 +1249,8 @@ esp_err_t ui_settings_page_handle_action(presentation_settings_action_t action)
                 lv_group_focus_next(s_view.group);
             }
             return ESP_OK;
-        case SETTINGS_LOCATION_WEB_FILE:
-            return handle_web_file_action(action);
+        case SETTINGS_LOCATION_WEB_CONSOLE:
+            return handle_web_console_action(action);
         case SETTINGS_LOCATION_SYSTEM:
             if (action == PRESENTATION_SETTINGS_ACTION_BACK)
             {

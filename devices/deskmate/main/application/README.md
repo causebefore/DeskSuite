@@ -12,7 +12,7 @@
 
 负责：
 
-- 页面导航、按键语义、配网入口、OTA 时机、语音会话、网页文件管理和低功耗顺序。
+- 页面导航、按键语义、配网入口、OTA 时机、语音会话、网页控制台和低功耗顺序。
 - 产品采样周期、Dashboard 同步时机、截止时间、重试、跳过和降级判断。
 - 跨 Service、Communication、Data、System 和 Device 的完整用例编排。
 - 拥有产品流程状态的 Task、Queue 和 Timer。
@@ -66,10 +66,10 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_key` | 把稳定按键事实转换为产品输入 |
 | `app_page` | 维护顶层环形页面、Screen 切换门控和 500 ms 完成事件兜底 |
 | `app_pomodoro` | 拥有本地番茄钟状态机、单调 deadline、日期归一化、NVS 计数、前台秒级显示事实和睡眠唤醒补算 |
-| `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页文件明确停止后清理会话 |
+| `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页控制台明确停止后清理会话 |
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
 | `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
-| `app_web_file` | SD/在线前置检查、Web 文件租约、网页文件 Service 启停与安全回滚 |
+| `app_web_console` | SD/在线前置检查、网页控制台网络租约、网页控制台 Service 启停与安全回滚 |
 | `app_power` | 拥有 60 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、可配置维护源刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
 | `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和通用低功耗停网握手 |
@@ -104,11 +104,11 @@ Application 只消费这些事实，不把产品重试策略写回 Communication
 
 ```text
 button_service → app_key → app_settings → Presentation 设置动作 → UI
-UI 用户意图 → app_main → app_settings / app_ota / app_web_file → app_network / web_console_service
+UI 用户意图 → app_main → app_settings / app_ota / app_web_console → app_network / web_console_service
 ```
 
 焦点、菜单历史和子页位置只属于 LVGL。`app_settings` 不复制这些状态；离开设置页、UI
-重建或轻睡眠准备时，先非阻塞提交网页文件管理停止意图，再读取 Application 运行摘要；只有
+重建或轻睡眠准备时，先非阻塞提交网页控制台停止意图，再读取 Application 运行摘要；只有
 明确到达 `STOPPED` 才清除菜单门控与尚未安装的 OTA 目标。仍在启动、运行、停止或保留资源的
 错误态一律关闭失败并保持当前导航门，不能把任意 `ESP_ERR_INVALID_STATE` 当作安全终态。
 手动 OTA 检查始终要求用户确认，即使持久化自动安装策略已开启；自动检查来源才允许继续应用
@@ -135,38 +135,38 @@ Weather → Calendar → Mail → Quota 的显式 Presenter 刷新顺序；四�
 运行时唤醒词设置。
 
 `app_network` 同一时刻只授予一个带类型和代次的互斥网络产品租约，当前类型为实时语音和
-Web 文件管理。两类租约都阻止 Dashboard 手动/自动同步、OTA 检查与安装、显式或无配置自动
+网页控制台。两类租约都阻止 Dashboard 手动/自动同步、OTA 检查与安装、显式或无配置自动
 Portal，以及整机进入 Light-sleep；对应租约释放成功后才按当前产品开关恢复 Dashboard 和
-OTA Timer。租约只占用这些产品策略，不停止 Network Manager 的技术状态机：Web 文件服务
+OTA Timer。租约只占用这些产品策略，不停止 Network Manager 的技术状态机：网页控制台 Service
 运行期间，已保存 STA 仍可在断线后重连并更新 IPv4 地址。显式或无配置自动 Portal 请求在
 网络 Application Task 内先用同一状态锁检查活动租约并占用 Portal 过渡状态，Network Manager
 立即拒绝或发布明确状态后才清除该占位，因此异步 Portal 切换窗口不能插入新租约。
 `app_network` 还允许唯一固件进程期静态订阅者注册链路变化借用回调。回调在现有耐久 Manager
 pending 标志由 `app_network_task` 收敛后复制，并在网络状态锁外调用；它不携带事件历史或
-Manager 内部指针，订阅者只能合并自身通知并重新读取最新事实。网页文件订阅回调只在自身
+Manager 内部指针，订阅者只能合并自身通知并重新读取最新事实。网页控制台订阅回调只在自身
 Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presenter 或网络控制 API。
 
 租约 release 命令必须先原子认领仍匹配请求、尚未过期的同步回执槽，随后才能清除活动租约；
 已超时并由调用方放弃或已经复用的槽不会改变租约。租约代次从 `1` 单调发放到 `UINT32_MAX`，
 最大值只发放一次，之后以 `0` 作为耗尽哨兵并拒绝新租约，直至设备重启，避免极旧句柄重新匹配。
 
-网页文件管理的完整数据流为：
+网页控制台的完整数据流为：
 
 ```text
-设备设置页选择“网页文件管理”
-  → app_web_file 检查 /sdcard
-  → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
+设备设置页选择“网页控制台”
+  → app_web_console 检查 /sdcard
+  → app_network 授予 APP_NETWORK_LEASE_WEB_CONSOLE
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → handler 串行浏览、下载、事务上传或执行单项目录/文件变更
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
-`app_web_file.cpp` 拥有产品阶段、Web 文件租约代次、是否仍需清理 Service 的事实以及运行摘要
-边界；`app_web_file_task.cpp` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
+`app_web_console.cpp` 拥有产品阶段、网页控制台网络租约代次、是否仍需清理 Service 的事实以及运行摘要
+边界；`app_web_console_task.cpp` 独占停止意图、Task 句柄、Task 创建/删除和生命周期执行。
 `web_console_service` 独占 HTTPD、认证、handler、文件事务和传输资源。
 Application 在授予租约后还会复核 Network Manager `ONLINE` 与当前 STA IPv4；它不因 STA
-短暂断线停止 Service。Service 启动成功后，`app_web_file_task` 先在
+短暂断线停止 Service。Service 启动成功后，`app_web_console_task` 先在
 状态锁外读取当前内存链路与 Service 状态，验证六位访问码，再在一个状态锁临界区写入 URL、
 访问码和 `RUNNING`，随后只发布一次完整 Presenter 快照。运行期间 Network Manager 断线、
 重连或 IPv4 更新通过上述双层合并通知唤醒同一 Task；Task 在没有停止请求时重新读取
@@ -198,7 +198,7 @@ Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当�
 停止意图 → STOPPING
   → web_console_service_stop(6000 ms)
   → web_console_service_deinit()
-  → app_network_release_web_file_lease()
+  → app_network_release_web_console_lease()
   → STOPPED
 ```
 
@@ -224,11 +224,11 @@ Manager 快照，不使用周期轮询或额外 Task。
 | `app_power_task.c` | 无活动窗口、离线显示状态、睡眠编号、Timer/RTC INT 刷新计数、按键唤醒状态和失败终态 |
 | `app_environment_task.c` | 两类产品采样截止时间和采样命令 |
 | `app_network_task.c` | 网络产品命令队列、Dashboard 绝对截止与失败退避、OTA、类型化互斥租约、会话退避和策略 Timer |
-| `app_web_file_task.cpp` | 网页文件管理启动、运行和可失败停止的一次性产品状态机 |
+| `app_web_console_task.cpp` | 网页控制台启动、运行和可失败停止的一次性产品状态机 |
 
 Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 API 不暴露 RTOS 句柄。
 
-`app_web_file_task.cpp` 的一次性 Task 只在启动、运行和停止期间存在。它不创建命令队列：重复启动
+`app_web_console_task.cpp` 的一次性 Task 只在启动、运行和停止期间存在。它不创建命令队列：重复启动
 明确拒绝，每个有效停止意图都在 Task 锁内取得严格单调的 64 位序列并通知活动 Task；链路变化
 使用同一把 Task 锁合并为耐久 pending，并通过 Task notification 唤醒。Task 醒来始终先检查
 停止序列，只有仍处于 `RUNNING` 且没有停止请求时才刷新 URL；停止清理期间到达的链路通知在

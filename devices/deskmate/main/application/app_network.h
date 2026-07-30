@@ -26,7 +26,7 @@ extern "C"
     {
         APP_NETWORK_LEASE_NONE = 0,       /*!< 未持有租约 */
         APP_NETWORK_LEASE_REALTIME_VOICE, /*!< 实时语音网络租约 */
-        APP_NETWORK_LEASE_WEB_FILE,       /*!< Web 文件管理网络租约 */
+        APP_NETWORK_LEASE_WEB_CONSOLE,    /*!< 网页控制台网络租约 */
     } app_network_lease_type_t;
 
     /** @brief 互斥网络产品租约只读值快照 */
@@ -251,7 +251,7 @@ extern "C"
     esp_err_t app_network_release_realtime_voice_lease(uint32_t generation, uint32_t timeout_ms);
 
     /**
- * @brief 请求 Web 文件管理网络租约并等待有限时间回执
+     * @brief 请求网页控制台网络租约并等待有限时间回执
  *
  * 命令只携带内部响应槽索引、租约类型和代次，不跨线程传递调用者指针。
  * Portal、验证、OTA 或其他互斥网络产品租约活跃时明确拒绝；成功后后台同步与自动 OTA 暂停。
@@ -265,10 +265,10 @@ extern "C"
  *         ESP_ERR_TIMEOUT 未及时处理；
  *         或网络状态、回执资源错误码
  */
-    esp_err_t app_network_acquire_web_file_lease(uint32_t timeout_ms, uint32_t *out_generation);
+    esp_err_t app_network_acquire_web_console_lease(uint32_t timeout_ms, uint32_t *out_generation);
 
     /**
- * @brief 按代次释放 Web 文件管理网络租约
+     * @brief 按代次释放网页控制台网络租约
  *
  * 只有类型和代次均匹配时才释放；错误类型或旧代次不能释放当前租约。
  * 重复释放已经结束的租约返回 ESP_OK。
@@ -279,7 +279,7 @@ extern "C"
  * @param[in] timeout_ms 命令被网络 Task 认领前的截止时间，单位毫秒
  * @return ESP_OK 已释放或此前已释放；其他值表示参数、类型、代次或超时错误
  */
-    esp_err_t app_network_release_web_file_lease(uint32_t generation, uint32_t timeout_ms);
+    esp_err_t app_network_release_web_console_lease(uint32_t generation, uint32_t timeout_ms);
 
     /**
  * @brief 获取互斥网络产品租约状态的只读值快照

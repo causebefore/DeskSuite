@@ -1482,7 +1482,7 @@ static void handle_ota_event_command(const network_command_t *command)
 /** @brief 判断租约类型是否对应一个可申请的互斥网络产品 */
 static bool network_lease_type_is_supported(app_network_lease_type_t type)
 {
-    return type == APP_NETWORK_LEASE_REALTIME_VOICE || type == APP_NETWORK_LEASE_WEB_FILE;
+    return type == APP_NETWORK_LEASE_REALTIME_VOICE || type == APP_NETWORK_LEASE_WEB_CONSOLE;
 }
 
 /** @brief 在网络 Application Task 上下文仲裁并授予一个带类型的互斥网络产品租约 */
@@ -2394,14 +2394,14 @@ esp_err_t app_network_release_realtime_voice_lease(uint32_t generation, uint32_t
     return release_network_lease(APP_NETWORK_LEASE_REALTIME_VOICE, generation, timeout_ms);
 }
 
-esp_err_t app_network_acquire_web_file_lease(uint32_t timeout_ms, uint32_t *out_generation)
+esp_err_t app_network_acquire_web_console_lease(uint32_t timeout_ms, uint32_t *out_generation)
 {
-    return acquire_network_lease(APP_NETWORK_LEASE_WEB_FILE, timeout_ms, out_generation);
+    return acquire_network_lease(APP_NETWORK_LEASE_WEB_CONSOLE, timeout_ms, out_generation);
 }
 
-esp_err_t app_network_release_web_file_lease(uint32_t generation, uint32_t timeout_ms)
+esp_err_t app_network_release_web_console_lease(uint32_t generation, uint32_t timeout_ms)
 {
-    return release_network_lease(APP_NETWORK_LEASE_WEB_FILE, generation, timeout_ms);
+    return release_network_lease(APP_NETWORK_LEASE_WEB_CONSOLE, generation, timeout_ms);
 }
 
 void app_network_get_lease_snapshot_copy(app_network_lease_snapshot_t *out_snapshot)

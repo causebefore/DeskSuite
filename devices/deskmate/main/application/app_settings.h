@@ -20,13 +20,13 @@ esp_err_t app_settings_request_portal(void);
 /**
  * @brief 幂等清空设置菜单交互会话
  *
- * 顶层页面离开设置或 UI Runtime 重建时调用。函数先非阻塞提交网页文件管理停止意图，并
- * 只在同步快照已经明确为 `APP_WEB_FILE_STATE_STOPPED` 时继续丢弃尚未开始安装的 OTA
+ * 顶层页面离开设置或 UI Runtime 重建时调用。函数先非阻塞提交网页控制台停止意图，并
+ * 只在同步快照已经明确为 `APP_WEB_CONSOLE_STATE_STOPPED` 时继续丢弃尚未开始安装的 OTA
  * 目标和清除菜单门控；仍在启动、运行、停止或保留资源的错误态都会关闭失败，调用方必须
  * 保持当前页面并等待后续状态更新。配网 Portal 本身不受影响。
  *
- * @return ESP_OK 网页文件已安全停止且会话、待安装目标已清理；
- *         ESP_ERR_INVALID_STATE 网页文件尚未安全停止或停止序列不可用；
+ * @return ESP_OK 网页控制台已安全停止且会话、待安装目标已清理；
+ *         ESP_ERR_INVALID_STATE 网页控制台尚未安全停止或停止序列不可用；
  *         其他值表示状态读取、停止意图提交或 OTA 目标清理失败
  */
 esp_err_t app_settings_reset(void);

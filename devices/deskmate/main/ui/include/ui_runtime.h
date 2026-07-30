@@ -28,8 +28,8 @@ typedef enum
     UI_USER_INTENT_SETTINGS_OTA_CHECK,      /*!< 用户请求手动检查更新 */
     UI_USER_INTENT_SETTINGS_OTA_INSTALL,    /*!< 用户确认安装待更新固件 */
     UI_USER_INTENT_SETTINGS_OTA_DISCARD,    /*!< 用户放弃并清除待安装目标 */
-    UI_USER_INTENT_SETTINGS_START_WEB_FILE, /*!< 用户进入子页并请求启动网页文件管理 */
-    UI_USER_INTENT_SETTINGS_STOP_WEB_FILE,  /*!< 用户离开子页并请求停止网页文件管理 */
+    UI_USER_INTENT_SETTINGS_START_WEB_CONSOLE, /*!< 用户进入子页并请求启动网页控制台 */
+    UI_USER_INTENT_SETTINGS_STOP_WEB_CONSOLE,  /*!< 用户离开子页并请求停止网页控制台 */
     UI_USER_INTENT_POMODORO_SETTINGS_SAVE,  /*!< 用户提交完整番茄钟设置副本 */
     UI_USER_INTENT_COUNT,                   /*!< 意图数量（哨兵值） */
 } ui_user_intent_id_t;
