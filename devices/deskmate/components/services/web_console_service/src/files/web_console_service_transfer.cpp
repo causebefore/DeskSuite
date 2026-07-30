@@ -16,7 +16,6 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "sdkconfig.h"
-#include "system_filesystem.h"
 
 /**
  * @brief 覆盖栈上的认证头副本
@@ -325,7 +324,7 @@ static web_file_operation_result_t web_file_upload_read_length(httpd_req_t *requ
         }
         parsed = parsed * 10U + digit;
     }
-    if (parsed > WEB_FILE_UPLOAD_MAX_SIZE_BYTES)
+    if (parsed > s_files_context.upload_max_bytes)
     {
         return WEB_FILE_OPERATION_TOO_LARGE;
     }
@@ -347,7 +346,7 @@ static web_file_operation_result_t web_file_upload_read_length(httpd_req_t *requ
  */
 static web_file_operation_result_t web_file_upload_read_overwrite(httpd_req_t *request, bool *out_confirmed)
 {
-    const size_t header_size = httpd_req_get_hdr_value_len(request, "X-DeskMate-Overwrite");
+    const size_t header_size = httpd_req_get_hdr_value_len(request, "X-Web-Console-Overwrite");
     if (header_size == 0U)
     {
         *out_confirmed = false;
@@ -356,7 +355,7 @@ static web_file_operation_result_t web_file_upload_read_overwrite(httpd_req_t *r
 
     char header[sizeof("confirm")];
     if (header_size != sizeof("confirm") - 1U
-        || httpd_req_get_hdr_value_str(request, "X-DeskMate-Overwrite", header, sizeof(header)) != ESP_OK
+        || httpd_req_get_hdr_value_str(request, "X-Web-Console-Overwrite", header, sizeof(header)) != ESP_OK
         || strcmp(header, "confirm") != 0)
     {
         return WEB_FILE_OPERATION_BAD_REQUEST;
@@ -437,23 +436,27 @@ static web_file_operation_result_t web_file_upload_validate_target(web_file_tran
 }
 
 /**
- * @brief 要求文件系统剩余空间覆盖完整暂存文件及固定一 MiB 余量
+ * @brief 要求文件系统剩余空间覆盖完整暂存文件及调用方配置的保留余量
  *
- * ESP-IDF v6.0.1 的 `statvfs()` 是固定返回 ENOSYS 的占位实现，因此使用 System 层公开的
- * `system_filesystem_get_info_copy()`；其底层通过 FatFs 容量查询返回同一挂载点可用字节。
+ * Files 只调用注入的容量查询，不感知调用方使用 FatFs、其他 VFS 或测试替身。
  *
  * @param[in] expected_length 上传正文长度
  * @return 操作结果
  */
 static web_file_operation_result_t web_file_upload_validate_space(size_t expected_length)
 {
-    system_filesystem_info_t filesystem_info;
-    if (system_filesystem_get_info_copy(&filesystem_info) != ESP_OK)
+    web_console_files_capacity_t capacity;
+    if (web_console_files_get_capacity_copy(&capacity) != ESP_OK)
     {
         return WEB_FILE_OPERATION_IO_ERROR;
     }
-    const uint64_t required = (uint64_t) expected_length + WEB_FILE_UPLOAD_SPACE_MARGIN_BYTES;
-    return filesystem_info.free_bytes >= required ? WEB_FILE_OPERATION_OK : WEB_FILE_OPERATION_INSUFFICIENT_STORAGE;
+    const uint64_t expected_bytes = (uint64_t) expected_length;
+    if (capacity.free_bytes < expected_bytes
+        || capacity.free_bytes - expected_bytes < s_files_context.reserved_free_bytes)
+    {
+        return WEB_FILE_OPERATION_INSUFFICIENT_STORAGE;
+    }
+    return WEB_FILE_OPERATION_OK;
 }
 
 /**
@@ -470,7 +473,7 @@ static web_file_operation_result_t web_file_upload_validate_space(size_t expecte
 static web_file_operation_result_t web_file_upload_receive_part(httpd_req_t *request, uint8_t *buffer,
                                                                 size_t expected_length)
 {
-    const int descriptor = open(WEB_FILE_TRANSACTION_PART, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    const int descriptor = open(s_files_context.transaction_part, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (descriptor < 0)
     {
         return WEB_FILE_OPERATION_IO_ERROR;
@@ -531,7 +534,8 @@ static web_file_operation_result_t web_file_upload_receive_part(httpd_req_t *req
 
     struct stat part_info;
     if (result == WEB_FILE_OPERATION_OK
-        && (stat(WEB_FILE_TRANSACTION_PART, &part_info) != 0 || !S_ISREG(part_info.st_mode) || part_info.st_size < 0
+        && (stat(s_files_context.transaction_part, &part_info) != 0 || !S_ISREG(part_info.st_mode)
+            || part_info.st_size < 0
             || (uint64_t) part_info.st_size != expected_length))
     {
         result = WEB_FILE_OPERATION_IO_ERROR;
@@ -626,7 +630,7 @@ esp_err_t web_file_send_operation_error(httpd_req_t *request, web_file_operation
             return web_file_send_json_error(
                 request,
                 "413 Content Too Large",
-                "{\"error\":\"content_too_large\",\"message\":\"上传文件不能超过 500 MiB\"}");
+                "{\"error\":\"content_too_large\",\"message\":\"上传正文超过配置上限\"}");
         case WEB_FILE_OPERATION_OVERWRITE_REQUIRED:
             return web_file_send_json_error(
                 request,
@@ -647,7 +651,7 @@ esp_err_t web_file_send_operation_error(httpd_req_t *request, web_file_operation
         case WEB_FILE_OPERATION_INSUFFICIENT_STORAGE:
             return web_file_send_json_error(request,
                                             "507 Insufficient Storage",
-                                            "{\"error\":\"insufficient_storage\",\"message\":\"SD 卡可用空间不足\"}");
+                                            "{\"error\":\"insufficient_storage\",\"message\":\"存储可用空间不足\"}");
         case WEB_FILE_OPERATION_NO_MEMORY:
             return web_file_send_json_error(request,
                                             "500 Internal Server Error",

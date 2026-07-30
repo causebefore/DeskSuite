@@ -7,8 +7,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "system_filesystem.h"
-
 #define WEB_FILE_PATH_SEGMENT_MAX_BYTES 255U
 
 static int web_file_hex_value(unsigned char value)
@@ -183,8 +181,9 @@ static esp_err_t web_file_validate_path_segments(const char *path, size_t path_s
         {
             return ESP_ERR_INVALID_ARG;
         }
-        if (segment_index == 0U && segment_size == sizeof(".deskmate-web") - 1U
-            && web_file_ascii_case_equal(path + segment_start, ".deskmate-web", segment_size))
+        const size_t workspace_name_size = strlen(s_files_context.workspace_name);
+        if (segment_index == 0U && segment_size == workspace_name_size
+            && web_file_ascii_case_equal(path + segment_start, s_files_context.workspace_name, segment_size))
         {
             return ESP_ERR_INVALID_ARG;
         }
@@ -261,21 +260,27 @@ esp_err_t web_file_path_decode_and_map(const char *encoded, char *logical, size_
         return segment_error;
     }
 
-    const size_t mount_size           = sizeof(SYSTEM_FILESYSTEM_MOUNT_POINT) - 1U;
-    const size_t filesystem_path_size = mount_size + (decoded_size == 1U ? 0U : decoded_size);
+    const size_t mount_size = strlen(s_files_context.mount_root);
+    const size_t filesystem_path_size =
+        decoded_size == 1U ? mount_size : (mount_size == 1U ? decoded_size : mount_size + decoded_size);
     if (logical_size < decoded_size + 1U || filesystem_size < filesystem_path_size + 1U)
     {
         return ESP_ERR_INVALID_SIZE;
     }
 
     memcpy(logical, normalized, decoded_size + 1U);
-    memcpy(filesystem, SYSTEM_FILESYSTEM_MOUNT_POINT, mount_size);
     if (decoded_size == 1U)
     {
+        memcpy(filesystem, s_files_context.mount_root, mount_size);
         filesystem[mount_size] = '\0';
+    }
+    else if (mount_size == 1U)
+    {
+        memcpy(filesystem, normalized, decoded_size + 1U);
     }
     else
     {
+        memcpy(filesystem, s_files_context.mount_root, mount_size);
         memcpy(filesystem + mount_size, normalized, decoded_size + 1U);
     }
     return ESP_OK;
@@ -309,20 +314,26 @@ esp_err_t web_file_path_map_logical(const char *logical, char *filesystem, size_
         return segment_error;
     }
 
-    const size_t mount_size           = sizeof(SYSTEM_FILESYSTEM_MOUNT_POINT) - 1U;
-    const size_t filesystem_path_size = mount_size + (logical_size == 1U ? 0U : logical_size);
+    const size_t mount_size = strlen(s_files_context.mount_root);
+    const size_t filesystem_path_size =
+        logical_size == 1U ? mount_size : (mount_size == 1U ? logical_size : mount_size + logical_size);
     if (filesystem_size < filesystem_path_size + 1U)
     {
         return ESP_ERR_INVALID_SIZE;
     }
 
-    memcpy(filesystem, SYSTEM_FILESYSTEM_MOUNT_POINT, mount_size);
     if (logical_size == 1U)
     {
+        memcpy(filesystem, s_files_context.mount_root, mount_size);
         filesystem[mount_size] = '\0';
+    }
+    else if (mount_size == 1U)
+    {
+        memcpy(filesystem, logical, logical_size + 1U);
     }
     else
     {
+        memcpy(filesystem, s_files_context.mount_root, mount_size);
         memcpy(filesystem + mount_size, logical, logical_size + 1U);
     }
     return ESP_OK;

@@ -13,7 +13,9 @@
 #include "web_console_service_internal.hpp"
 #include "web_console_service_web.h"
 
+#if CONFIG_WEB_CONSOLE_FILES
 #include "web_console_files_internal.hpp"
+#endif
 
 #define WEB_FILE_TOKEN_RESPONSE_SIZE 45U
 
@@ -478,24 +480,28 @@ static bool web_console_routes_collide(const web_console_route_t &left, const we
  */
 static esp_err_t web_console_prepare_route_slots(void)
 {
+#if CONFIG_WEB_CONSOLE_FILES
     size_t files_route_count = 0U;
     const web_console_route_t *files_routes = web_console_files_get_routes(&files_route_count);
     if (files_routes == NULL || files_route_count != WEB_CONSOLE_FILES_ROUTE_COUNT)
     {
         return ESP_ERR_INVALID_STATE;
     }
+#endif
 
     for (size_t index = 0U; index < WEB_CONSOLE_CORE_ROUTE_COUNT; ++index)
     {
         s_route_slots[index].route      = s_core_routes[index];
         s_route_slots[index].registered = false;
     }
+#if CONFIG_WEB_CONSOLE_FILES
     for (size_t index = 0U; index < files_route_count; ++index)
     {
         const size_t slot_index = WEB_CONSOLE_CORE_ROUTE_COUNT + index;
         s_route_slots[slot_index].route      = files_routes[index];
         s_route_slots[slot_index].registered = false;
     }
+#endif
 
     for (size_t index = 0U; index < WEB_CONSOLE_ROUTE_COUNT; ++index)
     {

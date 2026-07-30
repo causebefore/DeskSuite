@@ -85,7 +85,7 @@ static web_file_operation_result_t web_file_create_directory(web_file_path_works
 /**
  * @brief 原子重命名或移动一个已校验的常规文件
  *
- * 源和目标都位于固定 SD 卡挂载点，目标必须不存在且父目录必须已经存在。相同源和目标按成功
+ * 源和目标都位于 Provider 配置的挂载根，目标必须不存在且父目录必须已经存在。相同源和目标按成功
  * 的无操作处理。
  *
  * @param[in,out] workspace 源和目标路径

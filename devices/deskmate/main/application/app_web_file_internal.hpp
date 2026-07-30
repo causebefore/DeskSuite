@@ -9,6 +9,17 @@
 #include "app_web_file.h"
 
 /**
+ * @brief 使用 DeskMate 唯一固定配置初始化网页控制台 Service
+ *
+ * 本函数是产品存储 Provider、Files 限额和 HTTP 端口的唯一装配入口。仅在 Service 为
+ * `UNINITIALIZED` 时调用；配置字符串与回调在 Service 内复制，空 Provider 上下文无需借用
+ * 产品对象。
+ *
+ * @return ESP_OK Service 已初始化；其他值来自 `web_console_service_init_borrow()`
+ */
+esp_err_t app_web_file_internal_initialize_service(void);
+
+/**
  * @brief 为一次启动原子检查状态与展示版本容量并发布 CHECKING_STORAGE
  *
  * @return ESP_OK 已进入 CHECKING_STORAGE；ESP_ERR_INVALID_STATE 状态、资源所有权或展示版本

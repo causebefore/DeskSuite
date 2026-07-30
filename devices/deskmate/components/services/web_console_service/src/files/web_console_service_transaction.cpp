@@ -113,7 +113,7 @@ static bool web_file_transaction_parse_length(const char *text, uint64_t *out_va
 static esp_err_t web_file_transaction_write_journal(const web_file_transaction_t *transaction)
 {
     if (transaction == NULL || web_file_transaction_phase_name(transaction->phase) == NULL
-        || transaction->expected_length > WEB_FILE_UPLOAD_MAX_SIZE_BYTES)
+        || transaction->expected_length > s_files_context.upload_max_bytes)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -251,7 +251,7 @@ static esp_err_t web_file_transaction_read_journal_at(const char *path, web_file
     web_file_transaction_t transaction{};
     if (!web_file_transaction_parse_phase(phase_line + sizeof("phase=") - 1U, &transaction.phase)
         || !web_file_transaction_parse_length(length_line + sizeof("length=") - 1U, &transaction.expected_length)
-        || transaction.expected_length > WEB_FILE_UPLOAD_MAX_SIZE_BYTES)
+        || transaction.expected_length > s_files_context.upload_max_bytes)
     {
         return close_journal(ESP_ERR_INVALID_RESPONSE);
     }
@@ -647,7 +647,7 @@ esp_err_t web_file_transaction_recover(void)
 
 esp_err_t web_file_upload_validate_length(size_t content_length)
 {
-    return content_length <= WEB_FILE_UPLOAD_MAX_SIZE_BYTES ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    return content_length <= s_files_context.upload_max_bytes ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
 esp_err_t web_file_transaction_prepare_upload(void)
@@ -706,7 +706,7 @@ static bool web_file_transaction_is_cancelled(void)
 esp_err_t web_file_transaction_commit_new(const web_file_transaction_t *transaction)
 {
     if (transaction == NULL || transaction->phase != WEB_FILE_TRANSACTION_PREPARED
-        || transaction->expected_length > WEB_FILE_UPLOAD_MAX_SIZE_BYTES)
+        || transaction->expected_length > s_files_context.upload_max_bytes)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -799,7 +799,7 @@ static esp_err_t
                                                char out_target_filesystem[WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE])
 {
     if (transaction == NULL || transaction->phase != WEB_FILE_TRANSACTION_PREPARED
-        || transaction->expected_length > WEB_FILE_UPLOAD_MAX_SIZE_BYTES
+        || transaction->expected_length > s_files_context.upload_max_bytes
         || web_file_path_map_logical(transaction->target_path,
                                      out_target_filesystem,
                                      WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE)

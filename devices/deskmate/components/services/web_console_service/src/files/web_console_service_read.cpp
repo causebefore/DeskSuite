@@ -14,7 +14,6 @@
 
 #include "esp_heap_caps.h"
 #include "sdkconfig.h"
-#include "system_filesystem.h"
 
 static bool web_file_entry_utf8_is_valid(const uint8_t *input, size_t input_size)
 {
@@ -128,7 +127,7 @@ static bool web_file_directory_entry_is_hidden(const char *logical_path, const c
     {
         return true;
     }
-    return strcmp(logical_path, "/") == 0 && web_file_ascii_case_equal(name, ".deskmate-web");
+    return strcmp(logical_path, "/") == 0 && web_file_ascii_case_equal(name, s_files_context.workspace_name);
 }
 
 /**
@@ -321,8 +320,8 @@ static web_file_operation_result_t web_file_send_directory_listing(httpd_req_t  
         return result;
     }
 
-    system_filesystem_info_t filesystem_info;
-    if (system_filesystem_get_info_copy(&filesystem_info) != ESP_OK
+    web_console_files_capacity_t capacity;
+    if (web_console_files_get_capacity_copy(&capacity) != ESP_OK
         || web_file_json_escape(workspace->logical, workspace->scratch, sizeof(workspace->scratch)) != ESP_OK)
     {
         return WEB_FILE_OPERATION_IO_ERROR;
@@ -330,10 +329,10 @@ static web_file_operation_result_t web_file_send_directory_listing(httpd_req_t  
     const int prefix_size =
         snprintf(workspace->auxiliary,
                  sizeof(workspace->auxiliary),
-                 "{\"path\":\"%s\",\"totalBytes\":%" PRIu64 ",\"freeBytes\":%" PRIu64 ",\"entries\":[",
-                 workspace->scratch,
-                 filesystem_info.total_bytes,
-                 filesystem_info.free_bytes);
+                  "{\"path\":\"%s\",\"totalBytes\":%" PRIu64 ",\"freeBytes\":%" PRIu64 ",\"entries\":[",
+                  workspace->scratch,
+                  capacity.total_bytes,
+                  capacity.free_bytes);
     if (prefix_size < 0 || (size_t) prefix_size >= sizeof(workspace->auxiliary))
     {
         return WEB_FILE_OPERATION_IO_ERROR;

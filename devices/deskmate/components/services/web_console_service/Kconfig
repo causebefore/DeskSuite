@@ -1,0 +1,11 @@
+menu "Web Console Service"
+
+    config WEB_CONSOLE_FILES
+        bool "Enable Web Console Files module"
+        default y
+        help
+            Enable authenticated file listing, transfer and mutation routes.
+            Disable this option to build only the Console Core homepage and
+            session endpoint.
+
+endmenu

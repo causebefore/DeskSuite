@@ -1,7 +1,7 @@
 <!--
   Adapted from Crosslink src/network/html/FilesPage.html.
   Copyright (c) 2025 Dave Allie, MIT License.
-  Modified for DeskMate authenticated HTTP file management.
+  Modified for authenticated embedded HTTP file management.
 -->
 <!doctype html>
 <html lang="zh-CN">
@@ -9,7 +9,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
-  <title>DeskMate 文件管理</title>
+  <title>网页控制台文件管理</title>
   <style>
     :root {
       color-scheme: light;
@@ -91,7 +91,7 @@
 </head>
 <body>
   <section class="card">
-    <header><h1>DeskMate 文件管理</h1><p class="subtitle">通过本地网络安全管理设备文件</p></header>
+    <header><h1>网页控制台文件管理</h1><p class="subtitle">通过本地网络安全管理设备文件</p></header>
     <main>
       <form id="loginView" class="login">
         <label for="accessCode">6 位访问码</label>
@@ -110,8 +110,8 @@
         </div>
         <p id="fileMessage" class="notice" role="alert"></p>
         <nav id="breadcrumbs" class="breadcrumbs" aria-label="当前目录"></nav>
-        <section class="storage" aria-label="SD 卡容量">
-          <div class="storage-copy"><strong>SD 卡容量</strong><span id="storageText">正在读取…</span></div>
+        <section class="storage" aria-label="存储容量">
+          <div class="storage-copy"><strong>存储容量</strong><span id="storageText">正在读取…</span></div>
           <div class="storage-track" aria-hidden="true"><div id="storageBar"></div></div>
         </section>
 
@@ -187,7 +187,7 @@ const API = {
   file: "/api/file",
   directory: "/api/directory",
 };
-const TOKEN_KEY = "deskmateWebFileToken";
+const TOKEN_KEY = "webConsoleSessionToken";
 let currentPath = "/";
 let currentEntries = [];
 let operationActive = false;
@@ -438,7 +438,7 @@ function uploadFile(file, overwrite = false) {
     activeUploadRequest = request; updateUploadControls();
     request.open("PUT", `${API.file}?path=${encodeURIComponent(pathFor(file.name))}`);
     request.setRequestHeader("Authorization", `Bearer ${token()}`);
-    if (overwrite) request.setRequestHeader("X-DeskMate-Overwrite", "confirm");
+    if (overwrite) request.setRequestHeader("X-Web-Console-Overwrite", "confirm");
     request.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
       const percent = Math.round(event.loaded / event.total * 100); const seconds = Math.max((performance.now() - startedAt) / 1000, .001);

@@ -14,11 +14,13 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "web_console_files_internal.hpp"
 #include "web_console_service_internal.hpp"
+#if CONFIG_WEB_CONSOLE_FILES
+#include "web_console_files_internal.hpp"
+#endif
 
 #define WEB_FILE_HTTPD_MAX_OPEN_SOCKETS    1U
-#define WEB_FILE_HTTPD_MAX_URI_HANDLERS    8U
+#define WEB_FILE_HTTPD_MAX_URI_HANDLERS    WEB_CONSOLE_ROUTE_COUNT
 #define WEB_FILE_HTTPD_IO_TIMEOUT_S        5U
 #define WEB_FILE_ACCESS_CODE_SPACE         1000000U
 #define WEB_FILE_START_ROLLBACK_TIMEOUT_MS 6000U
@@ -116,7 +118,9 @@ static esp_err_t web_file_rollback_started_httpd(httpd_handle_t server, esp_err_
     }
     if (cleanup_error == ESP_OK)
     {
+#if CONFIG_WEB_CONSOLE_FILES
         web_console_files_cleanup_after_handlers();
+#endif
         cleanup_error =
             web_file_remaining_wait_ticks(deadline_us) == 0U ? ESP_ERR_TIMEOUT : web_file_start_httpd_stop_task();
     }
@@ -152,8 +156,24 @@ static esp_err_t web_file_rollback_started_httpd(httpd_handle_t server, esp_err_
     return cleanup_error == ESP_OK ? start_error : cleanup_error;
 }
 
-esp_err_t web_console_service_init(void)
+esp_err_t web_console_service_init_borrow(const web_console_service_config_t *config)
 {
+    if (config == NULL || config->server_port == 0U)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if CONFIG_WEB_CONSOLE_FILES
+    if (config->files == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+#else
+    if (config->files != NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+#endif
+
     if (s_context.state != WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED || s_context.lock != NULL
         || s_context.handlers_drained != NULL || s_context.ingress_closed != NULL
         || s_context.httpd_stop_completed != NULL)
@@ -194,9 +214,24 @@ esp_err_t web_console_service_init(void)
     s_context.ingress_closed         = ingress_closed;
     s_context.httpd_stop_completed   = httpd_stop_completed;
     s_context.state                  = WEB_CONSOLE_SERVICE_STATE_INITIALIZED;
+    s_context.server_port            = config->server_port;
     s_context.last_error             = ESP_OK;
     s_context.ingress_close_error    = ESP_OK;
+#if CONFIG_WEB_CONSOLE_FILES
     web_console_files_reset_context();
+    const esp_err_t configure_error = web_console_files_configure_borrow(config->files);
+    if (configure_error != ESP_OK)
+    {
+        web_console_files_reset_context();
+        memset(&s_context, 0, sizeof(s_context));
+        s_context.state = WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED;
+        vSemaphoreDelete(httpd_stop_completed);
+        vSemaphoreDelete(ingress_closed);
+        vSemaphoreDelete(handlers_drained);
+        vSemaphoreDelete(lock);
+        return configure_error;
+    }
+#endif
     return ESP_OK;
 }
 
@@ -210,7 +245,10 @@ esp_err_t web_console_service_start(void)
 
     xSemaphoreTake(lock, portMAX_DELAY);
     if (s_context.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED || s_context.lifecycle_active || s_context.server != NULL
-        || s_context.active_handlers != 0U || !web_console_files_is_idle_locked()
+        || s_context.active_handlers != 0U
+#if CONFIG_WEB_CONSOLE_FILES
+        || !web_console_files_is_idle_locked()
+#endif
         || !web_console_http_routes_are_released_locked() || s_context.ingress_close_queued
         || s_context.httpd_stop_task != NULL || s_context.httpd_stop_in_progress || s_context.httpd_stop_result_ready)
     {
@@ -224,12 +262,14 @@ esp_err_t web_console_service_start(void)
     s_context.ingress_close_error    = ESP_OK;
     xSemaphoreGive(lock);
 
+#if CONFIG_WEB_CONSOLE_FILES
     const esp_err_t recovery_error = web_console_files_prepare_start();
     if (recovery_error != ESP_OK)
     {
         ESP_LOGE(TAG, "恢复残留上传事务失败，拒绝启动网页文件服务: %s", esp_err_to_name(recovery_error));
         return web_file_finish_start_without_server(recovery_error);
     }
+#endif
 
     uint32_t random_value;
     char     access_code[WEB_FILE_ACCESS_CODE_BUFFER_SIZE]{};
@@ -243,7 +283,7 @@ esp_err_t web_console_service_start(void)
     }
 
     httpd_config_t config    = HTTPD_DEFAULT_CONFIG();
-    config.server_port       = 80U;
+    config.server_port       = s_context.server_port;
     config.max_open_sockets  = WEB_FILE_HTTPD_MAX_OPEN_SOCKETS;
     config.max_uri_handlers  = WEB_FILE_HTTPD_MAX_URI_HANDLERS;
     config.lru_purge_enable  = false;
@@ -543,7 +583,9 @@ esp_err_t web_console_service_stop(uint32_t timeout_ms)
         }
         if (error == ESP_OK)
         {
+#if CONFIG_WEB_CONSOLE_FILES
             web_console_files_cleanup_after_handlers();
+#endif
             error =
                 web_file_remaining_wait_ticks(deadline_us) == 0U ? ESP_ERR_TIMEOUT : web_file_start_httpd_stop_task();
         }
@@ -604,9 +646,8 @@ esp_err_t web_console_service_get_status_copy(web_console_service_status_t *out_
     }
 
     xSemaphoreTake(lock, portMAX_DELAY);
-    out_status->state           = s_context.state;
-    out_status->session_active  = s_context.auth.session_active;
-    out_status->transfer_active = web_console_files_transfer_active_locked();
+    out_status->state          = s_context.state;
+    out_status->session_active = s_context.auth.session_active;
     memcpy(out_status->access_code, s_context.auth.access_code, sizeof(out_status->access_code));
     out_status->last_error = s_context.last_error;
     xSemaphoreGive(lock);
@@ -624,7 +665,9 @@ esp_err_t web_console_service_deinit(void)
     xSemaphoreTake(lock, portMAX_DELAY);
     const bool resources_released = s_context.state == WEB_CONSOLE_SERVICE_STATE_INITIALIZED && !s_context.lifecycle_active
                                     && s_context.server == NULL && s_context.active_handlers == 0U
+#if CONFIG_WEB_CONSOLE_FILES
                                     && web_console_files_is_idle_locked()
+#endif
                                     && web_console_http_routes_are_released_locked()
                                     && !s_context.ingress_close_queued && s_context.httpd_stop_task == NULL
                                     && !s_context.httpd_stop_in_progress && !s_context.httpd_stop_result_ready;
@@ -650,6 +693,8 @@ esp_err_t web_console_service_deinit(void)
     vSemaphoreDelete(lock);
     memset(&s_context, 0, sizeof(s_context));
     s_context.state = WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED;
+#if CONFIG_WEB_CONSOLE_FILES
     web_console_files_reset_context();
+#endif
     return ESP_OK;
 }

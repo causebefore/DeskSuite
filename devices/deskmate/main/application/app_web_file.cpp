@@ -15,6 +15,11 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "presentation_dispatch.h"
+#include "sdkconfig.h"
+#if CONFIG_WEB_CONSOLE_FILES
+#include "system_filesystem.h"
+#include "web_console_files.h"
+#endif
 #include "web_file_presenter.h"
 #include "web_console_service.h"
 
@@ -29,6 +34,58 @@ static uint64_t              s_presentation_revision;
 static StaticSemaphore_t     s_presenter_push_mutex_storage;
 static SemaphoreHandle_t     s_presenter_push_mutex;
 static bool                  s_status_update_dispatch_pending;
+
+#if CONFIG_WEB_CONSOLE_FILES
+/**
+ * @brief 把 DeskMate 文件系统容量快照适配为 Console Files Provider
+ *
+ * 本回调在 Console HTTPD handler 的普通 Task 上下文同步执行，不回调 Console API。
+ *
+ * @param[in] context 未使用的 Provider 上下文
+ * @param[out] out_capacity Console Files 容量快照，仅在回调期间有效
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；其他值来自系统文件服务
+ */
+static esp_err_t get_web_console_files_capacity_copy(void *context, web_console_files_capacity_t *out_capacity)
+{
+    (void) context;
+    if (out_capacity == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    system_filesystem_info_t info;
+    const esp_err_t          error = system_filesystem_get_info_copy(&info);
+    if (error != ESP_OK)
+    {
+        return error;
+    }
+
+    out_capacity->total_bytes = info.total_bytes;
+    out_capacity->free_bytes  = info.free_bytes;
+    return ESP_OK;
+}
+
+static const web_console_files_config_t s_web_console_files_config = {
+    .storage =
+        {
+            .mount_root        = SYSTEM_FILESYSTEM_MOUNT_POINT,
+            .get_capacity_copy = get_web_console_files_capacity_copy,
+            .context           = NULL,
+        },
+    .workspace_name      = ".deskmate-web",
+    .upload_max_bytes    = 500ULL * 1024ULL * 1024ULL,
+    .reserved_free_bytes = 1ULL * 1024ULL * 1024ULL,
+};
+#endif
+
+static const web_console_service_config_t s_web_console_service_config = {
+    .server_port = 80U,
+#if CONFIG_WEB_CONSOLE_FILES
+    .files = &s_web_console_files_config,
+#else
+    .files = NULL,
+#endif
+};
 
 /**
  * @brief 初始化串行化 Presenter 更新与事件派发的静态互斥量
@@ -440,6 +497,11 @@ app_web_file_state_t app_web_file_internal_get_state(void)
     return state;
 }
 
+esp_err_t app_web_file_internal_initialize_service(void)
+{
+    return web_console_service_init_borrow(&s_web_console_service_config);
+}
+
 esp_err_t app_web_file_init(void)
 {
     const esp_err_t mutex_error = initialize_presenter_push_mutex();
@@ -454,8 +516,16 @@ esp_err_t app_web_file_init(void)
     {
         return error;
     }
-    if (service_status.state != WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED
-        && service_status.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
+    if (service_status.state == WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
+    {
+        const esp_err_t init_error = app_web_file_internal_initialize_service();
+        if (init_error != ESP_OK)
+        {
+            return init_error;
+        }
+        service_status.state = WEB_CONSOLE_SERVICE_STATE_INITIALIZED;
+    }
+    if (service_status.state != WEB_CONSOLE_SERVICE_STATE_INITIALIZED)
     {
         return ESP_ERR_INVALID_STATE;
     }

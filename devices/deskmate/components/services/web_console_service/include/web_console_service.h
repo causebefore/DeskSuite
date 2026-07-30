@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "web_console_files.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -32,27 +33,41 @@ extern "C"
  */
     typedef struct
     {
-        web_console_service_state_t state;           /**< 当前生命周期状态 */
-        bool                     session_active;  /**< 是否存在活动认证会话；不包含会话 token */
-        bool                     transfer_active; /**< 是否存在活动文件传输 */
-        char                     access_code[7];  /**< NUL 结尾的六位访问码秘密；非运行态为空 */
-        esp_err_t                last_error;      /**< 最近一次生命周期错误，成功收敛后为 ESP_OK */
+        web_console_service_state_t state;          /**< 当前生命周期状态 */
+        bool                        session_active; /**< 是否存在活动认证会话；不包含会话 token */
+        char                        access_code[7]; /**< NUL 结尾的六位访问码秘密；非运行态为空 */
+        esp_err_t                   last_error;     /**< 最近一次生命周期错误，成功收敛后为 ESP_OK */
     } web_console_service_status_t;
 
     /**
- * @brief 初始化网页控制台 Service 的固定同步资源
+ * @brief 网页控制台 Service 初始化配置
  *
- * 本同步函数只创建 Service 自有的锁、URI 入口关闭信号量、handler 排空信号量和 HTTPD
- * 清理完成信号量，不访问 SD 卡、不分配文件传输缓冲区，也不启动 HTTPD。只能从普通 Task
- * 上下文调用，且调用方不得让本函数与其他生命周期 API 并发执行。
- *
- * @return ESP_OK 初始化完成；ESP_ERR_INVALID_STATE 已初始化或生命周期状态不允许；
- *         ESP_ERR_NO_MEM 无法创建同步资源
+ * `files` 指向的配置只在初始化调用期间读取；其中 Storage Provider 的 `context` 按
+ * `web_console_files_storage_provider_t` 契约长期借用。
  */
-    esp_err_t web_console_service_init(void);
+    typedef struct
+    {
+        uint16_t                          server_port; /**< HTTP 服务监听端口 */
+        const web_console_files_config_t *files;      /**< Files 配置；裁剪 Files 时必须为空 */
+    } web_console_service_config_t;
 
     /**
- * @brief 生成本次运行周期的访问码并启动端口 80 的认证 HTTP 服务
+ * @brief 装配可选 Files Provider 并初始化网页控制台 Service 的固定同步资源
+ *
+ * 本同步函数只创建 Service 自有的锁、URI 入口关闭信号量、handler 排空信号量和 HTTPD
+ * 清理完成信号量，不访问文件系统、不分配文件传输缓冲区，也不启动 HTTPD。配置字符串和
+ * Provider 函数在调用期间复制；Provider `context` 长期借用到 `deinit()` 成功。只能从
+ * 普通 Task 上下文调用，且调用方不得让本函数与其他生命周期 API 并发执行。
+ *
+ * @param[in] config 初始化配置
+ * @return ESP_OK 初始化完成；ESP_ERR_INVALID_ARG 配置、端口或 Files 配置无效；
+ *         ESP_ERR_INVALID_STATE 已初始化或生命周期状态不允许；
+ *         ESP_ERR_NO_MEM 无法创建同步资源
+ */
+    esp_err_t web_console_service_init_borrow(const web_console_service_config_t *config);
+
+    /**
+ * @brief 生成本次运行周期的访问码并启动配置端口上的认证 HTTP 服务
  *
  * 本同步函数仅接受 `INITIALIZED` 状态。HTTPD 及当前 URI handler 全部注册成功后才进入
  * `RUNNING`；启动失败会在固定六秒总期限内回滚到 `INITIALIZED`，超时或清理 HTTPD 失败时

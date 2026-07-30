@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sdkconfig.h"
 #include "web_console_service.h"
 
 #define WEB_FILE_ACCESS_CODE_LENGTH       6U
@@ -23,8 +24,12 @@
 #define WEB_FILE_LOGIN_LOCKOUT_US         (30LL * 1000LL * 1000LL)
 #define WEB_FILE_LOGIN_MAX_FAILURES       5U
 #define WEB_CONSOLE_CORE_ROUTE_COUNT      2U
+#if CONFIG_WEB_CONSOLE_FILES
 #define WEB_CONSOLE_FILES_ROUTE_COUNT     6U
 #define WEB_CONSOLE_ROUTE_COUNT           (WEB_CONSOLE_CORE_ROUTE_COUNT + WEB_CONSOLE_FILES_ROUTE_COUNT)
+#else
+#define WEB_CONSOLE_ROUTE_COUNT WEB_CONSOLE_CORE_ROUTE_COUNT
+#endif
 
 enum web_file_auth_result_t
 {
@@ -80,6 +85,7 @@ struct web_console_service_context_t
     TaskHandle_t             httpd_stop_task;         /**< 等待回收的一次性 HTTPD 清理 Task */
     web_console_service_state_t state;                /**< 当前生命周期状态 */
     web_file_auth_state_t    auth;                    /**< 锁内访问的访问码、token 与会话状态 */
+    uint16_t                 server_port;             /**< 初始化时复制的 HTTP 监听端口 */
     uint32_t                 active_handlers;         /**< 已进入且尚未离开的 handler 数 */
     bool                     accepting_requests;      /**< 是否允许新 handler 使用运行期资源 */
     esp_err_t                last_error;              /**< 最近一次生命周期错误 */

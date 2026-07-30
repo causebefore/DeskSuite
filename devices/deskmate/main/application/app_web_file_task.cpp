@@ -9,7 +9,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "network_manager.h"
+#include "sdkconfig.h"
+#if CONFIG_WEB_CONSOLE_FILES
 #include "system_filesystem.h"
+#endif
 #include "web_console_service.h"
 
 #define APP_WEB_FILE_LEASE_TIMEOUT_MS         1000U
@@ -299,18 +302,23 @@ static esp_err_t rollback_start(bool initialized_this_attempt)
  */
 static esp_err_t start_owned_resources(void)
 {
+    esp_err_t error;
+#if CONFIG_WEB_CONSOLE_FILES
     system_filesystem_info_t filesystem_info;
     if (!system_filesystem_is_mounted())
     {
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t error = system_filesystem_get_info_copy(&filesystem_info);
+    error = system_filesystem_get_info_copy(&filesystem_info);
     if (error != ESP_OK)
     {
         return error;
     }
     app_web_file_internal_set_capacity(filesystem_info.total_bytes, filesystem_info.free_bytes);
+#else
+    app_web_file_internal_set_capacity(0U, 0U);
+#endif
 
     if (has_unconsumed_stop_request())
     {
@@ -356,7 +364,7 @@ static esp_err_t start_owned_resources(void)
     bool initialized_this_attempt = false;
     if (service_status.state == WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED)
     {
-        error = web_console_service_init();
+        error = app_web_file_internal_initialize_service();
         if (error != ESP_OK)
         {
             const esp_err_t cleanup_error = release_network_lease();

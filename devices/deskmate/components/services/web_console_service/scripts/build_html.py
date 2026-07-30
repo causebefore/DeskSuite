@@ -1,4 +1,4 @@
-"""将文件管理页面压缩为 ESP-IDF 组件使用的 C 源文件。"""
+"""将网页控制台页面压缩为 ESP-IDF 组件使用的 C 源文件。"""
 
 import argparse
 import gzip
@@ -16,14 +16,14 @@ def minify_html(html: str) -> str:
 
     def preserve(match: re.Match[str]) -> str:
         blocks.append(match.group(0))
-        return f"__DESKMATE_PRESERVE_{len(blocks) - 1}__"
+        return f"__WEB_CONSOLE_PRESERVE_{len(blocks) - 1}__"
 
     html = re.sub(rf"<({tags})\b[^>]*>[\s\S]*?</\1>", preserve, html, flags=re.IGNORECASE)
     html = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
     html = re.sub(r">\s+<", "><", html)
     html = re.sub(r"\s+", " ", html).strip()
     for index, block in enumerate(blocks):
-        html = html.replace(f"__DESKMATE_PRESERVE_{index}__", block)
+        html = html.replace(f"__WEB_CONSOLE_PRESERVE_{index}__", block)
     return html
 
 
@@ -44,7 +44,7 @@ def render_c_source(compressed: bytes) -> str:
 
 def main() -> None:
     """读取页面并写出可由组件编译的 gzip C 数组。"""
-    parser = argparse.ArgumentParser(description="生成内嵌的 gzip 文件管理页面")
+    parser = argparse.ArgumentParser(description="生成内嵌的 gzip 网页控制台页面")
     parser.add_argument("--input", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     arguments = parser.parse_args()

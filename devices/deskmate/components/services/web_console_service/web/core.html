@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>设备网页控制台</title>
+  <style>
+    body{max-width:32rem;margin:4rem auto;padding:0 1rem;font:16px/1.5 system-ui,sans-serif}
+    form{display:grid;gap:.75rem}input,button{font:inherit;padding:.7rem}
+    #message{min-height:1.5rem}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>设备网页控制台</h1>
+    <p>输入设备本地显示的六位访问码以建立本次会话。</p>
+    <form id="login">
+      <input id="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+             autocomplete="one-time-code" aria-label="六位访问码" required>
+      <button type="submit">登录</button>
+    </form>
+    <p id="message" role="status"></p>
+  </main>
+  <script>
+    const TOKEN_KEY="webConsoleSessionToken";
+    const form=document.querySelector("#login");
+    const code=document.querySelector("#code");
+    const message=document.querySelector("#message");
+    if(sessionStorage.getItem(TOKEN_KEY)){
+      message.textContent="当前标签页已保存会话凭据；当前固件未装配其他控制台模块。";
+    }
+    form.addEventListener("submit",async event=>{
+      event.preventDefault();
+      message.textContent="正在验证…";
+      try{
+        const response=await fetch("/api/session",{
+          method:"POST",
+          headers:{"Content-Type":"text/plain"},
+          body:code.value
+        });
+        if(!response.ok){
+          message.textContent="访问码无效或服务繁忙。";
+          return;
+        }
+        const result=await response.json();
+        if(typeof result.token!=="string"||result.token.length!==32){
+          throw new Error("会话响应无效");
+        }
+        sessionStorage.setItem(TOKEN_KEY,result.token);
+        message.textContent="会话已建立；当前固件未装配其他控制台模块。";
+      }catch{
+        message.textContent="无法连接设备网页控制台。";
+      }
+    });
+  </script>
+</body>
+</html>

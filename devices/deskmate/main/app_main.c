@@ -424,18 +424,11 @@ esp_err_t app_main_init(void)
     ESP_RETURN_ON_ERROR(ensure_default_event_loop(), TAG, "创建默认事件循环失败");
     ESP_RETURN_ON_ERROR(init_runtime_capabilities(), TAG, "初始化运行时能力失败");
 
-    esp_err_t error = web_console_service_init();
-    if (error != ESP_OK)
-    {
-        ESP_LOGE(TAG, "初始化网页文件 Service 失败: %s", esp_err_to_name(error));
-        return error;
-    }
-
     bool environment_initialized = false;
     bool ui_initialized          = false;
     bool pomodoro_initialized    = false;
 
-    error                        = app_network_init();
+    esp_err_t error              = app_network_init();
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "初始化网络 Application 失败: %s", esp_err_to_name(error));

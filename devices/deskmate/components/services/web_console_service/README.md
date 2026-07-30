@@ -1,8 +1,8 @@
 # `web_console_service`
 
-> `web_console_service` 是 Service 层的本地认证网页控制台；当前实现仅开放 Files 能力，统一
-> 管理端口 80 HTTPD、单会话凭据、URI 入口关闭、handler 排空和文件传输资源，不决定产品何时
-> 开放网页文件管理。
+> `web_console_service` 是 Service 层的可移植本地认证网页控制台。Console Core 始终提供
+> HTTPD、单会话凭据、URI 入口关闭与 handler 排空；可选 Files 模块通过调用方注入的存储
+> Provider 提供文件管理，不决定产品何时开放控制台。
 
 ## 1. 定位
 
@@ -10,7 +10,7 @@
 - 进入理由：本组件独占 HTTPD、认证状态和文件传输共享资源，并为停止过程提供有界排空与失败
   终态。
 - 触发方：由目标 Application 或 Composition Root 按产品时机调用生命周期 API。
-- 主要输出：端口 80 的本地 HTTP 响应，以及可复制的服务运行摘要、会话和传输事实。
+- 主要输出：配置端口上的本地 HTTP 响应，以及可复制的服务运行摘要。
 
 ## 2. 职责边界
 
@@ -26,12 +26,13 @@
 
 Core 与 Files 通过组件私有的领域路由描述和生命周期钩子协作。Files 不注册或注销
 `httpd_uri_t`，也不重复做 handler 记账；Core 不直接持有传输状态、文件缓冲区或事务恢复
-实现。当前阶段 Files 仍始终编入组件，尚无 Kconfig 裁剪开关。
+实现。`CONFIG_WEB_CONSOLE_FILES` 关闭时只编译 Core 和最小登录页，不链接 Files 源码或
+调用 Files 的 `heap` API；ESP-IDF 自身的公共运行时依赖不在此裁剪边界内。
 
 不负责：
 
 - 不启动 Wi-Fi、AP 或 Portal，不决定服务开放时机、产品降级、重试或重启策略。
-- 不挂载或卸载 SD 卡，不调用下层存储组件的生命周期 API。
+- 不挂载或卸载存储，不调用存储 Provider 的生命周期 API。
 - 不把访问码嵌入 HTML 或写入日志；访问码如何在设备 UI 上呈现由上层决定。
 - 不提供配置编辑、递归目录删除、目录移动/重命名、WebDAV、WebSocket、CORS、LRU 会话
   淘汰或长期后台轮询 Task。
@@ -42,10 +43,10 @@ Core 与 Files 通过组件私有的领域路由描述和生命周期钩子协�
 端到端产品流程为：
 
 ```text
-设备设置页选择“网页文件管理”
-  → app_web_file 检查 /sdcard
-  → app_network 授予 APP_NETWORK_LEASE_WEB_FILE
-  → web_console_service 恢复事务并启动 HTTPD
+产品入口请求启动网页控制台
+  → Application 检查可选存储并取得产品网络租约
+  → Application 用端口及可选 Files Provider 初始化 Service
+  → web_console_service 恢复可选 Files 事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → handler 串行浏览、下载、事务上传或执行单项文件变更
   → 设备返回时 Service 安全停止后释放网络租约
@@ -80,7 +81,7 @@ POST /api/session（text/plain，正文恰好 6 字节）
 | `POST /api/session` | `{"token":"<32 位小写十六进制>"}` | 仅接受以 `text/plain` 开头的 Content-Type 和 6 字节正文；响应 `no-store` |
 | `GET /api/files?path=/...` | 目录容量和逐项 `entries` JSON | 精确 `Bearer ` token、严格单一 `path` query、双遍历后分块发送 |
 | `GET /api/file?path=/...` | 常规文件下载 | 精确 `Bearer ` token、固定 `Content-Length` 原始分块、UTF-8 `filename*` |
-| `PUT /api/file?path=/...` | `201 Created` 或覆盖时 `200 OK` | 原始请求体、500 MiB 上限、覆盖确认、1 MiB 空间余量和可恢复提交 |
+| `PUT /api/file?path=/...` | `201 Created` 或覆盖时 `200 OK` | 原始请求体、配置上限、覆盖确认、配置空间余量和可恢复提交 |
 | `PUT /api/directory?path=/...` | `201 Created` | 目标必须不是根目录、不能已存在，父目录必须真实存在 |
 | `PATCH /api/file?path=/...&destination=/...` | `200 OK` | 仅移动或重命名常规文件；目标不得存在且父目录必须存在 |
 | `DELETE /api/file?path=/...` | `200 OK` | 只删除常规文件或空目录；禁止根目录、保留目录和递归删除 |
@@ -119,7 +120,7 @@ I/O、目录遍历、等待以及 HTTPD API 调用都在锁外执行。
 
 目录浏览在任何成功响应头发送前验证全部可见项，包括名称 UTF-8、控制字符、文件
 类型、`stat` 和单项 JSON 长度。第二遍不保存也不排序目录项；目录在两遍之间发生变化时，
-第二遍仍会重复安全校验，失败即中止连接。逻辑根目录不暴露大小写变体的 `.deskmate-web`。
+第二遍仍会重复安全校验，失败即中止连接。逻辑根目录不暴露大小写变体的配置工作区名称。
 
 文件下载只接受常规文件。路径 `stat` 通过后，打开的流必须再次通过 `fstat(fileno(file))`
 确认仍为常规文件且长度与预检一致，之后才发送响应。下载使用有界扩展名表选择 MIME，并构造
@@ -131,15 +132,14 @@ chunked。短读、客户端断开、发送失败或 Service 停止都会立即�
 传输缓冲区和活动 socket。
 
 上传先完成 Bearer 授权与单传输占用，再严格读取 `Content-Length`、唯一 `path` query 和
-大小写敏感的 `X-DeskMate-Overwrite: confirm`。目标父目录必须真实存在且可打开，目标只允许
-不存在或常规文件；同名文件未确认时在接收正文前返回 `409`。空间检查使用
-`system_filesystem_get_info_copy()`，要求可用字节至少为正文长度加 1 MiB；ESP-IDF v6.0.1
-的 `statvfs()` 是固定返回 `ENOSYS` 的占位实现，因此不作为容量来源。全部预检通过后才创建
-事务目录并分配共享 32 KiB PSRAM 缓冲区。
+大小写敏感的 `X-Web-Console-Overwrite: confirm`。目标父目录必须真实存在且可打开，目标只
+允许不存在或常规文件；同名文件未确认时在接收正文前返回 `409`。空间检查在 Service 锁外
+调用 Storage Provider 的容量快照回调，要求可用字节至少为正文长度加配置保留量。全部预检
+通过后才创建事务目录并分配共享 32 KiB PSRAM 缓冲区。
 
-正文独占写入 `/sdcard/.deskmate-web/upload.part`，每块 `fwrite()` 必须完整消费；完成后依次
-执行 `fflush()`、`fsync()`、关闭和精确长度复核。新文件直接把 `.part` 重命名到目标。覆盖
-文件使用四行 UTF-8 journal，按 `PREPARED → BACKUP_MOVED → TARGET_COMMITTED` 推进：
+正文独占写入“配置挂载根/配置工作区/upload.part”，每块 `fwrite()` 必须完整消费；完成后
+依次执行 `fflush()`、`fsync()`、关闭和精确长度复核。新文件直接把 `.part` 重命名到目标。
+覆盖文件使用四行 UTF-8 journal，按 `PREPARED → BACKUP_MOVED → TARGET_COMMITTED` 推进：
 
 ```text
 同步 upload.part
@@ -172,15 +172,17 @@ journal 只包含版本、阶段、预期长度和规范逻辑目标路径。每
 空间。
 
 目录创建、常规文件重命名/移动、常规文件删除和空目录删除与上传共用认证和唯一传输守卫，但
-不分配 32 KiB PSRAM。每个请求只提交一个 FatFs 目录项变更：创建前复核父目录和目标不存在；
+不分配 32 KiB PSRAM。每个请求只提交一个 VFS 目录项变更：创建前复核父目录和目标不存在；
 移动前复核源是常规文件、目标父目录存在且目标不存在；删除目录前完整遍历并只允许空目录。
-根目录和路径内核保留的 `.deskmate-web` 始终拒绝修改。浏览器多选移动或删除通过顺序调用单项
-接口实现，因此可能部分成功；失败项目会逐项报告，不声明跨多个文件的原子事务。
+根目录和路径内核保留的配置工作区始终拒绝修改。浏览器多选移动或删除通过顺序调用单项接口
+实现，因此可能部分成功；失败项目会逐项报告，不声明跨多个文件的原子事务。
 
-本组件的路径安全边界仅适用于固定 `SYSTEM_FILESYSTEM_MOUNT_POINT`（`/sdcard`）上的
-ESP-IDF FatFs；FatFs 不支持符号链接，其 VFS `stat` 只将目录和常规文件报告为 `S_IFDIR`
-或 `S_IFREG`。不得把本实现原样复用于支持符号链接的挂载点，因为当前 SDK 没有在本数据流中使用
-`openat(O_NOFOLLOW)` / `fstatat()` / `fdopendir()` 建立逐段无跟随解析。
+调用方必须注入绝对、规范且不带结尾斜杠的 VFS 挂载根，并保证该文件系统不支持符号链接，
+或以其他方式提供等价的无跟随保证。当前路径内核没有使用 `openat(O_NOFOLLOW)` /
+`fstatat()` / `fdopendir()` 建立逐段无跟随解析，因此不得把本实现直接接到可创建符号链接的
+挂载点。挂载根还必须在 Service 完成反初始化前保持稳定；调用方必须串行化 Console 外部
+写入，防止新建或移动操作在“确认目标不存在”与 `rename()` 之间被其他写入者抢占。Files
+依赖这一独占写入契约实现 no-replace 语义，不能仅凭某个 VFS 的 `rename()` 默认行为保证。
 
 ## 4. 依赖关系
 
@@ -191,32 +193,34 @@ ESP-IDF FatFs；FatFs 不支持符号链接，其 VFS `stat` 只将目录和常�
 | 私有调用 | `esp_system` | `esp_fill_random()` 生成访问码和 token |
 | 私有调用 | `esp_timer` | 登录锁定、会话空闲失效和停止期限的单调时间 |
 | 私有调用 | `freertos` | Service 状态锁、完成信号量和一次性 HTTPD 清理 Task |
-| 私有调用 | `heap` | 分配内部 RAM 请求工作区和共享 32 KiB PSRAM 传输缓冲区 |
-| 私有调用 | `sys` | 映射固定 SD 挂载点并查询文件系统总容量和可用容量 |
+| 可选私有调用 | `heap` | Files 开启时分配内部 RAM 请求工作区和共享 32 KiB PSRAM 传输缓冲区 |
 | 被调用 | 目标 Application / Composition Root | 按产品时机装配生命周期并读取运行摘要 |
 
-本组件不初始化这些依赖，也不拥有 SD 卡或网络链路的生命周期。
+本组件不初始化这些依赖，也不拥有存储 Provider 或网络链路的生命周期。Files 只使用 C/POSIX
+文件 API 和注入的容量快照，不依赖产品 `sys` 组件。
 
 ## 5. 公共接口
 
-公共头文件：[`include/web_console_service.h`](include/web_console_service.h)
+公共头文件：[`include/web_console_service.h`](include/web_console_service.h)、
+[`include/web_console_files.h`](include/web_console_files.h)
 
 | API | 同步性 | 作用与完成语义 |
 | --- | --- | --- |
-| `web_console_service_init()` | 同步 | 创建固定锁与三个完成信号量，不访问 SD 卡、不启动 HTTPD |
-| `web_console_service_start()` | 同步 | 先恢复残留上传事务，再生成新访问码并在全部 handler 注册成功后进入 `RUNNING` |
+| `web_console_service_init_borrow(config)` | 同步 | 复制端口、路径、限额及回调，借用 Provider context，并创建固定同步资源 |
+| `web_console_service_start()` | 同步 | 先恢复可选 Files 残留事务，再生成新访问码并在全部 handler 注册成功后进入 `RUNNING` |
 | `web_console_service_stop(timeout_ms)` | 同步有界等待 | 三阶段共用总期限；成功时 HTTPD、清理 Task 和运行期资源已释放 |
 | `web_console_service_get_status_copy()` | 同步 | 在短锁内复制完整有界快照，不返回内部指针 |
 | `web_console_service_deinit()` | 同步 | 仅在 HTTPD、handler、传输和缓冲区全部消失后释放固定同步资源 |
 
 `web_console_service_status_t.access_code` 是为上层本地呈现而提供的秘密副本，仅在运行态非空；调用方
-不得记录或远程转发它。
+不得记录或远程转发它。配置中的字符串及回调函数指针在初始化期间复制；Provider `context`
+由调用方持有并必须保持有效，直到 `web_console_service_deinit()` 成功。
 
 ## 6. 状态、生命周期与并发
 
 ```text
 UNINITIALIZED
-    └─ init ─→ INITIALIZED
+    └─ init_borrow ─→ INITIALIZED
                    └─ start ─→ STARTING ─→ RUNNING
                                               └─ stop ─→ STOPPING ─→ INITIALIZED
 INITIALIZED ── deinit ─→ UNINITIALIZED
@@ -274,12 +278,13 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 
 ## 8. 配置与文件
 
-- 固定 HTTP 端口：`80`。
-- `max_uri_handlers = 8`，当前注册 `GET /`、`POST /api/session`、`GET /api/files`、
-  `GET/PUT/PATCH/DELETE /api/file` 和 `PUT /api/directory`。
+- HTTP 端口：由 `web_console_service_config_t.server_port` 注入。
+- Files 开启时 `max_uri_handlers = 8`，注册两条 Core 路由和六条 Files 路由；Files 关闭时
+  `max_uri_handlers = 2`，只注册 `GET /` 与 `POST /api/session`。
 - `max_open_sockets = 1`；HTTPD 另行占用 listen 和两个控制 socket。
 - recv/send timeout：各 5 秒；LRU purge 关闭；不注册 WebSocket。
-- 构建配置：无 Kconfig 开关。
+- 构建配置：`CONFIG_WEB_CONSOLE_FILES` 默认开启；关闭后使用 `web/core.html`，不编译
+  `src/files/`。
 - [`src/core/web_console_service.cpp`](src/core/web_console_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
 - [`src/core/web_console_service_http.cpp`](src/core/web_console_service_http.cpp)：首页、认证会话、静态
   路由槽、统一 dispatcher 与入口关闭。
