@@ -1,0 +1,6 @@
+.status-updated {
+  min-height: 1.2em;
+  margin: -6px 0 12px;
+  color: var(--muted-ink);
+  font-size: .86rem;
+}

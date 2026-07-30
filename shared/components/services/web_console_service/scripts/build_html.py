@@ -1,12 +1,75 @@
-"""将网页控制台页面压缩为 ESP-IDF 组件使用的 C 源文件。"""
+"""组装并压缩 ESP-IDF 网页控制台的公共壳与可选模块。"""
 
 import argparse
 import gzip
 import pathlib
 import re
+from collections.abc import Iterable, Sequence
 
 
 PRESERVE_TAGS = ("pre", "code", "textarea", "script", "style")
+MODULE_ORDER = ("files", "settings", "status")
+FIELDS_MODULE_USERS = frozenset(("settings", "status"))
+STYLE_PLACEHOLDER = "<!-- WEB_CONSOLE_STYLES -->"
+MODULE_PLACEHOLDER = "<!-- WEB_CONSOLE_MODULES -->"
+SCRIPT_PLACEHOLDER = "<!-- WEB_CONSOLE_SCRIPTS -->"
+
+
+def normalize_modules(modules: Iterable[str]) -> tuple[str, ...]:
+    """校验模块列表并按固件约定的固定顺序返回。"""
+    requested = tuple(modules)
+    unknown = sorted(set(requested).difference(MODULE_ORDER))
+    if unknown:
+        raise ValueError(f"未知网页控制台模块：{', '.join(unknown)}")
+
+    duplicates = sorted(module for module in set(requested) if requested.count(module) > 1)
+    if duplicates:
+        raise ValueError(f"网页控制台模块重复：{', '.join(duplicates)}")
+
+    return tuple(module for module in MODULE_ORDER if module in requested)
+
+
+def resolve_cli_modules(modules: Sequence[str] | None) -> tuple[str, ...]:
+    """解析显式构建模块；未传入模块时生成纯 Core 页面。"""
+    return normalize_modules(()) if modules is None else normalize_modules(modules)
+
+
+def read_fragment(web_root: pathlib.Path, relative_path: str) -> str:
+    """读取一个构建期网页片段。"""
+    return (web_root / relative_path).read_text(encoding="utf-8").strip()
+
+
+def assemble_html(input_path: pathlib.Path, modules: Iterable[str]) -> str:
+    """将公共壳、公共资源和可选模块组装为单页 HTML。"""
+    enabled_modules = normalize_modules(modules)
+    web_root = input_path.parent
+    html = input_path.read_text(encoding="utf-8")
+
+    for placeholder in (STYLE_PLACEHOLDER, MODULE_PLACEHOLDER, SCRIPT_PLACEHOLDER):
+        if html.count(placeholder) != 1:
+            raise ValueError(f"网页模板必须且只能包含一个占位符：{placeholder}")
+
+    styles = [read_fragment(web_root, "common.css")]
+    module_markup: list[str] = []
+    scripts = [read_fragment(web_root, "common.js")]
+
+    for module in enabled_modules:
+        styles.append(read_fragment(web_root, f"modules/{module}.css"))
+        module_markup.append(read_fragment(web_root, f"modules/{module}.html"))
+
+    if FIELDS_MODULE_USERS.intersection(enabled_modules):
+        styles.append(read_fragment(web_root, "modules/fields.css"))
+        scripts.append(read_fragment(web_root, "modules/fields.js"))
+
+    for module in enabled_modules:
+        scripts.append(read_fragment(web_root, f"modules/{module}.js"))
+
+    joined_styles = "\n".join(styles)
+    joined_scripts = "\n".join(scripts)
+    html = html.replace(STYLE_PLACEHOLDER, f"<style>\n{joined_styles}\n</style>")
+    html = html.replace(MODULE_PLACEHOLDER, "\n".join(module_markup))
+    html = html.replace(SCRIPT_PLACEHOLDER, f"<script>\n{joined_scripts}\n</script>")
+    return html
 
 
 def minify_html(html: str) -> str:
@@ -27,30 +90,47 @@ def minify_html(html: str) -> str:
     return html
 
 
+def compress_html(html: str) -> bytes:
+    """以确定性 gzip 参数压缩组装后的页面。"""
+    return gzip.compress(minify_html(html).encode("utf-8"), compresslevel=9, mtime=0)
+
+
 def render_c_source(compressed: bytes) -> str:
     """将 gzip 数据渲染为固定格式的 C 源码。"""
     lines = [
         "/* 由 scripts/build_html.py 自动生成，请勿手工修改。 */",
         '#include "web_console_service_web.h"',
         "",
-        "const uint8_t web_file_index_gz[] = {",
+        "const uint8_t web_console_index_gz[] = {",
     ]
     for offset in range(0, len(compressed), 16):
         values = ", ".join(f"0x{byte:02x}" for byte in compressed[offset : offset + 16])
         lines.append(f"    {values},")
-    lines.extend(("};", "const size_t web_file_index_gz_size = sizeof(web_file_index_gz);", ""))
+    lines.extend(("};", "const size_t web_console_index_gz_size = sizeof(web_console_index_gz);", ""))
     return "\n".join(lines)
 
 
 def main() -> None:
-    """读取页面并写出可由组件编译的 gzip C 数组。"""
+    """读取页面片段并写出可由组件编译的 gzip C 数组。"""
     parser = argparse.ArgumentParser(description="生成内嵌的 gzip 网页控制台页面")
     parser.add_argument("--input", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
+    parser.add_argument(
+        "--module",
+        action="append",
+        dest="modules",
+        metavar="NAME",
+        help="启用网页模块；可重复传入，支持 files、settings、status",
+    )
     arguments = parser.parse_args()
 
-    html = arguments.input.read_text(encoding="utf-8")
-    compressed = gzip.compress(minify_html(html).encode("utf-8"), compresslevel=9, mtime=0)
+    try:
+        modules = resolve_cli_modules(arguments.modules)
+        html = assemble_html(arguments.input, modules)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+
+    compressed = compress_html(html)
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     arguments.output.write_text(render_c_source(compressed), encoding="utf-8", newline="\n")
 

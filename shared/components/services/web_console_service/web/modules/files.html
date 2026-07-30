@@ -1,0 +1,98 @@
+<!--
+  Adapted from Crosslink src/network/html/FilesPage.html.
+  Copyright (c) 2025 Dave Allie, MIT License.
+  Modified for authenticated embedded HTTP file management.
+-->
+<section id="filesView" class="hidden" data-web-console-module="files">
+  <h2 class="module-title">文件管理</h2>
+  <div class="module-toolbar files-toolbar">
+    <div class="upload">
+      <label for="fileInput">上传到当前目录</label>
+      <input id="fileInput" type="file">
+    </div>
+    <button id="uploadButton" type="button">上传文件</button>
+    <button id="cancelUploadButton" class="secondary" type="button" disabled>取消上传</button>
+    <button id="retryUploadButton" class="secondary hidden" type="button">重试失败文件</button>
+  </div>
+  <p id="fileMessage" class="notice" role="alert"></p>
+  <nav id="breadcrumbs" class="breadcrumbs" aria-label="当前目录"></nav>
+  <section class="storage" aria-label="存储容量">
+    <div class="storage-copy">
+      <strong>存储容量</strong>
+      <span id="storageText">正在读取…</span>
+    </div>
+    <div class="storage-track" aria-hidden="true"><div id="storageBar"></div></div>
+  </section>
+
+  <div class="manager-toolbar">
+    <div>
+      <label for="filterInput">名称筛选</label>
+      <input id="filterInput" type="text" placeholder="输入文件或目录名称">
+    </div>
+    <div>
+      <label for="sortSelect">排序方式</label>
+      <select id="sortSelect">
+        <option value="name-asc">名称 A → Z</option>
+        <option value="name-desc">名称 Z → A</option>
+        <option value="size-desc">大小从大到小</option>
+        <option value="size-asc">大小从小到大</option>
+        <option value="type">类型</option>
+      </select>
+    </div>
+    <div class="manager-actions">
+      <span id="selectionText" class="selection-copy">未选择项目</span>
+      <button id="newFolderButton" class="secondary" type="button">新建目录</button>
+      <button id="renameButton" class="secondary" type="button" disabled>重命名</button>
+      <button id="moveButton" class="secondary" type="button" disabled>移动所选</button>
+      <button id="deleteButton" class="danger" type="button" disabled>删除所选</button>
+    </div>
+  </div>
+
+  <section id="folderEditor" class="action-panel hidden">
+    <form id="folderForm">
+      <label for="folderName">在当前目录创建新目录
+        <input id="folderName" type="text" maxlength="255" autocomplete="off" placeholder="目录名称">
+      </label>
+      <button type="submit">创建</button>
+      <button class="secondary editorCancel" type="button">取消</button>
+    </form>
+  </section>
+  <section id="renameEditor" class="action-panel hidden">
+    <form id="renameForm">
+      <label for="renameName">输入新的文件名
+        <input id="renameName" type="text" maxlength="255" autocomplete="off">
+      </label>
+      <button type="submit">保存</button>
+      <button class="secondary editorCancel" type="button">取消</button>
+    </form>
+  </section>
+  <section id="moveEditor" class="action-panel hidden">
+    <form id="moveForm">
+      <label for="moveDestination">目标目录绝对路径
+        <input id="moveDestination" type="text" maxlength="511" autocomplete="off"
+               list="moveDestinations" placeholder="/目标目录">
+        <datalist id="moveDestinations"></datalist>
+      </label>
+      <button type="submit">移动</button>
+      <button class="secondary editorCancel" type="button">取消</button>
+    </form>
+  </section>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="check-cell">
+            <input id="selectAll" type="checkbox" aria-label="选择当前筛选结果">
+          </th>
+          <th>名称</th>
+          <th>类型</th>
+          <th>大小</th>
+        </tr>
+      </thead>
+      <tbody id="fileRows"></tbody>
+    </table>
+  </div>
+  <div class="progress" aria-hidden="true"><div id="progressBar"></div></div>
+  <p id="progressText" aria-live="polite"></p>
+</section>

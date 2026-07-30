@@ -5,10 +5,12 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
 #include "web_console_files.h"
+#include "web_console_provider.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -42,27 +44,33 @@ extern "C"
     /**
  * @brief 网页控制台 Service 初始化配置
  *
- * `files` 指向的配置只在初始化调用期间读取；其中 Storage Provider 的 `context` 按
- * `web_console_files_storage_provider_t` 契约长期借用。
+ * Files 配置、Settings/Status Provider 数组、字段元数据、描述字符串和回调函数只在
+ * 初始化调用期间读取并复制。Files Storage Provider 与 Settings/Status Provider 的
+ * `context` 按各自契约长期借用到 `deinit()` 成功。
  */
     typedef struct
     {
         uint16_t                          server_port; /**< HTTP 服务监听端口 */
         const web_console_files_config_t *files;      /**< Files 配置；裁剪 Files 时必须为空 */
+        const web_console_settings_provider_t *settings_providers; /**< Settings Provider 数组 */
+        size_t settings_provider_count; /**< Settings Provider 数量；裁剪模块时必须为零 */
+        const web_console_status_provider_t *status_providers; /**< Status Provider 数组 */
+        size_t status_provider_count; /**< Status Provider 数量；裁剪模块时必须为零 */
     } web_console_service_config_t;
 
     /**
- * @brief 装配可选 Files Provider 并初始化网页控制台 Service 的固定同步资源
+ * @brief 装配可选 Provider 并初始化网页控制台 Service 的固定同步资源
  *
- * 本同步函数只创建 Service 自有的锁、URI 入口关闭信号量、handler 排空信号量和 HTTPD
- * 清理完成信号量，不访问文件系统、不分配文件传输缓冲区，也不启动 HTTPD。配置字符串和
- * Provider 函数在调用期间复制；Provider `context` 长期借用到 `deinit()` 成功。只能从
+ * 本同步函数创建 Service 自有的锁、URI 入口关闭信号量、handler 排空信号量和 HTTPD
+ * 清理完成信号量，并按实际装配数量动态分配、深复制 Provider 字符串、字段元数据和枚举表；
+ * 它不调用 Provider、不访问文件系统或持久化、不分配文件传输缓冲区，也不启动 HTTPD。
+ * Provider 函数指针随描述符复制，各 Provider `context` 长期借用到 `deinit()` 成功。只能从
  * 普通 Task 上下文调用，且调用方不得让本函数与其他生命周期 API 并发执行。
  *
  * @param[in] config 初始化配置
  * @return ESP_OK 初始化完成；ESP_ERR_INVALID_ARG 配置、端口或 Files 配置无效；
  *         ESP_ERR_INVALID_STATE 已初始化或生命周期状态不允许；
- *         ESP_ERR_NO_MEM 无法创建同步资源
+ *         ESP_ERR_NO_MEM 无法创建同步资源或复制 Provider 元数据
  */
     esp_err_t web_console_service_init_borrow(const web_console_service_config_t *config);
 

@@ -8,8 +8,8 @@ extern "C"
 {
 #endif
 
-extern const uint8_t web_file_index_gz[];
-extern const size_t  web_file_index_gz_size;
+extern const uint8_t web_console_index_gz[];
+extern const size_t  web_console_index_gz_size;
 
 #ifdef __cplusplus
 }

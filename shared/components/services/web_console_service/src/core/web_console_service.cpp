@@ -18,6 +18,9 @@
 #if CONFIG_WEB_CONSOLE_FILES
 #include "web_console_files_internal.hpp"
 #endif
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#include "web_console_provider_internal.hpp"
+#endif
 
 #define WEB_FILE_HTTPD_MAX_OPEN_SOCKETS    1U
 #define WEB_FILE_HTTPD_MAX_URI_HANDLERS    WEB_CONSOLE_ROUTE_COUNT
@@ -26,7 +29,7 @@
 #define WEB_FILE_START_ROLLBACK_TIMEOUT_MS 6000U
 
 static_assert(WEB_FILE_HTTPD_MAX_URI_HANDLERS == WEB_CONSOLE_ROUTE_COUNT,
-              "HTTPD handler 上限必须覆盖全部 Console Core 与 Files 路由");
+              "HTTPD handler 上限必须覆盖全部 Console Core 与可选模块路由");
 
 static const char *TAG = "web_console_service";
 
@@ -173,6 +176,18 @@ esp_err_t web_console_service_init_borrow(const web_console_service_config_t *co
         return ESP_ERR_INVALID_ARG;
     }
 #endif
+#if !CONFIG_WEB_CONSOLE_SETTINGS
+    if (config->settings_providers != NULL || config->settings_provider_count != 0U)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+#endif
+#if !CONFIG_WEB_CONSOLE_STATUS
+    if (config->status_providers != NULL || config->status_provider_count != 0U)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+#endif
 
     if (s_context.state != WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED || s_context.lock != NULL
         || s_context.handlers_drained != NULL || s_context.ingress_closed != NULL
@@ -217,12 +232,34 @@ esp_err_t web_console_service_init_borrow(const web_console_service_config_t *co
     s_context.server_port            = config->server_port;
     s_context.last_error             = ESP_OK;
     s_context.ingress_close_error    = ESP_OK;
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+    web_console_provider_registry_reset();
+    const esp_err_t provider_configure_error =
+        web_console_provider_registry_configure_copy(config->settings_providers,
+                                                     config->settings_provider_count,
+                                                     config->status_providers,
+                                                     config->status_provider_count);
+    if (provider_configure_error != ESP_OK)
+    {
+        web_console_provider_registry_reset();
+        memset(&s_context, 0, sizeof(s_context));
+        s_context.state = WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED;
+        vSemaphoreDelete(httpd_stop_completed);
+        vSemaphoreDelete(ingress_closed);
+        vSemaphoreDelete(handlers_drained);
+        vSemaphoreDelete(lock);
+        return provider_configure_error;
+    }
+#endif
 #if CONFIG_WEB_CONSOLE_FILES
     web_console_files_reset_context();
     const esp_err_t configure_error = web_console_files_configure_borrow(config->files);
     if (configure_error != ESP_OK)
     {
         web_console_files_reset_context();
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+        web_console_provider_registry_reset();
+#endif
         memset(&s_context, 0, sizeof(s_context));
         s_context.state = WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED;
         vSemaphoreDelete(httpd_stop_completed);
@@ -695,6 +732,9 @@ esp_err_t web_console_service_deinit(void)
     s_context.state = WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED;
 #if CONFIG_WEB_CONSOLE_FILES
     web_console_files_reset_context();
+#endif
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+    web_console_provider_registry_reset();
 #endif
     return ESP_OK;
 }

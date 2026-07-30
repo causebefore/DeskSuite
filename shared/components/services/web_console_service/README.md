@@ -1,14 +1,15 @@
 # `web_console_service`
 
 > `web_console_service` 是 Service 层的可移植本地认证网页控制台。Console Core 始终提供
-> HTTPD、单会话凭据、URI 入口关闭与 handler 排空；可选 Files 模块通过调用方注入的存储
-> Provider 提供文件管理，不决定产品何时开放控制台。
+> HTTPD、单会话凭据、能力发现、URI 入口关闭与 handler 排空；Files、Settings、Status
+> 是彼此可裁剪的可选模块。产品通过 Storage / Settings / Status Provider 注入能力，组件
+> 不决定控制台何时开放，也不拥有产品配置、状态或持久化。
 
 ## 1. 定位
 
 - 层级：Service。
-- 进入理由：本组件独占 HTTPD、认证状态和文件传输共享资源，并为停止过程提供有界排空与失败
-  终态。
+- 进入理由：本组件独占 HTTPD、认证状态、路由集合和可选文件传输共享资源，并为停止过程提供
+  有界排空与失败终态。
 - 触发方：由目标 Application 或 Composition Root 按产品时机调用生命周期 API。
 - 主要输出：配置端口上的本地 HTTP 响应，以及可复制的服务运行摘要。
 
@@ -19,23 +20,28 @@
 - Console Core 创建和停止 HTTPD，聚合精确领域路由，并通过统一 dispatcher 为全部项目
   handler 做进入/退出记账。
 - Console Core 每次启动生成新的六位访问码，执行失败锁定、单会话 token 创建和空闲失效。
+- Console Core 只向认证会话公开本次构建且实际装配的模块、分区和字段元数据。
 - Console Core 在停止时先拒绝新请求、清除秘密、关闭客户端，再由 HTTPD Task 逐路由注销
   URI 并等待活动 handler 排空，最后由一次性清理 Task 完成合法 HTTPD 销毁。
 - 内部 Files 模块拥有目录浏览、下载、事务式上传和短时文件变更 handler，以及单传输状态、
   PSRAM 缓冲区和上传恢复 journal。
+- 内部 Settings/Status HTTP 映射负责通用 JSON 编解码、字段类型/范围/访问属性校验、版本化
+  异步更新协议和 Provider 输出契约校验；领域所有者继续负责语义校验、排队、持久化、生效和
+  最终结果。
 
-Core 与 Files 通过组件私有的领域路由描述和生命周期钩子协作。Files 不注册或注销
-`httpd_uri_t`，也不重复做 handler 记账；Core 不直接持有传输状态、文件缓冲区或事务恢复
-实现。`CONFIG_WEB_CONSOLE_FILES` 关闭时只编译 Core 和最小登录页，不链接 Files 源码或
-调用 Files 的 `heap` API；ESP-IDF 自身的公共运行时依赖不在此裁剪边界内。
+Core 与可选模块通过组件私有的领域路由描述协作。模块不注册或注销 `httpd_uri_t`，也不重复
+做 handler 记账；Core 不直接持有文件传输状态或产品领域状态。构建脚本从唯一公共页面壳装配
+已开启模块的 HTML/CSS/JS；关闭某模块时，其领域源码、路由和网页片段都不进入固件。
 
 不负责：
 
 - 不启动 Wi-Fi、AP 或 Portal，不决定服务开放时机、产品降级、重试或重启策略。
 - 不挂载或卸载存储，不调用存储 Provider 的生命周期 API。
 - 不把访问码嵌入 HTML 或写入日志；访问码如何在设备 UI 上呈现由上层决定。
-- 不提供配置编辑、递归目录删除、目录移动/重命名、WebDAV、WebSocket、CORS、LRU 会话
-  淘汰或长期后台轮询 Task。
+- 不定义产品设置、不直接访问产品 NVS、不执行 Wi-Fi 重连/设备重启等领域动作，也不采集
+  产品状态；这些事实全部来自注入 Provider。
+- 不提供递归目录删除、目录移动/重命名、WebDAV、WebSocket、CORS、LRU 会话淘汰或长期
+  后台轮询 Task。
 - 不对目录项排序或在内存建立目录项数组；不为目录浏览分配 32 KiB 文件数据缓冲区。
 
 ## 3. 主要流程
@@ -45,10 +51,11 @@ Core 与 Files 通过组件私有的领域路由描述和生命周期钩子协�
 ```text
 产品入口请求启动网页控制台
   → Application 检查可选存储并取得产品网络租约
-  → Application 用端口及可选 Files Provider 初始化 Service
+  → Composition Root 用端口和本产品实际拥有的 Provider 初始化 Service
   → web_console_service 恢复可选 Files 事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
-  → handler 串行浏览、下载、事务上传或执行单项文件变更
+  → 浏览器读取 capabilities，只呈现实际装配模块
+  → handler 读取状态、提交版本化设置更新，或执行可选文件操作
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
@@ -71,6 +78,13 @@ POST /api/session（text/plain，正文恰好 6 字节）
     → Service 锁内提交唯一会话
     → 返回 no-store JSON；响应失败时精确撤销本次会话
     → Core dispatcher 退出记账
+
+DELETE /api/session（Bearer token）
+    → Core 锁内原子校验并清除当前 token
+    → 保留本次运行访问码，返回 204，允许重新登录
+
+GET /api/capabilities（Bearer token）
+    → 返回本次构建且实际装配的模块、分区和字段元数据
 ```
 
 当前 HTTP 契约：
@@ -79,6 +93,12 @@ POST /api/session（text/plain，正文恰好 6 字节）
 | --- | --- | --- |
 | `GET /` | gzip 压缩的 `text/html; charset=utf-8` | `Cache-Control: no-store`、`X-Content-Type-Options: nosniff` |
 | `POST /api/session` | `{"token":"<32 位小写十六进制>"}` | 仅接受以 `text/plain` 开头的 Content-Type 和 6 字节正文；响应 `no-store` |
+| `DELETE /api/session` | `204 No Content` | 精确 Bearer token；在 Core 锁内原子关闭当前会话 |
+| `GET /api/capabilities` | 构建模块及实际 Provider 元数据 | 精确 Bearer token；秘密字段只公开访问属性 |
+| `GET /api/settings?section=...` | 分区版本和完整公开值 | Provider 回调在 Core 锁外；版本编码为十进制字符串 |
+| `PATCH /api/settings?section=...` | `202 Accepted` 及请求 ID | 2 KiB JSON 上限；通用校验后由所有者复制并异步受理 |
+| `GET /api/settings/result?section=...&request=...` | `202` pending 或 `200` 终态 | 请求 ID 与版本均使用无精度损失的十进制字符串 |
+| `GET /api/status?section=...` | 一个只读分区摘要 | Provider 回调只能做有界事实读取和短时所有者加锁 |
 | `GET /api/files?path=/...` | 目录容量和逐项 `entries` JSON | 精确 `Bearer ` token、严格单一 `path` query、双遍历后分块发送 |
 | `GET /api/file?path=/...` | 常规文件下载 | 精确 `Bearer ` token、固定 `Content-Length` 原始分块、UTF-8 `filename*` |
 | `PUT /api/file?path=/...` | `201 Created` 或覆盖时 `200 OK` | 原始请求体、配置上限、覆盖确认、配置空间余量和可恢复提交 |
@@ -96,7 +116,38 @@ POST /api/session（text/plain，正文恰好 6 字节）
 起算；已有传输期间到达的并发请求不会因起始授权时间已超过十分钟而清除同一会话，而是先完成
 token 校验再返回单传输忙。停止流程已清空的会话不会被传输释放路径重新创建或恢复。
 
-### 3.2 文件数据流
+### 3.2 Settings 与 Status 数据流
+
+```text
+初始化
+  → 校验分区/字段 ID、UTF-8 标签、类型、范围、访问属性和回调
+  → 按实际装配量深复制字符串、字段和枚举元数据
+  → 仅长期借用 Provider context
+
+读取
+  → Core 鉴权并释放 Core 锁
+  → 调用所有者 get_*_copy 写入 Console 提供的有界数组
+  → 校验 Provider 未替换缓冲区、字段数/类型/范围/UTF-8/秘密脱敏完整
+  → JSON 编码并发送
+
+更新
+  → 严格解析 expectedVersion + changes
+  → 通用类型、范围、步长、枚举、只读和秘密约束校验
+  → 所有者 validate_update 做无副作用早期校验
+  → 所有者 request_update_copy 复制请求并重新检查版本或在执行点原子重检
+  → 返回非零单调 requestId，浏览器查询 pending / succeeded / failed
+```
+
+Settings Provider 必须拥有独立、严格递增且不回绕的设置版本。`validate_update` 不是提交保证；
+真正修改前必须再次比较 `expected_version`，冲突不得覆盖新设置。请求 ID 在同一 Provider
+context 生命周期内不得复用；最终结果至少保留到下一请求被接受。Secret 首版 HTTP 只允许
+报告是否已配置，不读取也不写入秘密原值。
+
+Provider 回调运行在 HTTPD 普通 Task、Core 锁外，只能做有界内存读取、短时所有者加锁或快速
+排队；不得执行网络、文件、NVS 等长 I/O，不得长期等待，也不得回调 Console。Console 不创建
+轮询 Task，异步状态查询由已登录浏览器发起。
+
+### 3.3 文件数据流
 
 文件 handler 的固定边界为：
 
@@ -194,19 +245,26 @@ journal 只包含版本、阶段、预期长度和规范逻辑目标路径。每
 | 私有调用 | `esp_timer` | 登录锁定、会话空闲失效和停止期限的单调时间 |
 | 私有调用 | `freertos` | Service 状态锁、完成信号量和一次性 HTTPD 清理 Task |
 | 可选私有调用 | `heap` | Files 开启时分配内部 RAM 请求工作区和共享 32 KiB PSRAM 传输缓冲区 |
+| 组件清单依赖 | `espressif__cjson` | Settings/Status 开启时才编译并链接，用于严格解析和有界编码 JSON |
 | 被调用 | 目标 Application / Composition Root | 按产品时机装配生命周期并读取运行摘要 |
 
 本组件不初始化这些依赖，也不拥有存储 Provider 或网络链路的生命周期。Files 只使用 C/POSIX
 文件 API 和注入的容量快照，不依赖产品 `sys` 组件。
 
+ESP-IDF Component Manager 在 Kconfig 求值前解析组件清单，因此可移植包始终声明并解析
+`espressif/cjson`；关闭 Settings/Status 会裁掉其源码、头文件路径和链接依赖，但不承诺省略
+依赖解析/下载。若宿主要求连依赖解析也裁掉，应把 Provider HTTP 映射拆成单独发现的组件，
+而不是让 Core 静默依赖宿主已有的 JSON 组件。
+
 ## 5. 公共接口
 
 公共头文件：[`include/web_console_service.h`](include/web_console_service.h)、
+[`include/web_console_provider.h`](include/web_console_provider.h)、
 [`include/web_console_files.h`](include/web_console_files.h)
 
 | API | 同步性 | 作用与完成语义 |
 | --- | --- | --- |
-| `web_console_service_init_borrow(config)` | 同步 | 复制端口、路径、限额及回调，借用 Provider context，并创建固定同步资源 |
+| `web_console_service_init_borrow(config)` | 同步 | 创建固定同步资源，按实际数量深复制 Provider 元数据并借用 context |
 | `web_console_service_start()` | 同步 | 先恢复可选 Files 残留事务，再生成新访问码并在全部 handler 注册成功后进入 `RUNNING` |
 | `web_console_service_stop(timeout_ms)` | 同步有界等待 | 三阶段共用总期限；成功时 HTTPD、清理 Task 和运行期资源已释放 |
 | `web_console_service_get_status_copy()` | 同步 | 在短锁内复制完整有界快照，不返回内部指针 |
@@ -235,6 +293,8 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - `lifecycle_active` 防止两个生命周期操作同时使用同一 HTTPD 句柄。
 - 全部 URI 由 Core 的统一 dispatcher 完成准入检查和 handler 记账；无论领域 handler 成功、
   拒绝还是发送失败，RAII 记账范围都会配对退出，停止期拒绝路径不再发送响应。
+- Provider 注册表只在 `init_borrow()` 配置、在 handler 全部排空后的 `deinit()` 清理；HTTP
+  handler 期间元数据地址稳定，所有 Provider 回调均在 Core 锁外。
 - HTTPD 配置只允许一个客户端会话，认证内核只允许一个未过期会话，文件层只允许一个活动
   传输。
 - `GET /api/files`、`GET/PUT/PATCH/DELETE /api/file` 和 `PUT /api/directory` 共用同一传输
@@ -279,15 +339,18 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 ## 8. 配置与文件
 
 - HTTP 端口：由 `web_console_service_config_t.server_port` 注入。
-- Files 开启时 `max_uri_handlers = 8`，注册两条 Core 路由和六条 Files 路由；Files 关闭时
-  `max_uri_handlers = 2`，只注册 `GET /` 与 `POST /api/session`。
+- 固定 Core 路由 4 条；Files 6 条；Settings 3 条；Status 1 条。完整构建共 14 条，关闭模块
+  时 `max_uri_handlers` 与实际路由数同步缩减。
 - `max_open_sockets = 1`；HTTPD 另行占用 listen 和两个控制 socket。
 - recv/send timeout：各 5 秒；LRU purge 关闭；不注册 WebSocket。
-- 构建配置：`CONFIG_WEB_CONSOLE_FILES` 默认开启；关闭后使用 `web/core.html`，不编译
-  `src/files/`。
+- 构建配置：`CONFIG_WEB_CONSOLE_FILES` 默认开启；`CONFIG_WEB_CONSOLE_SETTINGS` 与
+  `CONFIG_WEB_CONSOLE_STATUS` 默认关闭。构建始终使用 `web/index.html` 唯一公共壳，只把
+  已开启模块的 `web/modules/` 片段组装到 gzip 资源中。
 - [`src/core/web_console_service.cpp`](src/core/web_console_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
 - [`src/core/web_console_service_http.cpp`](src/core/web_console_service_http.cpp)：首页、认证会话、静态
   路由槽、统一 dispatcher 与入口关闭。
+- [`src/core/web_console_http_common.cpp`](src/core/web_console_http_common.cpp)：认证后路由共享的
+  Bearer 校验、会话关闭和 no-store/nosniff JSON 响应。
 - [`src/core/web_console_service_stop_task.cpp`](src/core/web_console_service_stop_task.cpp)：一次性 HTTPD 销毁
   Task 及无界 SDK 调用隔离。
 - [`src/core/web_console_service_auth.cpp`](src/core/web_console_service_auth.cpp)：访问码锁定、单会话和 token 内核。
@@ -300,6 +363,12 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - [`src/files/web_console_service_mutation.cpp`](src/files/web_console_service_mutation.cpp)：目录创建、常规文件移动和删除。
 - [`src/files/web_console_service_transaction.cpp`](src/files/web_console_service_transaction.cpp)：固定上传产物、
   journal 持久化、提交顺序与启动恢复矩阵。
+- [`src/providers/web_console_provider_registry.cpp`](src/providers/web_console_provider_registry.cpp)：
+  Provider 元数据校验、按量深复制、发现与释放。
+- [`src/providers/web_console_provider_http.cpp`](src/providers/web_console_provider_http.cpp)：Capabilities、
+  Settings/Status 的认证 HTTP/JSON 映射和 Provider 输出契约检查。
+- [`scripts/build_html.py`](scripts/build_html.py) 与 [`scripts/test_build_html.py`](scripts/test_build_html.py)：
+  确定性模块装配、gzip 生成及全部八种裁剪组合测试。
 - [`src/core/web_console_service_internal.hpp`](src/core/web_console_service_internal.hpp) 和
   [`src/files/web_console_files_internal.hpp`](src/files/web_console_files_internal.hpp)：Core/Files
   私有状态、领域路由与生命周期协作接口。
@@ -307,7 +376,7 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - [`src/core/web_console_service_web.h`](src/core/web_console_service_web.h)：生成的 gzip 首页符号声明。
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)：随组件移植的 Crosslink 页面许可声明。
 
-Service 手写实现均以 C++ 编译；构建期生成的 `web_file_index.generated.c` 只承载只读 gzip
+Service 手写实现均以 C++ 编译；构建期生成的 `web_console_index.generated.c` 只承载只读 gzip
 字节资源，并通过带 `extern "C"` 的符号声明与 C++ 实现连接。
 
 ## 9. 验证
@@ -315,12 +384,13 @@ Service 手写实现均以 C++ 编译；构建期生成的 `web_file_index.gener
 README 不记录某次任务的构建结果、固件大小或尚未执行的临时状态。变更应按影响范围完成以下
 核查：
 
-- 静态与主机侧：覆盖路径解码、认证、单传输守卫、上传事务恢复、创建/移动/删除约束、生成网页
-  语法和 C/C++ ABI 边界。
+- 静态与主机侧：覆盖路径解码、认证、单传输守卫、上传事务恢复、创建/移动/删除约束、八种
+  模块网页组合、Provider 元数据/输出/JSON 边界和 C/C++ ABI。
 - 固件：仅在用户明确要求时，从 DeskSuite 根目录执行统一命令
   `& .\ds.ps1 build deskmate`；不得绕过脚本调用下层构建工具。
-- 实机：覆盖登录互斥、中英文和特殊名称、下载/上传完整性与边界大小、空间不足、覆盖恢复、
-  创建/移动/删除约束、断网/掉电、安全停止和 STA 重连。
+- 实机：覆盖登录/退出/重新登录、Capabilities 裁剪、设置版本冲突和异步终态、状态读取、
+  中英文和特殊名称、下载/上传完整性与边界大小、空间不足、覆盖恢复、创建/移动/删除约束、
+  断网/掉电、安全停止和 STA 重连。
 - 资源：长传输期间记录内部堆与 PSRAM 的当前/历史最低空闲量；离开页面后确认 HTTPD Task、
   socket、文件句柄、PSRAM、秘密和网络租约均已释放。
 

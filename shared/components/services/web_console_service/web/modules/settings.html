@@ -1,0 +1,17 @@
+<section id="settingsView" class="hidden" data-web-console-module="settings">
+  <h2 class="module-title">项目设置</h2>
+  <div class="module-toolbar">
+    <div class="section-selector">
+      <label for="settingsSection">配置分区</label>
+      <select id="settingsSection"></select>
+    </div>
+    <div class="section-actions">
+      <button id="settingsReload" class="secondary" type="button">重新读取</button>
+      <button id="settingsSave" type="button" disabled>保存更改</button>
+    </div>
+  </div>
+  <p id="settingsMessage" class="notice" role="alert"></p>
+  <form id="settingsForm">
+    <div id="settingsFields" class="field-list"></div>
+  </form>
+</section>

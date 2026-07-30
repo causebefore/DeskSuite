@@ -85,6 +85,10 @@ static const web_console_service_config_t s_web_console_service_config = {
 #else
     .files = NULL,
 #endif
+    .settings_providers      = NULL,
+    .settings_provider_count = 0U,
+    .status_providers        = NULL,
+    .status_provider_count   = 0U,
 };
 
 /**

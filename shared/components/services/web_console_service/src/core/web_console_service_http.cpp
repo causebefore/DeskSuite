@@ -10,11 +10,15 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "web_console_http_common.hpp"
 #include "web_console_service_internal.hpp"
 #include "web_console_service_web.h"
 
 #if CONFIG_WEB_CONSOLE_FILES
 #include "web_console_files_internal.hpp"
+#endif
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#include "web_console_provider_internal.hpp"
 #endif
 
 #define WEB_FILE_TOKEN_RESPONSE_SIZE 45U
@@ -43,27 +47,12 @@ static void web_file_secure_clear(void *data, size_t size)
 
 static esp_err_t web_file_set_json_response(httpd_req_t *request, const char *status)
 {
-    esp_err_t error = httpd_resp_set_status(request, status);
-    if (error != ESP_OK)
-    {
-        return error;
-    }
-    error = httpd_resp_set_type(request, "application/json; charset=utf-8");
-    if (error != ESP_OK)
-    {
-        return error;
-    }
-    return httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    return web_console_http_set_json_response(request, status);
 }
 
 static esp_err_t web_file_send_json_error(httpd_req_t *request, const char *status, const char *body)
 {
-    const esp_err_t error = web_file_set_json_response(request, status);
-    if (error != ESP_OK)
-    {
-        return error;
-    }
-    return httpd_resp_send(request, body, HTTPD_RESP_USE_STRLEN);
+    return web_console_http_send_json_error(request, status, body);
 }
 
 static esp_err_t web_file_send_unavailable(httpd_req_t *request)
@@ -146,7 +135,9 @@ static esp_err_t handle_index_get(httpd_req_t *request)
     }
     if (error == ESP_OK)
     {
-        error = httpd_resp_send(request, (const char *) web_file_index_gz, (ssize_t) web_file_index_gz_size);
+        error = httpd_resp_send(request,
+                                (const char *) web_console_index_gz,
+                                (ssize_t) web_console_index_gz_size);
     }
 
     return error;
@@ -154,15 +145,17 @@ static esp_err_t handle_index_get(httpd_req_t *request)
 
 static bool web_file_content_type_is_text_plain(httpd_req_t *request)
 {
-    static const char prefix[]              = "text/plain";
-    char              value[sizeof(prefix)]{};
+    static const char prefix[] = "text/plain";
+    char value[sizeof(prefix) + 1U]{};
 
     const esp_err_t error = httpd_req_get_hdr_value_str(request, "Content-Type", value, sizeof(value));
     if (error != ESP_OK && error != ESP_ERR_HTTPD_RESULT_TRUNC)
     {
         return false;
     }
-    return strncasecmp(value, prefix, sizeof(prefix) - 1U) == 0;
+    return strncasecmp(value, prefix, sizeof(prefix) - 1U) == 0
+           && (value[sizeof(prefix) - 1U] == '\0'
+               || value[sizeof(prefix) - 1U] == ';');
 }
 
 /**
@@ -409,6 +402,46 @@ static esp_err_t handle_session_post(httpd_req_t *request)
     return error;
 }
 
+/** @brief 校验当前 token 并关闭唯一认证会话。 */
+static esp_err_t handle_session_delete(httpd_req_t *request)
+{
+    const web_console_http_auth_result_t auth_result =
+        web_console_http_close_session(request);
+    if (auth_result != WEB_CONSOLE_HTTP_AUTH_OK)
+    {
+        return web_console_http_send_auth_error(request, auth_result);
+    }
+
+    esp_err_t error = web_console_http_set_json_response(request, "204 No Content");
+    if (error == ESP_OK)
+    {
+        error = httpd_resp_send(request, NULL, 0U);
+    }
+    return error;
+}
+
+/** @brief 返回本次构建及实际装配的网页模块描述。 */
+static esp_err_t handle_capabilities_get(httpd_req_t *request)
+{
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+    return web_console_provider_handle_capabilities_get(request);
+#else
+    const web_console_http_auth_result_t auth_result =
+        web_console_http_authorize_request(request);
+    if (auth_result != WEB_CONSOLE_HTTP_AUTH_OK)
+    {
+        return web_console_http_send_auth_error(request, auth_result);
+    }
+#if CONFIG_WEB_CONSOLE_FILES
+    static const char body[] =
+        "{\"schema\":1,\"modules\":[{\"id\":\"files\",\"label\":\"文件\"}]}";
+#else
+    static const char body[] = "{\"schema\":1,\"modules\":[]}";
+#endif
+    return web_console_http_send_json(request, "200 OK", body, sizeof(body) - 1U);
+#endif
+}
+
 struct web_console_route_slot_t
 {
     web_console_route_t route;
@@ -418,6 +451,8 @@ struct web_console_route_slot_t
 static constexpr web_console_route_t s_core_routes[] = {
     { .uri = "/", .method = HTTP_GET, .handle = handle_index_get },
     { .uri = "/api/session", .method = HTTP_POST, .handle = handle_session_post },
+    { .uri = "/api/session", .method = HTTP_DELETE, .handle = handle_session_delete },
+    { .uri = "/api/capabilities", .method = HTTP_GET, .handle = handle_capabilities_get },
 };
 
 /*
@@ -476,7 +511,7 @@ static bool web_console_routes_collide(const web_console_route_t &left, const we
 }
 
 /**
- * @brief 在尚无已注册入口时装配 Core 与 Files 的固定路由槽
+ * @brief 在尚无已注册入口时装配 Core、Files 与 Provider 的固定路由槽
  */
 static esp_err_t web_console_prepare_route_slots(void)
 {
@@ -484,6 +519,16 @@ static esp_err_t web_console_prepare_route_slots(void)
     size_t files_route_count = 0U;
     const web_console_route_t *files_routes = web_console_files_get_routes(&files_route_count);
     if (files_routes == NULL || files_route_count != WEB_CONSOLE_FILES_ROUTE_COUNT)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+    size_t provider_route_count = 0U;
+    const web_console_route_t *provider_routes =
+        web_console_provider_get_routes(&provider_route_count);
+    if (provider_routes == NULL
+        || provider_route_count != WEB_CONSOLE_PROVIDER_ROUTE_COUNT)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -499,6 +544,15 @@ static esp_err_t web_console_prepare_route_slots(void)
     {
         const size_t slot_index = WEB_CONSOLE_CORE_ROUTE_COUNT + index;
         s_route_slots[slot_index].route      = files_routes[index];
+        s_route_slots[slot_index].registered = false;
+    }
+#endif
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+    for (size_t index = 0U; index < provider_route_count; ++index)
+    {
+        const size_t slot_index =
+            WEB_CONSOLE_CORE_ROUTE_COUNT + WEB_CONSOLE_FILES_ROUTE_COUNT + index;
+        s_route_slots[slot_index].route      = provider_routes[index];
         s_route_slots[slot_index].registered = false;
     }
 #endif

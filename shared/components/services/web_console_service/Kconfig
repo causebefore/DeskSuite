@@ -5,7 +5,23 @@ menu "Web Console Service"
         default y
         help
             Enable authenticated file listing, transfer and mutation routes.
-            Disable this option to build only the Console Core homepage and
-            session endpoint.
+            Disable this option to omit Files routes and web assets while
+            keeping the Console Core homepage, session and capability routes.
+
+    config WEB_CONSOLE_SETTINGS
+        bool "Enable Web Console Settings module"
+        default n
+        help
+            Enable authenticated, versioned Settings Provider discovery,
+            snapshot, update and asynchronous result routes. Product owners
+            must still explicitly assemble Providers at initialization.
+
+    config WEB_CONSOLE_STATUS
+        bool "Enable Web Console Status module"
+        default n
+        help
+            Enable authenticated read-only Status Provider discovery and
+            snapshot routes. Product owners must still explicitly assemble
+            Providers at initialization.
 
 endmenu
