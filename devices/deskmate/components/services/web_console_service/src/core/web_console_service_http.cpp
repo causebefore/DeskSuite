@@ -13,16 +13,9 @@
 #include "web_console_service_internal.hpp"
 #include "web_console_service_web.h"
 
-#define WEB_FILE_TOKEN_RESPONSE_SIZE       45U
-#define WEB_FILE_INDEX_HANDLER_BIT         (1U << 0U)
-#define WEB_FILE_SESSION_HANDLER_BIT       (1U << 1U)
-#define WEB_FILE_FILES_HANDLER_BIT         (1U << 2U)
-#define WEB_FILE_FILE_HANDLER_BIT          (1U << 3U)
-#define WEB_FILE_FILE_PUT_HANDLER_BIT      (1U << 4U)
-#define WEB_FILE_DIRECTORY_PUT_HANDLER_BIT (1U << 5U)
-#define WEB_FILE_FILE_PATCH_HANDLER_BIT    (1U << 6U)
-#define WEB_FILE_FILE_DELETE_HANDLER_BIT   (1U << 7U)
-#define WEB_FILE_HTTPD_MAX_URI_HANDLERS    8U
+#include "web_console_files_internal.hpp"
+
+#define WEB_FILE_TOKEN_RESPONSE_SIZE 45U
 
 static const char *TAG = "web_console_service";
 
@@ -78,7 +71,7 @@ static esp_err_t web_file_send_unavailable(httpd_req_t *request)
                                     "{\"error\":\"service_unavailable\",\"message\":\"服务正在停止\"}");
 }
 
-bool web_file_handler_enter(void)
+bool web_console_handler_enter(void)
 {
     SemaphoreHandle_t lock = s_context.lock;
     if (lock == NULL || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE)
@@ -92,7 +85,7 @@ bool web_file_handler_enter(void)
     return accepting;
 }
 
-void web_file_handler_leave(void)
+void web_console_handler_leave(void)
 {
     SemaphoreHandle_t lock = s_context.lock;
     if (lock == NULL || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE)
@@ -127,8 +120,7 @@ void web_file_handler_leave(void)
 /**
  * @brief 在 handler 记账范围内发送 flash 中的 gzip 首页
  *
- * 无论请求被接纳、响应设置失败还是正文发送失败，本函数都在返回前配对完成
- * `web_file_handler_enter()` / `web_file_handler_leave()`，因而停止流程可以安全等待本次
+ * 统一 dispatcher 已在调用本函数前完成 handler 记账，因此停止流程可以安全等待本次
  * flash 读取和网络发送结束。
  *
  * @param[in] request HTTPD 在本次回调期间借出的请求对象
@@ -137,16 +129,7 @@ void web_file_handler_leave(void)
  */
 static esp_err_t handle_index_get(httpd_req_t *request)
 {
-    const bool accepting = web_file_handler_enter();
-    esp_err_t  error;
-
-    if (!accepting)
-    {
-        web_file_handler_leave();
-        return ESP_FAIL;
-    }
-
-    error = httpd_resp_set_type(request, "text/html; charset=utf-8");
+    esp_err_t error = httpd_resp_set_type(request, "text/html; charset=utf-8");
     if (error == ESP_OK)
     {
         error = httpd_resp_set_hdr(request, "Content-Encoding", "gzip");
@@ -164,7 +147,6 @@ static esp_err_t handle_index_get(httpd_req_t *request)
         error = httpd_resp_send(request, (const char *) web_file_index_gz, (ssize_t) web_file_index_gz_size);
     }
 
-    web_file_handler_leave();
     return error;
 }
 
@@ -347,15 +329,8 @@ static esp_err_t web_file_send_auth_result(httpd_req_t *request, web_file_auth_r
  */
 static esp_err_t handle_session_post(httpd_req_t *request)
 {
-    const bool accepting = web_file_handler_enter();
-    esp_err_t  error;
-    char       code[WEB_FILE_ACCESS_CODE_BUFFER_SIZE]{};
-
-    if (!accepting)
-    {
-        web_file_handler_leave();
-        return ESP_FAIL;
-    }
+    esp_err_t error;
+    char      code[WEB_FILE_ACCESS_CODE_BUFFER_SIZE]{};
 
     const web_file_session_body_result_t body_result = web_file_receive_access_code(request, code);
     if (body_result != WEB_FILE_SESSION_BODY_OK)
@@ -364,7 +339,6 @@ static esp_err_t handle_session_post(httpd_req_t *request)
                                          "400 Bad Request",
                                          "{\"error\":\"bad_request\",\"message\":\"请求正文必须是六字节访问码\"}");
         web_file_secure_clear(code, sizeof(code));
-        web_file_handler_leave();
         return body_result == WEB_FILE_SESSION_BODY_IO_FAILED ? ESP_FAIL : error;
     }
 
@@ -375,14 +349,12 @@ static esp_err_t handle_session_post(httpd_req_t *request)
     {
         web_file_secure_clear(code, sizeof(code));
         error = web_file_send_unavailable(request);
-        web_file_handler_leave();
         return error;
     }
     if (auth_result != WEB_FILE_AUTH_OK)
     {
         web_file_secure_clear(code, sizeof(code));
         error = web_file_send_auth_result(request, auth_result);
-        web_file_handler_leave();
         return error;
     }
 
@@ -397,7 +369,6 @@ static esp_err_t handle_session_post(httpd_req_t *request)
         web_file_secure_clear(random_token, sizeof(random_token));
         web_file_secure_clear(token, sizeof(token));
         error = web_file_send_unavailable(request);
-        web_file_handler_leave();
         return error;
     }
     if (auth_result != WEB_FILE_AUTH_OK)
@@ -405,7 +376,6 @@ static esp_err_t handle_session_post(httpd_req_t *request)
         web_file_secure_clear(random_token, sizeof(random_token));
         web_file_secure_clear(token, sizeof(token));
         error = web_file_send_auth_result(request, auth_result);
-        web_file_handler_leave();
         return error;
     }
 
@@ -420,7 +390,6 @@ static esp_err_t handle_session_post(httpd_req_t *request)
         error = web_file_send_json_error(request,
                                          "500 Internal Server Error",
                                          "{\"error\":\"internal_error\",\"message\":\"服务内部错误\"}");
-        web_file_handler_leave();
         return error;
     }
 
@@ -435,42 +404,123 @@ static esp_err_t handle_session_post(httpd_req_t *request)
     }
     web_file_secure_clear(random_token, sizeof(random_token));
     web_file_secure_clear(response, sizeof(response));
-    web_file_handler_leave();
     return error;
 }
 
-struct web_file_route_t
+struct web_console_route_slot_t
 {
-    httpd_uri_t uri;
-    uint32_t    bit;
+    web_console_route_t route;
+    bool                registered;
 };
 
-/** @brief 构造同时包含 HTTPD 描述和停止期注销位的常量路由 */
-static constexpr web_file_route_t web_file_make_route(const char *path, httpd_method_t method,
-                                                      esp_err_t (*handler)(httpd_req_t *), uint32_t bit)
+static constexpr web_console_route_t s_core_routes[] = {
+    { .uri = "/", .method = HTTP_GET, .handle = handle_index_get },
+    { .uri = "/api/session", .method = HTTP_POST, .handle = handle_session_post },
+};
+
+/*
+ * HTTPD 只浅拷贝 user_ctx，因此固定槽必须覆盖注册、部分注销、停止以及失败重试的完整生命周期。
+ * 槽内容只会在没有任何已注册路由时重建，不使用可重分配容器。
+ */
+static web_console_route_slot_t s_route_slots[WEB_CONSOLE_ROUTE_COUNT]{};
+
+class web_console_handler_scope_t
 {
-    return {
-        .uri = { .uri = path, .method = method, .handler = handler, .user_ctx = NULL },
-        .bit = bit,
-    };
+  public:
+    web_console_handler_scope_t() : accepting_(web_console_handler_enter()) {}
+    web_console_handler_scope_t(const web_console_handler_scope_t &)            = delete;
+    web_console_handler_scope_t &operator=(const web_console_handler_scope_t &) = delete;
+
+    ~web_console_handler_scope_t()
+    {
+        web_console_handler_leave();
+    }
+
+    bool accepting(void) const
+    {
+        return accepting_;
+    }
+
+  private:
+    bool accepting_;
+};
+
+/**
+ * @brief 统一完成全部领域路由的准入、handler 记账与退出配对
+ */
+static esp_err_t web_console_http_dispatch(httpd_req_t *request)
+{
+    web_console_handler_scope_t scope;
+    if (!scope.accepting())
+    {
+        return ESP_FAIL;
+    }
+    if (request == NULL || request->user_ctx == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const web_console_route_t *route = static_cast<const web_console_route_t *>(request->user_ctx);
+    if (route->handle == NULL)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return route->handle(request);
 }
 
-static constexpr web_file_route_t s_routes[] = {
-    web_file_make_route("/",              HTTP_GET,    handle_index_get,          WEB_FILE_INDEX_HANDLER_BIT),
-    web_file_make_route("/api/session",   HTTP_POST,   handle_session_post,       WEB_FILE_SESSION_HANDLER_BIT),
-    web_file_make_route("/api/files",     HTTP_GET,    web_file_handle_files_get, WEB_FILE_FILES_HANDLER_BIT),
-    web_file_make_route("/api/file",      HTTP_GET,    web_file_handle_file_get,  WEB_FILE_FILE_HANDLER_BIT),
-    web_file_make_route("/api/file",      HTTP_PUT,    web_file_handle_file_put,  WEB_FILE_FILE_PUT_HANDLER_BIT),
-    web_file_make_route("/api/directory", HTTP_PUT,    web_file_handle_mutation,  WEB_FILE_DIRECTORY_PUT_HANDLER_BIT),
-    web_file_make_route("/api/file",      HTTP_PATCH,  web_file_handle_mutation,  WEB_FILE_FILE_PATCH_HANDLER_BIT),
-    web_file_make_route("/api/file",      HTTP_DELETE, web_file_handle_mutation,  WEB_FILE_FILE_DELETE_HANDLER_BIT),
-};
+static bool web_console_routes_collide(const web_console_route_t &left, const web_console_route_t &right)
+{
+    return left.method == right.method && strcmp(left.uri, right.uri) == 0;
+}
+
+/**
+ * @brief 在尚无已注册入口时装配 Core 与 Files 的固定路由槽
+ */
+static esp_err_t web_console_prepare_route_slots(void)
+{
+    size_t files_route_count = 0U;
+    const web_console_route_t *files_routes = web_console_files_get_routes(&files_route_count);
+    if (files_routes == NULL || files_route_count != WEB_CONSOLE_FILES_ROUTE_COUNT)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (size_t index = 0U; index < WEB_CONSOLE_CORE_ROUTE_COUNT; ++index)
+    {
+        s_route_slots[index].route      = s_core_routes[index];
+        s_route_slots[index].registered = false;
+    }
+    for (size_t index = 0U; index < files_route_count; ++index)
+    {
+        const size_t slot_index = WEB_CONSOLE_CORE_ROUTE_COUNT + index;
+        s_route_slots[slot_index].route      = files_routes[index];
+        s_route_slots[slot_index].registered = false;
+    }
+
+    for (size_t index = 0U; index < WEB_CONSOLE_ROUTE_COUNT; ++index)
+    {
+        const web_console_route_t &route = s_route_slots[index].route;
+        if (route.uri == NULL || route.handle == NULL)
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
+        for (size_t compared = 0U; compared < index; ++compared)
+        {
+            if (web_console_routes_collide(route, s_route_slots[compared].route))
+            {
+                return ESP_ERR_INVALID_STATE;
+            }
+        }
+    }
+    return ESP_OK;
+}
 
 /**
  * @brief 在 HTTPD Task 上注销本 Service 已注册的全部 URI handler
  *
  * HTTPD 的 URI 表只能由其所属 Task 串行修改。本回调逐项记录成功注销的 handler，并在锁内
- * 发布剩余掩码和首个错误；完成信号只负责唤醒等待方，剩余掩码才是入口关闭的完成条件。
+ * 发布每个固定槽的注册状态和首个错误；完成信号只负责唤醒等待方，全部槽清空才是入口关闭
+ * 的完成条件。
  *
  * @param[in] argument Service 当前持有的 HTTPD 句柄
  */
@@ -479,24 +529,36 @@ static void web_file_unregister_handlers_work(void *argument)
     httpd_handle_t server = static_cast<httpd_handle_t>(argument);
 
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    uint32_t registered_mask = s_context.registered_handler_mask;
+    bool registered[WEB_CONSOLE_ROUTE_COUNT]{};
+    for (size_t index = 0U; index < WEB_CONSOLE_ROUTE_COUNT; ++index)
+    {
+        registered[index] = s_route_slots[index].registered;
+    }
     xSemaphoreGive(s_context.lock);
 
-    uint32_t  remaining_mask = registered_mask;
-    esp_err_t first_error    = ESP_OK;
+    esp_err_t first_error = ESP_OK;
 
-    for (size_t index = 0U; index < sizeof(s_routes) / sizeof(s_routes[0]); ++index)
+    for (size_t index = 0U; index < WEB_CONSOLE_ROUTE_COUNT; ++index)
     {
-        const web_file_route_t *route = &s_routes[index];
-        if ((registered_mask & route->bit) == 0U)
+        if (!registered[index])
         {
             continue;
         }
 
-        const esp_err_t error = httpd_unregister_uri_handler(server, route->uri.uri, route->uri.method);
+        const web_console_route_t &route = s_route_slots[index].route;
+        const esp_err_t error = httpd_unregister_uri_handler(server, route.uri, route.method);
         if (error == ESP_OK || error == ESP_ERR_NOT_FOUND)
         {
-            remaining_mask &= ~route->bit;
+            xSemaphoreTake(s_context.lock, portMAX_DELAY);
+            if (s_route_slots[index].registered)
+            {
+                s_route_slots[index].registered = false;
+                if (s_context.registered_route_count > 0U)
+                {
+                    --s_context.registered_route_count;
+                }
+            }
+            xSemaphoreGive(s_context.lock);
         }
         else if (first_error == ESP_OK)
         {
@@ -505,7 +567,6 @@ static void web_file_unregister_handlers_work(void *argument)
     }
 
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    s_context.registered_handler_mask = remaining_mask;
     s_context.ingress_close_error     = first_error;
     s_context.ingress_close_queued    = false;
     SemaphoreHandle_t ingress_closed  = s_context.ingress_closed;
@@ -517,8 +578,24 @@ static void web_file_unregister_handlers_work(void *argument)
     }
 }
 
-static_assert(sizeof(s_routes) / sizeof(s_routes[0]) == WEB_FILE_HTTPD_MAX_URI_HANDLERS,
-              "HTTPD handler 配置必须覆盖全部网页文件 URI");
+static_assert(sizeof(s_core_routes) / sizeof(s_core_routes[0]) == WEB_CONSOLE_CORE_ROUTE_COUNT,
+              "Core 路由数量必须与固定槽配置一致");
+
+bool web_console_http_routes_are_released_locked(void)
+{
+    if (s_context.registered_route_count != 0U)
+    {
+        return false;
+    }
+    for (size_t index = 0U; index < WEB_CONSOLE_ROUTE_COUNT; ++index)
+    {
+        if (s_route_slots[index].registered)
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 /**
  * @brief 注册网页控制台 Service 的全部 HTTP URI
@@ -526,29 +603,44 @@ static_assert(sizeof(s_routes) / sizeof(s_routes[0]) == WEB_FILE_HTTPD_MAX_URI_H
  * @param[in] server 已启动且由 Service 持有的 HTTPD 句柄
  * @return ESP_OK 全部注册完成；其他错误码来自 HTTPD
  */
-esp_err_t web_file_http_register_handlers(httpd_handle_t server)
+esp_err_t web_console_http_register_handlers(httpd_handle_t server)
 {
-    esp_err_t error = ESP_OK;
-    for (size_t index = 0U; error == ESP_OK && index < sizeof(s_routes) / sizeof(s_routes[0]); ++index)
+    xSemaphoreTake(s_context.lock, portMAX_DELAY);
+    const bool clean = web_console_http_routes_are_released_locked();
+    xSemaphoreGive(s_context.lock);
+    if (!clean)
     {
-        const web_file_route_t *route = &s_routes[index];
-        error                         = httpd_register_uri_handler(server, &route->uri);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t error = web_console_prepare_route_slots();
+    for (size_t index = 0U; error == ESP_OK && index < WEB_CONSOLE_ROUTE_COUNT; ++index)
+    {
+        web_console_route_slot_t &slot = s_route_slots[index];
+        const httpd_uri_t uri = {
+            .uri      = slot.route.uri,
+            .method   = slot.route.method,
+            .handler  = web_console_http_dispatch,
+            .user_ctx = &slot.route,
+        };
+        error = httpd_register_uri_handler(server, &uri);
         if (error == ESP_OK)
         {
             xSemaphoreTake(s_context.lock, portMAX_DELAY);
-            s_context.registered_handler_mask |= route->bit;
+            slot.registered = true;
+            ++s_context.registered_route_count;
             xSemaphoreGive(s_context.lock);
         }
     }
     return error;
 }
 
-esp_err_t web_file_http_close_ingress(httpd_handle_t server, int64_t deadline_us)
+esp_err_t web_console_http_close_ingress(httpd_handle_t server, int64_t deadline_us)
 {
     bool queue_work = false;
 
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    if (s_context.registered_handler_mask == 0U)
+    if (web_console_http_routes_are_released_locked())
     {
         xSemaphoreGive(s_context.lock);
         return ESP_OK;
@@ -577,13 +669,13 @@ esp_err_t web_file_http_close_ingress(httpd_handle_t server, int64_t deadline_us
     while (true)
     {
         xSemaphoreTake(s_context.lock, portMAX_DELAY);
-        const uint32_t          registered_mask = s_context.registered_handler_mask;
+        const bool              routes_released = web_console_http_routes_are_released_locked();
         const bool              close_queued    = s_context.ingress_close_queued;
         const esp_err_t         close_error     = s_context.ingress_close_error;
         const SemaphoreHandle_t ingress_closed  = s_context.ingress_closed;
         xSemaphoreGive(s_context.lock);
 
-        if (registered_mask == 0U)
+        if (routes_released)
         {
             return ESP_OK;
         }

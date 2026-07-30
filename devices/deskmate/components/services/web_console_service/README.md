@@ -16,12 +16,17 @@
 
 负责：
 
-- 创建和停止 HTTPD，注册精确 URI，并为全部项目 handler 做进入/退出记账。
-- 每次启动生成新的六位访问码，执行失败锁定、单会话 token 创建和空闲失效。
-- 在停止时先拒绝新请求、清除秘密、关闭客户端，再由 HTTPD Task 注销 URI 并等待活动
-  handler 排空，最后由一次性清理 Task 完成合法 HTTPD 销毁。
-- 作为目录浏览、下载、事务式上传和短时文件变更 handler 的单传输状态及上传恢复 journal
-  所有者。
+- Console Core 创建和停止 HTTPD，聚合精确领域路由，并通过统一 dispatcher 为全部项目
+  handler 做进入/退出记账。
+- Console Core 每次启动生成新的六位访问码，执行失败锁定、单会话 token 创建和空闲失效。
+- Console Core 在停止时先拒绝新请求、清除秘密、关闭客户端，再由 HTTPD Task 逐路由注销
+  URI 并等待活动 handler 排空，最后由一次性清理 Task 完成合法 HTTPD 销毁。
+- 内部 Files 模块拥有目录浏览、下载、事务式上传和短时文件变更 handler，以及单传输状态、
+  PSRAM 缓冲区和上传恢复 journal。
+
+Core 与 Files 通过组件私有的领域路由描述和生命周期钩子协作。Files 不注册或注销
+`httpd_uri_t`，也不重复做 handler 记账；Core 不直接持有传输状态、文件缓冲区或事务恢复
+实现。当前阶段 Files 仍始终编入组件，尚无 Kconfig 裁剪开关。
 
 不负责：
 
@@ -54,17 +59,17 @@ handler、文件句柄和 PSRAM 缓冲区全部消失后才释放网络租约。
 
 ```text
 GET /
-    → handler 进入记账
+    → Core dispatcher 进入记账
     → 从 flash 发送 gzip 首页
-    → handler 退出记账
+    → Core dispatcher 退出记账
 
 POST /api/session（text/plain，正文恰好 6 字节）
-    → handler 进入记账
+    → Core dispatcher 进入记账
     → 在认证状态副本上校验访问码
     → 校验成功后才生成 128 位随机 token
     → Service 锁内提交唯一会话
     → 返回 no-store JSON；响应失败时精确撤销本次会话
-    → handler 退出记账
+    → Core dispatcher 退出记账
 ```
 
 当前 HTTP 契约：
@@ -96,7 +101,8 @@ token 校验再返回单传输忙。停止流程已清空的会话不会被传�
 
 ```text
 HTTP 请求
-    → handler 记账和 Bearer token 授权
+    → Core dispatcher 记账
+    → Files 完成 Bearer token 授权
     → 原子取得唯一传输所有权并记录活动 socket
     → 私有路径内核完成一次百分号解码、UTF-8/保留路径校验和挂载点映射
     → 目录：首遍完整验证，再重开目录逐项流式发送 JSON
@@ -104,7 +110,8 @@ HTTP 请求
     → 上传：完整预检后创建 upload.part，接收、同步、复核并执行新建或覆盖提交
     → 文件变更：复核父目录、源类型、目标冲突或目录为空后执行单次 mkdir/rename/unlink/rmdir
     → HTTP 响应
-    → 关闭文件或目录，释放 PSRAM 与单传输所有权并退出 handler 记账
+    → 关闭文件或目录，释放 PSRAM 与单传输所有权
+    → Core dispatcher 退出 handler 记账
 ```
 
 Service 锁只保护认证、生命周期、活动 handler 数和传输所有权等短时内存状态。网络收发、文件
@@ -222,8 +229,8 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
   工作排队、URI 注销、Task 创建或 HTTPD 清理失败保留 `CLEANUP_FAILED`。两者都拒绝
   `start()`，但允许后续 `stop()` 继续等待同一清理所有者或重试。
 - `lifecycle_active` 防止两个生命周期操作同时使用同一 HTTPD 句柄。
-- 每个 URI handler 无论成功、拒绝还是发送失败，都配对调用
-  `web_file_handler_enter()` / `web_file_handler_leave()`；停止期拒绝路径不再发送响应。
+- 全部 URI 由 Core 的统一 dispatcher 完成准入检查和 handler 记账；无论领域 handler 成功、
+  拒绝还是发送失败，RAII 记账范围都会配对退出，停止期拒绝路径不再发送响应。
 - HTTPD 配置只允许一个客户端会话，认证内核只允许一个未过期会话，文件层只允许一个活动
   传输。
 - `GET /api/files`、`GET/PUT/PATCH/DELETE /api/file` 和 `PUT /api/directory` 共用同一传输
@@ -273,22 +280,26 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - `max_open_sockets = 1`；HTTPD 另行占用 listen 和两个控制 socket。
 - recv/send timeout：各 5 秒；LRU purge 关闭；不注册 WebSocket。
 - 构建配置：无 Kconfig 开关。
-- [`src/web_console_service.cpp`](src/web_console_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
-- [`src/web_console_service_http.cpp`](src/web_console_service_http.cpp)：首页、认证会话、URI 注册与入口关闭。
-- [`src/web_console_service_stop_task.cpp`](src/web_console_service_stop_task.cpp)：一次性 HTTPD 销毁
+- [`src/core/web_console_service.cpp`](src/core/web_console_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
+- [`src/core/web_console_service_http.cpp`](src/core/web_console_service_http.cpp)：首页、认证会话、静态
+  路由槽、统一 dispatcher 与入口关闭。
+- [`src/core/web_console_service_stop_task.cpp`](src/core/web_console_service_stop_task.cpp)：一次性 HTTPD 销毁
   Task 及无界 SDK 调用隔离。
-- [`src/web_console_service_auth.cpp`](src/web_console_service_auth.cpp)：访问码锁定、单会话和 token 内核。
-- [`src/web_console_service_path.cpp`](src/web_console_service_path.cpp)：路径、JSON 和响应头编码安全内核。
-- [`src/web_console_service_transfer.cpp`](src/web_console_service_transfer.cpp)：共享鉴权传输守卫与原始
+- [`src/core/web_console_service_auth.cpp`](src/core/web_console_service_auth.cpp)：访问码锁定、单会话和 token 内核。
+- [`src/files/web_console_files.cpp`](src/files/web_console_files.cpp)：Files 路由、传输上下文与启动/清理钩子。
+- [`src/files/web_console_service_path.cpp`](src/files/web_console_service_path.cpp)：路径、JSON 和响应头编码安全内核。
+- [`src/files/web_console_service_transfer.cpp`](src/files/web_console_service_transfer.cpp)：共享鉴权传输守卫与原始
   PUT 接收。
-- [`src/web_console_service_read.cpp`](src/web_console_service_read.cpp)：目录双遍历 JSON 与 32 KiB
+- [`src/files/web_console_service_read.cpp`](src/files/web_console_service_read.cpp)：目录双遍历 JSON 与 32 KiB
   PSRAM 流式下载。
-- [`src/web_console_service_mutation.cpp`](src/web_console_service_mutation.cpp)：目录创建、常规文件移动和删除。
-- [`src/web_console_service_transaction.cpp`](src/web_console_service_transaction.cpp)：固定上传产物、
+- [`src/files/web_console_service_mutation.cpp`](src/files/web_console_service_mutation.cpp)：目录创建、常规文件移动和删除。
+- [`src/files/web_console_service_transaction.cpp`](src/files/web_console_service_transaction.cpp)：固定上传产物、
   journal 持久化、提交顺序与启动恢复矩阵。
-- [`src/web_console_service_internal.hpp`](src/web_console_service_internal.hpp) 和
-  [`src/web_console_service_transfer.hpp`](src/web_console_service_transfer.hpp)：组件私有 C++ 状态与协作接口。
-- [`src/web_console_service_web.h`](src/web_console_service_web.h)：生成的 gzip 首页符号声明。
+- [`src/core/web_console_service_internal.hpp`](src/core/web_console_service_internal.hpp) 和
+  [`src/files/web_console_files_internal.hpp`](src/files/web_console_files_internal.hpp)：Core/Files
+  私有状态、领域路由与生命周期协作接口。
+- [`src/files/web_console_service_transfer.hpp`](src/files/web_console_service_transfer.hpp)：Files 传输私有类型。
+- [`src/core/web_console_service_web.h`](src/core/web_console_service_web.h)：生成的 gzip 首页符号声明。
 
 Service 手写实现均以 C++ 编译；构建期生成的 `web_file_index.generated.c` 只承载只读 gzip
 字节资源，并通过带 `extern "C"` 的符号声明与 C++ 实现连接。

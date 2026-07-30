@@ -4,19 +4,21 @@ set(web_file_generated_source "${web_file_generated_dir}/web_file_index.generate
 idf_component_register(
     SRCS
         "${web_file_generated_source}"
-        "src/web_console_service.cpp"
-        "src/web_console_service_http.cpp"
-        "src/web_console_service_auth.cpp"
-        "src/web_console_service_path.cpp"
-        "src/web_console_service_transfer.cpp"
-        "src/web_console_service_read.cpp"
-        "src/web_console_service_mutation.cpp"
-        "src/web_console_service_transaction.cpp"
-        "src/web_console_service_stop_task.cpp"
+        "src/core/web_console_service.cpp"
+        "src/core/web_console_service_http.cpp"
+        "src/core/web_console_service_auth.cpp"
+        "src/core/web_console_service_stop_task.cpp"
+        "src/files/web_console_files.cpp"
+        "src/files/web_console_service_path.cpp"
+        "src/files/web_console_service_transfer.cpp"
+        "src/files/web_console_service_read.cpp"
+        "src/files/web_console_service_mutation.cpp"
+        "src/files/web_console_service_transaction.cpp"
     INCLUDE_DIRS
         "include"
     PRIV_INCLUDE_DIRS
-        "src"
+        "src/core"
+        "src/files"
     REQUIRES
         esp_common
     PRIV_REQUIRES

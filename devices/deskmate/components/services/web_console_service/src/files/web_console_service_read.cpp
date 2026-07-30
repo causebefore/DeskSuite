@@ -613,18 +613,10 @@ static esp_err_t web_file_handle_read_request(httpd_req_t *request, bool list_di
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!web_file_handler_enter())
-    {
-        web_file_handler_leave();
-        return ESP_FAIL;
-    }
-
     const web_file_guard_result_t guard_result = web_file_transfer_acquire(request);
     if (guard_result != WEB_FILE_GUARD_OK)
     {
-        const esp_err_t error = web_file_send_guard_error(request, guard_result);
-        web_file_handler_leave();
-        return error;
+        return web_file_send_guard_error(request, guard_result);
     }
 
     web_file_transfer_workspace_t *workspace = static_cast<web_file_transfer_workspace_t *>(
@@ -654,7 +646,6 @@ static esp_err_t web_file_handle_read_request(httpd_req_t *request, bool list_di
         heap_caps_free(workspace);
     }
     web_file_transfer_release();
-    web_file_handler_leave();
     return error;
 }
 

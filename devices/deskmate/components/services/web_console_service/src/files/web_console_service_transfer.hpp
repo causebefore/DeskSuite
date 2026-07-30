@@ -6,7 +6,7 @@
 
 #include <cstddef>
 
-#include "web_console_service_internal.hpp"
+#include "web_console_files_internal.hpp"
 
 #define WEB_FILE_AUTHORIZATION_BUFFER_SIZE 48U
 #define WEB_FILE_RESPONSE_SCRATCH_SIZE     1280U

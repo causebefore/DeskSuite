@@ -108,19 +108,19 @@ web_file_guard_result_t web_file_transfer_acquire(httpd_req_t *request)
     else if (web_file_auth_authorize(&s_context.auth,
                                      authorization + sizeof("Bearer ") - 1U,
                                      esp_timer_get_time(),
-                                     s_context.transfer_active)
+                                     s_files_context.transfer_active)
              != WEB_FILE_AUTH_OK)
     {
         result = WEB_FILE_GUARD_UNAUTHORIZED;
     }
-    else if (s_context.transfer_active)
+    else if (s_files_context.transfer_active)
     {
         result = WEB_FILE_GUARD_BUSY;
     }
     else
     {
-        s_context.transfer_active        = true;
-        s_context.active_transfer_socket = httpd_req_to_sockfd(request);
+        s_files_context.transfer_active        = true;
+        s_files_context.active_transfer_socket = httpd_req_to_sockfd(request);
         result                           = WEB_FILE_GUARD_OK;
     }
     xSemaphoreGive(s_context.lock);
@@ -135,10 +135,10 @@ web_file_guard_result_t web_file_transfer_acquire(httpd_req_t *request)
 void web_file_transfer_release(void)
 {
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    uint8_t *buffer                  = s_context.transfer_buffer;
-    s_context.transfer_buffer        = NULL;
-    s_context.transfer_active        = false;
-    s_context.active_transfer_socket = -1;
+    uint8_t *buffer                        = s_files_context.transfer_buffer;
+    s_files_context.transfer_buffer        = NULL;
+    s_files_context.transfer_active        = false;
+    s_files_context.active_transfer_socket = -1;
     web_file_auth_touch_active_session(&s_context.auth, esp_timer_get_time());
     xSemaphoreGive(s_context.lock);
 
@@ -159,10 +159,10 @@ void web_file_transfer_release(void)
 bool web_file_publish_transfer_buffer(uint8_t *buffer)
 {
     xSemaphoreTake(s_context.lock, portMAX_DELAY);
-    const bool publish = s_context.transfer_active && s_context.transfer_buffer == NULL;
+    const bool publish = s_files_context.transfer_active && s_files_context.transfer_buffer == NULL;
     if (publish)
     {
-        s_context.transfer_buffer = buffer;
+        s_files_context.transfer_buffer = buffer;
     }
     xSemaphoreGive(s_context.lock);
     return publish;
@@ -679,17 +679,10 @@ esp_err_t web_file_handle_file_put(httpd_req_t *request)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!web_file_handler_enter())
-    {
-        web_file_handler_leave();
-        return ESP_FAIL;
-    }
-
     const web_file_guard_result_t guard_result = web_file_transfer_acquire(request);
     if (guard_result != WEB_FILE_GUARD_OK)
     {
         (void) web_file_send_guard_error(request, guard_result);
-        web_file_handler_leave();
         return ESP_FAIL;
     }
 
@@ -818,6 +811,5 @@ esp_err_t web_file_handle_file_put(httpd_req_t *request)
         heap_caps_free(workspace);
     }
     web_file_transfer_release();
-    web_file_handler_leave();
     return error;
 }

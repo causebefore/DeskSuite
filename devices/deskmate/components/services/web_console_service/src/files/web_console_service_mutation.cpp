@@ -299,18 +299,10 @@ esp_err_t web_file_handle_mutation(httpd_req_t *request)
             return ESP_ERR_NOT_SUPPORTED;
     }
 
-    if (!web_file_handler_enter())
-    {
-        web_file_handler_leave();
-        return ESP_FAIL;
-    }
-
     const web_file_guard_result_t guard_result = web_file_transfer_acquire(request);
     if (guard_result != WEB_FILE_GUARD_OK)
     {
-        const esp_err_t error = web_file_send_guard_error(request, guard_result);
-        web_file_handler_leave();
-        return error;
+        return web_file_send_guard_error(request, guard_result);
     }
 
     const bool move = mutation == WEB_FILE_MUTATION_MOVE_FILE;
@@ -353,6 +345,5 @@ esp_err_t web_file_handle_mutation(httpd_req_t *request)
         heap_caps_free(workspace);
     }
     web_file_transfer_release();
-    web_file_handler_leave();
     return error;
 }
