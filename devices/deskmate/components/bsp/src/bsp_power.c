@@ -57,7 +57,7 @@ esp_err_t bsp_power_init(void)
     }
 
     s_uart_handling_initialized = true;
-    ESP_LOGI(TAG, "轻睡眠 UART 处理模式已配置为 FLUSH");
+    ESP_LOGD(TAG, "轻睡眠 UART 处理模式已配置为 FLUSH");
     return ESP_OK;
 }
 
@@ -121,7 +121,7 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
         return operation_error;
     }
 
-    ESP_LOGI(TAG,
+    ESP_LOGD(TAG,
              "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或内部 Timer %lu ms 可唤醒",
              BOARD_PIN_BTN_LEFT,
              BOARD_PIN_BTN_RIGHT,
@@ -140,7 +140,7 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
             .right_button = (ext1_wakeup_status & (1ULL << BOARD_PIN_BTN_RIGHT)) != 0U,
             .timer        = (wakeup_causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) != 0U,
         };
-        ESP_LOGI(TAG,
+        ESP_LOGD(TAG,
                  "轻睡眠已结束，左键=%s，右键=%s，Timer=%s，唤醒原因位图=0x%lx，"
                  "EXT1 状态=0x%llx",
                  out_result->left_button ? "是" : "否",

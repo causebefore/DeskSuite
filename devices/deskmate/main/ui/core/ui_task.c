@@ -1379,3 +1379,16 @@ ui_runtime_state_t ui_runtime_get_state(void)
 {
     return get_state();
 }
+
+esp_err_t ui_runtime_set_refresh_period(uint32_t period_ms)
+{
+    if (period_ms == 0U)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (get_state() != UI_RUNTIME_STATE_RUNNING)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ui_platform_lvgl_set_refresh_period(period_ms);
+}

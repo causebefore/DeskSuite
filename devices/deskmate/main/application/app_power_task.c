@@ -29,6 +29,12 @@
 #define APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS 5000U
 #define APP_POWER_POMODORO_RECONCILE_TIMEOUT_MS 1000U
 
+/** @brief 番茄钟前台离线显示期间的 LVGL 刷新周期，单位毫秒 */
+#define APP_POWER_OFFLINE_DISPLAY_LVGL_PERIOD_MS 100U
+
+/** @brief 默认 LVGL 刷新周期，由 ui_platform_lvgl_get_refresh_period() 返回 */
+#define APP_POWER_DEFAULT_LVGL_PERIOD_MS 45U
+
 static const char *TAG                  = "app_power";
 
 static portMUX_TYPE              s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -626,8 +632,14 @@ static esp_err_t run_offline_display_session(uint32_t initial_generation)
         (void) esp_pm_lock_acquire(s_offline_display_pm_lock);
     }
 
+    /*
+     * 离线显示只有秒级时钟变化，放宽 LVGL 渲染 Timer 周期以降低 CPU 唤醒频率。
+     * 退出时恢复默认周期，保证交互响应和动画流畅。
+     */
+    (void) ui_runtime_set_refresh_period(APP_POWER_OFFLINE_DISPLAY_LVGL_PERIOD_MS);
+
     set_status(APP_POWER_STATE_OFFLINE_DISPLAY, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
-    ESP_LOGI(TAG, "番茄钟前台进入离线显示，Wi-Fi 已关闭且 UI 保持秒级刷新");
+    ESP_LOGD(TAG, "番茄钟前台进入离线显示，Wi-Fi 已关闭且 UI 保持秒级刷新");
 
     for (;;)
     {
@@ -639,7 +651,7 @@ static esp_err_t run_offline_display_session(uint32_t initial_generation)
             {
                 network_suspended = false;
                 set_status(APP_POWER_STATE_AWAKE, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
-                ESP_LOGI(TAG, "番茄钟离线显示结束，网络连接策略已恢复");
+                ESP_LOGD(TAG, "番茄钟离线显示结束，网络连接策略已恢复");
             }
             break;
         }
@@ -662,6 +674,7 @@ static esp_err_t run_offline_display_session(uint32_t initial_generation)
     {
         (void) esp_pm_lock_release(s_offline_display_pm_lock);
     }
+    (void) ui_runtime_set_refresh_period(APP_POWER_DEFAULT_LVGL_PERIOD_MS);
 
     if (network_suspended)
     {
@@ -771,7 +784,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
                 result = activity_error;
                 goto restore_awake;
             }
-            ESP_LOGI(TAG, "睡眠期间番茄钟阶段已完成，恢复 60 秒正常清醒窗口");
+            ESP_LOGD(TAG, "睡眠期间番茄钟阶段已完成，恢复 60 秒正常清醒窗口");
         }
 
         if (wakeup_is_button(wakeup_source))
@@ -816,7 +829,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             s_recovery_error             = ESP_OK;
             const uint32_t success_count = s_success_count;
             taskEXIT_CRITICAL(&s_lock);
-            ESP_LOGI(TAG, "按键唤醒已恢复交互，成功次数=%lu", (unsigned long) success_count);
+            ESP_LOGD(TAG, "按键唤醒已恢复交互，成功次数=%lu", (unsigned long) success_count);
             return ESP_OK;
         }
 
@@ -848,7 +861,7 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         s_recovery_error = ESP_OK;
         const uint32_t refresh_count = s_timer_refresh_count;
         taskEXIT_CRITICAL(&s_lock);
-        ESP_LOGI(TAG, "内部 Timer 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
+        ESP_LOGD(TAG, "内部 Timer 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
 
         if (preparation_was_interrupted(expected_generation))
         {
@@ -1051,7 +1064,7 @@ esp_err_t app_power_start(void)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG,
+    ESP_LOGD(TAG,
              "自动低功耗流程已启动，无活动窗口=%lu ms，Timer 刷新间隔=%lu ms",
              (unsigned long) s_config.idle_timeout_ms,
              (unsigned long) s_config.refresh_interval_ms);

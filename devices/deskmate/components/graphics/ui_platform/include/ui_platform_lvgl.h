@@ -60,3 +60,13 @@ void ui_platform_lvgl_unlock(void);
 esp_err_t ui_platform_lvgl_request_refresh(void);
 
 uint32_t ui_platform_lvgl_get_refresh_period(void);
+
+/**
+ * @brief 设置 LVGL 渲染 Timer 周期
+ *
+ * 离线显示等低频刷新场景可放大周期以降低 CPU 唤醒频率；交互场景恢复默认周期。
+ *
+ * @param[in] period_ms 新周期，单位毫秒，必须大于 0
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 周期无效；ESP_ERR_INVALID_STATE 渲染 Timer 未创建
+ */
+esp_err_t ui_platform_lvgl_set_refresh_period(uint32_t period_ms);

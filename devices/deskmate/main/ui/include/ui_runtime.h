@@ -148,3 +148,13 @@ esp_err_t ui_runtime_deinit(void);
  * @return 当前状态
  */
 ui_runtime_state_t ui_runtime_get_state(void);
+
+/**
+ * @brief 设置 LVGL 渲染 Timer 周期
+ *
+ * 由电源 Application 在番茄钟离线显示等低频刷新场景调用，降低 CPU 唤醒频率。
+ *
+ * @param[in] period_ms 新周期，单位毫秒，必须大于 0
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 周期无效；ESP_ERR_INVALID_STATE UI 未运行
+ */
+esp_err_t ui_runtime_set_refresh_period(uint32_t period_ms);

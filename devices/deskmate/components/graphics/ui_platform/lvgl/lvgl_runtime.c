@@ -18,6 +18,8 @@
 #define LVGL_PORT_STOP_TIMEOUT_MS 1000U
 /* 略大于 MIP 面板约 40ms 的 TE 周期，避免动画帧挤压 BSP 待发送批次。 */
 #define LVGL_RENDER_PERIOD_MS     45U
+/* 离线显示时放宽刷新周期，减少 CPU 在秒级更新间隙的唤醒次数。 */
+#define LVGL_OFFLINE_RENDER_PERIOD_MS 100U
 /* 当前托管 esp_lvgl_port 以固定名称创建内部 Task；升级组件时必须复审该退出屏障。 */
 #define LVGL_PORT_TASK_NAME       "taskLVGL"
 
@@ -498,4 +500,18 @@ esp_err_t ui_platform_lvgl_request_refresh(void)
 uint32_t ui_platform_lvgl_get_refresh_period(void)
 {
     return LVGL_RENDER_PERIOD_MS;
+}
+
+esp_err_t ui_platform_lvgl_set_refresh_period(uint32_t period_ms)
+{
+    if (s_render_timer == NULL)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (period_ms == 0U)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    lv_timer_set_period(s_render_timer, period_ms);
+    return ESP_OK;
 }
