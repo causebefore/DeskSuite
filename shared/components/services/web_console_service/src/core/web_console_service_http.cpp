@@ -45,16 +45,45 @@ static void web_file_secure_clear(void *data, size_t size)
     }
 }
 
+/**
+ * @brief 设置 HTTP 响应为 JSON 类型并禁止缓存
+ *
+ * 委托 Core 公共 HTTP 辅助函数依次设置状态码、Content-Type、`Cache-Control: no-store`
+ * 和 `X-Content-Type-Options: nosniff`。任何一步失败时立即返回错误。
+ *
+ * @param[in] request HTTPD 在本次回调期间借出的请求对象
+ * @param[in] status HTTP 状态行，例如 "200 OK"
+ * @return ESP_OK 全部头部设置完成；其他错误码来自 HTTPD 响应 API
+ */
 static esp_err_t web_file_set_json_response(httpd_req_t *request, const char *status)
 {
     return web_console_http_set_json_response(request, status);
 }
 
+/**
+ * @brief 发送带指定状态码和 JSON 正文的错误响应
+ *
+ * 委托 `web_console_http_send_json_error()` 设置统一安全响应头，并按 NUL 结尾字符串长度
+ * 发送正文。响应设置阶段失败时不发送正文，直接返回错误。
+ *
+ * @param[in] request HTTPD 在本次回调期间借出的请求对象
+ * @param[in] status HTTP 状态行，例如 "401 Unauthorized"
+ * @param[in] body NUL 结尾的 JSON 响应正文
+ * @return ESP_OK 响应发送完成；其他错误码来自 HTTPD 响应 API
+ */
 static esp_err_t web_file_send_json_error(httpd_req_t *request, const char *status, const char *body)
 {
     return web_console_http_send_json_error(request, status, body);
 }
 
+/**
+ * @brief 向客户端发送 503 Service Unavailable 错误响应
+ *
+ * 当 Service 正在停止、不再接纳请求时，由各 handler 调用此函数通知客户端。
+ *
+ * @param[in] request HTTPD 在本次回调期间借出的请求对象
+ * @return ESP_OK 响应发送完成；其他错误码来自 HTTPD 响应 API
+ */
 static esp_err_t web_file_send_unavailable(httpd_req_t *request)
 {
     return web_file_send_json_error(request,
@@ -143,6 +172,15 @@ static esp_err_t handle_index_get(httpd_req_t *request)
     return error;
 }
 
+/**
+ * @brief 检查请求的 Content-Type 是否为 text/plain
+ *
+ * 从 HTTP 请求头部读取 Content-Type 值，以大小写不敏感方式比较前缀。头部缺失或读取
+ * 失败（截断除外）时返回 false。
+ *
+ * @param[in] request HTTPD 在本次回调期间借出的请求对象
+ * @return true Content-Type 以 "text/plain" 开头；false 否则或头部不可用
+ */
 static bool web_file_content_type_is_text_plain(httpd_req_t *request)
 {
     static const char prefix[] = "text/plain";

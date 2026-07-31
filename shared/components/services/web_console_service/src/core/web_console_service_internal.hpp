@@ -16,12 +16,19 @@
 #include "sdkconfig.h"
 #include "web_console_service.h"
 
+/** @brief 六位数字访问码的有效字符数 */
 #define WEB_FILE_ACCESS_CODE_LENGTH       6U
+/** @brief 访问码缓冲区容量，含 NUL 终止符 */
 #define WEB_FILE_ACCESS_CODE_BUFFER_SIZE  7U
+/** @brief 会话 token 的原始随机字节数 */
 #define WEB_FILE_TOKEN_BYTES              16U
+/** @brief token 十六进制文本缓冲区容量，含 NUL 终止符 */
 #define WEB_FILE_TOKEN_BUFFER_SIZE        33U
+/** @brief 会话空闲超时时间，单位微秒（10 分钟） */
 #define WEB_FILE_SESSION_IDLE_TIMEOUT_US  (10LL * 60LL * 1000LL * 1000LL)
+/** @brief 连续认证失败后的锁定时长，单位微秒（30 秒） */
 #define WEB_FILE_LOGIN_LOCKOUT_US         (30LL * 1000LL * 1000LL)
+/** @brief 触发锁定前允许的最大连续认证失败次数 */
 #define WEB_FILE_LOGIN_MAX_FAILURES       5U
 #define WEB_CONSOLE_CORE_ROUTE_COUNT      4U
 #if CONFIG_WEB_CONSOLE_FILES
@@ -43,24 +50,30 @@
 #define WEB_CONSOLE_ROUTE_COUNT \
     (WEB_CONSOLE_CORE_ROUTE_COUNT + WEB_CONSOLE_FILES_ROUTE_COUNT + WEB_CONSOLE_PROVIDER_ROUTE_COUNT)
 
+/**
+ * @brief 认证流程的状态转换结果
+ */
 enum web_file_auth_result_t
 {
-    WEB_FILE_AUTH_OK = 0,
-    WEB_FILE_AUTH_BAD_CODE,
-    WEB_FILE_AUTH_LOCKED,
-    WEB_FILE_AUTH_SESSION_BUSY,
-    WEB_FILE_AUTH_UNAUTHORIZED,
-    WEB_FILE_AUTH_EXPIRED,
+    WEB_FILE_AUTH_OK = 0,       /**< 认证或授权成功 */
+    WEB_FILE_AUTH_BAD_CODE,     /**< 访问码格式或内容不正确 */
+    WEB_FILE_AUTH_LOCKED,       /**< 连续失败过多，处于锁定期 */
+    WEB_FILE_AUTH_SESSION_BUSY, /**< 已存在未过期的活动会话 */
+    WEB_FILE_AUTH_UNAUTHORIZED, /**< token 校验未通过 */
+    WEB_FILE_AUTH_EXPIRED,      /**< 会话因空闲超时已过期 */
 };
 
+/**
+ * @brief 访问码、会话 token 与登录防护的聚合状态
+ */
 struct web_file_auth_state_t
 {
-    char    access_code[WEB_FILE_ACCESS_CODE_BUFFER_SIZE];
-    uint8_t token[WEB_FILE_TOKEN_BYTES];
-    bool    session_active;
-    uint8_t failed_attempts;
-    int64_t lockout_until_us;
-    int64_t last_activity_us;
+    char    access_code[WEB_FILE_ACCESS_CODE_BUFFER_SIZE]; /**< 当前有效的六位数字访问码 */
+    uint8_t token[WEB_FILE_TOKEN_BYTES];                   /**< 当前会话的 128 位随机 token */
+    bool    session_active;                                /**< 是否存在活动会话 */
+    uint8_t failed_attempts;                               /**< 当前锁定周期内的连续失败次数 */
+    int64_t lockout_until_us;                              /**< 锁定解除的单调时间，单位微秒 */
+    int64_t last_activity_us;                              /**< 最近一次成功授权或刷新的单调时间 */
 };
 
 /**

@@ -15,6 +15,16 @@
 #include "esp_heap_caps.h"
 #include "sdkconfig.h"
 
+/**
+ * @brief 验证目录项名称的 UTF-8 编码有效性
+ *
+ * 逐个恢复 Unicode 标量，拒绝过长编码、孤立续字节、代理项、超出 U+10FFFF 的标量及
+ * C0/C1 控制字符。与路径解码不同，目录项名称不做路径专用禁用字节过滤。
+ *
+ * @param[in] input 待验证字节序列
+ * @param[in] input_size 序列长度
+ * @return true 序列有效；false 序列无效
+ */
 static bool web_file_entry_utf8_is_valid(const uint8_t *input, size_t input_size)
 {
     size_t offset = 0U;

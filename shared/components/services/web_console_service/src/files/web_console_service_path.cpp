@@ -9,6 +9,14 @@
 
 #define WEB_FILE_PATH_SEGMENT_MAX_BYTES 255U
 
+/**
+ * @brief 将单个十六进制 ASCII 字符转换为对应的数值
+ *
+ * 支持 `0`-`9`、`a`-`f`、`A`-`F`，其余字符返回 -1 供调用方拒绝。
+ *
+ * @param[in] value 待转换的 ASCII 字节
+ * @return 0-15 对应十六进制数值；-1 非法十六进制字符
+ */
 static int web_file_hex_value(unsigned char value)
 {
     if (value >= '0' && value <= '9')
@@ -339,6 +347,15 @@ esp_err_t web_file_path_map_logical(const char *logical, char *filesystem, size_
     return ESP_OK;
 }
 
+/**
+ * @brief 计算单个字节经 JSON 转义后的输出长度
+ *
+ * 可见 ASCII（≥ 0x20）中仅 `"`、`\` 和控制字符需要转义；C0 控制字符使用 `\uXXXX`
+ * 六字节形式；其余可见字符原样输出一字节。
+ *
+ * @param[in] value 待评估的字节
+ * @return 转义后占用的字节数（1、2 或 6）
+ */
 static size_t web_file_json_escape_size(unsigned char value)
 {
     switch (value)
@@ -433,6 +450,14 @@ esp_err_t web_file_json_escape(const char *input, char *output, size_t output_si
     return ESP_OK;
 }
 
+/**
+ * @brief 判断字节是否属于 RFC 3986 非保留字符，可直接输出无需百分号编码
+ *
+ * 非保留字符包括字母、数字及 `-`、`.`、`_`、`~`。
+ *
+ * @param[in] value 待判断的字节
+ * @return true 无需编码；false 需要百分号编码
+ */
 static bool web_file_percent_byte_is_safe(unsigned char value)
 {
     return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9')

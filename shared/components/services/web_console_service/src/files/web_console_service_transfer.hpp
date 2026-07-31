@@ -8,75 +8,103 @@
 
 #include "web_console_files_internal.hpp"
 
+/** @brief Authorization 请求头缓冲区容量，含 NUL 终止符 */
 #define WEB_FILE_AUTHORIZATION_BUFFER_SIZE 48U
+/** @brief 临时 JSON 或路径组装用草稿缓冲区容量 */
 #define WEB_FILE_RESPONSE_SCRATCH_SIZE     1280U
+/** @brief URL 路径单段最大字节数，对应 RFC 3986 限制 */
 #define WEB_FILE_PATH_SEGMENT_MAX_BYTES    255U
+/** @brief 上传超时后允许的最大重试次数 */
 #define WEB_FILE_UPLOAD_TIMEOUT_RETRIES    1U
 
+/**
+ * @brief 文件传输准入守卫的结果
+ */
 enum web_file_guard_result_t
 {
-    WEB_FILE_GUARD_OK = 0,
-    WEB_FILE_GUARD_UNAUTHORIZED,
-    WEB_FILE_GUARD_BUSY,
-    WEB_FILE_GUARD_UNAVAILABLE,
+    WEB_FILE_GUARD_OK = 0,         /**< 准入成功 */
+    WEB_FILE_GUARD_UNAUTHORIZED,   /**< 未通过认证 */
+    WEB_FILE_GUARD_BUSY,           /**< 已有另一传输占用槽位 */
+    WEB_FILE_GUARD_UNAVAILABLE,    /**< Service 未就绪或正在停止 */
 };
 
+/**
+ * @brief 文件操作的业务结果码
+ */
 enum web_file_operation_result_t
 {
-    WEB_FILE_OPERATION_OK = 0,
-    WEB_FILE_OPERATION_BAD_REQUEST,
-    WEB_FILE_OPERATION_NOT_FOUND,
-    WEB_FILE_OPERATION_WRONG_TYPE,
-    WEB_FILE_OPERATION_LENGTH_REQUIRED,
-    WEB_FILE_OPERATION_TOO_LARGE,
-    WEB_FILE_OPERATION_OVERWRITE_REQUIRED,
-    WEB_FILE_OPERATION_ALREADY_EXISTS,
-    WEB_FILE_OPERATION_DIRECTORY_NOT_EMPTY,
-    WEB_FILE_OPERATION_ROOT_FORBIDDEN,
-    WEB_FILE_OPERATION_INSUFFICIENT_STORAGE,
-    WEB_FILE_OPERATION_NO_MEMORY,
-    WEB_FILE_OPERATION_IO_ERROR,
-    WEB_FILE_OPERATION_CANCELLED,
+    WEB_FILE_OPERATION_OK = 0,                /**< 操作成功 */
+    WEB_FILE_OPERATION_BAD_REQUEST,           /**< 请求参数非法 */
+    WEB_FILE_OPERATION_NOT_FOUND,             /**< 目标路径不存在 */
+    WEB_FILE_OPERATION_WRONG_TYPE,            /**< 路径类型与操作不匹配 */
+    WEB_FILE_OPERATION_LENGTH_REQUIRED,       /**< 缺少 Content-Length */
+    WEB_FILE_OPERATION_TOO_LARGE,             /**< 上传超过容量上限 */
+    WEB_FILE_OPERATION_OVERWRITE_REQUIRED,    /**< 目标已存在且未确认覆盖 */
+    WEB_FILE_OPERATION_ALREADY_EXISTS,        /**< 不允许覆盖时目标已存在 */
+    WEB_FILE_OPERATION_DIRECTORY_NOT_EMPTY,   /**< 删除目标目录非空 */
+    WEB_FILE_OPERATION_ROOT_FORBIDDEN,        /**< 操作被保留的根目录拒绝 */
+    WEB_FILE_OPERATION_INSUFFICIENT_STORAGE,  /**< 文件系统剩余空间不足 */
+    WEB_FILE_OPERATION_NO_MEMORY,             /**< 内存分配失败 */
+    WEB_FILE_OPERATION_IO_ERROR,              /**< 底层文件系统 I/O 错误 */
+    WEB_FILE_OPERATION_CANCELLED,             /**< 操作被停止流程取消 */
 };
 
+/**
+ * @brief 文件上传请求的前置校验信息
+ */
 struct web_file_upload_request_t
 {
-    size_t expected_length;
-    bool   overwrite_confirmed;
-    bool   target_exists;
+    size_t expected_length;    /**< 请求声明的上传正文长度 */
+    bool   overwrite_confirmed;/**< 客户端是否已确认覆盖既有文件 */
+    bool   target_exists;      /**< 上传目标路径当前是否存在 */
 };
 
+/**
+ * @brief 文件传输操作使用的临时路径和草稿缓冲区集合
+ */
 struct web_file_transfer_workspace_t
 {
-    char logical[WEB_FILE_LOGICAL_PATH_BUFFER_SIZE];
-    char filesystem[WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE];
-    char scratch[WEB_FILE_RESPONSE_SCRATCH_SIZE];
-    char auxiliary[WEB_FILE_RESPONSE_SCRATCH_SIZE];
+    char logical[WEB_FILE_LOGICAL_PATH_BUFFER_SIZE];       /**< 解码后的逻辑路径 */
+    char filesystem[WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE]; /**< 映射后的文件系统路径 */
+    char scratch[WEB_FILE_RESPONSE_SCRATCH_SIZE];          /**< 通用草稿缓冲区 */
+    char auxiliary[WEB_FILE_RESPONSE_SCRATCH_SIZE];        /**< 辅助草稿缓冲区 */
 };
 
+/**
+ * @brief 单路径操作使用的逻辑与文件系统路径缓冲区对
+ */
 struct web_file_path_workspace_t
 {
-    char logical[WEB_FILE_LOGICAL_PATH_BUFFER_SIZE];
-    char filesystem[WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE];
+    char logical[WEB_FILE_LOGICAL_PATH_BUFFER_SIZE];       /**< 解码后的逻辑路径 */
+    char filesystem[WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE]; /**< 映射后的文件系统路径 */
 };
 
+/**
+ * @brief 文件移动操作的源路径与目标路径工作区
+ */
 struct web_file_move_workspace_t
 {
-    web_file_path_workspace_t source;
-    web_file_path_workspace_t destination;
+    web_file_path_workspace_t source;      /**< 源路径缓冲区对 */
+    web_file_path_workspace_t destination; /**< 目标路径缓冲区对 */
 };
 
+/**
+ * @brief 文件系统变更操作类型
+ */
 enum web_file_mutation_t
 {
-    WEB_FILE_MUTATION_CREATE_DIRECTORY = 0,
-    WEB_FILE_MUTATION_MOVE_FILE,
-    WEB_FILE_MUTATION_DELETE_ITEM,
+    WEB_FILE_MUTATION_CREATE_DIRECTORY = 0, /**< 创建目录 */
+    WEB_FILE_MUTATION_MOVE_FILE,            /**< 移动常规文件 */
+    WEB_FILE_MUTATION_DELETE_ITEM,          /**< 删除文件或空目录 */
 };
 
+/**
+ * @brief 文件扩展名到 MIME 类型的映射条目
+ */
 struct web_file_mime_entry_t
 {
-    const char *extension;
-    const char *content_type;
+    const char *extension;    /**< 不含点号的文件扩展名 */
+    const char *content_type; /**< 对应的 MIME Content-Type 值 */
 };
 
 /**

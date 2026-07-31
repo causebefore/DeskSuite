@@ -7,33 +7,47 @@
 #include "web_console_files.h"
 #include "web_console_service_internal.hpp"
 
+/** @brief 逻辑路径缓冲区容量，含 NUL 终止符 */
 #define WEB_FILE_LOGICAL_PATH_BUFFER_SIZE     512U
+/** @brief 文件系统路径缓冲区容量，含动态挂载根前缀 */
 #define WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE  (WEB_CONSOLE_FILES_MOUNT_ROOT_MAX_LENGTH + WEB_FILE_LOGICAL_PATH_BUFFER_SIZE)
+/** @brief 文件传输缓冲区容量 */
 #define WEB_FILE_TRANSFER_BUFFER_SIZE         (32U * 1024U)
+/** @brief 动态事务工作目录缓冲区容量 */
 #define WEB_FILE_TRANSACTION_DIR_BUFFER_SIZE  (WEB_CONSOLE_FILES_MOUNT_ROOT_MAX_LENGTH + 1U \
                                                + WEB_CONSOLE_FILES_WORKSPACE_NAME_MAX_LENGTH + 1U)
+/** @brief 动态事务产物路径缓冲区容量 */
 #define WEB_FILE_TRANSACTION_PATH_BUFFER_SIZE (WEB_FILE_TRANSACTION_DIR_BUFFER_SIZE + sizeof("/transaction.new"))
 
+/**
+ * @brief 覆盖上传事务的持久化阶段
+ */
 enum web_file_transaction_phase_t
 {
-    WEB_FILE_TRANSACTION_PREPARED = 0,
-    WEB_FILE_TRANSACTION_BACKUP_MOVED,
-    WEB_FILE_TRANSACTION_TARGET_COMMITTED,
+    WEB_FILE_TRANSACTION_PREPARED = 0,       /**< 临时文件和 journal 已就绪 */
+    WEB_FILE_TRANSACTION_BACKUP_MOVED,       /**< 原目标已重命名为备份 */
+    WEB_FILE_TRANSACTION_TARGET_COMMITTED,   /**< 临时文件已重命名为新目标 */
 };
 
+/**
+ * @brief 根据持久化产物集合决定的事务恢复动作
+ */
 enum web_file_recovery_action_t
 {
-    WEB_FILE_RECOVERY_REMOVE_PART = 0,
-    WEB_FILE_RECOVERY_RESTORE_BACKUP,
-    WEB_FILE_RECOVERY_ACCEPT_COMMIT,
-    WEB_FILE_RECOVERY_AMBIGUOUS,
+    WEB_FILE_RECOVERY_REMOVE_PART = 0, /**< 删除未提交的临时文件 */
+    WEB_FILE_RECOVERY_RESTORE_BACKUP,  /**< 用备份恢复原目标 */
+    WEB_FILE_RECOVERY_ACCEPT_COMMIT,   /**< 接受已完成的提交 */
+    WEB_FILE_RECOVERY_AMBIGUOUS,       /**< 产物组合无法唯一解释，需人工干预 */
 };
 
+/**
+ * @brief 覆盖上传事务的持久化元数据
+ */
 struct web_file_transaction_t
 {
-    web_file_transaction_phase_t phase;
-    uint64_t                     expected_length;
-    char                         target_path[WEB_FILE_LOGICAL_PATH_BUFFER_SIZE];
+    web_file_transaction_phase_t phase;                                     /**< 当前事务阶段 */
+    uint64_t                     expected_length;                           /**< 预期上传文件长度 */
+    char                         target_path[WEB_FILE_LOGICAL_PATH_BUFFER_SIZE]; /**< 目标逻辑路径 */
 };
 
 /**
@@ -63,10 +77,15 @@ struct web_console_files_context_t
 
 extern web_console_files_context_t s_files_context;
 
+/** @brief 当前 Files 配置生成的事务工作目录路径 */
 #define WEB_FILE_TRANSACTION_DIR     (s_files_context.transaction_directory)
+/** @brief 上传写入阶段使用的临时文件路径 */
 #define WEB_FILE_TRANSACTION_PART    (s_files_context.transaction_part)
+/** @brief 覆盖上传事务使用的原目标备份路径 */
 #define WEB_FILE_TRANSACTION_BACKUP  (s_files_context.transaction_backup)
+/** @brief 覆盖上传事务的持久化日志路径 */
 #define WEB_FILE_TRANSACTION_JOURNAL (s_files_context.transaction_journal)
+/** @brief 事务日志原子更新阶段使用的临时路径 */
 #define WEB_FILE_TRANSACTION_NEW     (s_files_context.transaction_new)
 
 /** @brief 返回 Files 模块固定的六个领域路由。 */

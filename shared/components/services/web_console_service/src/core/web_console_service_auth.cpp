@@ -66,6 +66,14 @@ static bool web_file_auth_constant_time_equal(const uint8_t *left, const uint8_t
     return difference == 0U;
 }
 
+/**
+ * @brief 将单个十六进制 ASCII 字符转换为对应的数值
+ *
+ * 支持 '0'-'9'、'a'-'f'、'A'-'F'；非法字符返回 -1。用于 token 解码的逐字节转换。
+ *
+ * @param[in] value 待转换的 ASCII 字符
+ * @return 0–15 对应十六进制数值；-1 字符不属于合法十六进制
+ */
 static int web_file_auth_hex_value(unsigned char value)
 {
     if (value >= '0' && value <= '9')
@@ -173,6 +181,15 @@ static void web_file_auth_clear_session(web_file_auth_state_t *state)
     state->last_activity_us = 0;
 }
 
+/**
+ * @brief 计算登录锁定的绝对截止时间
+ *
+ * 在当前单调时间上叠加固定的锁定时长；当加法可能溢出 INT64_MAX 时饱和到 INT64_MAX，
+ * 避免回绕导致锁定期限失效。
+ *
+ * @param[in] now_us 当前单调时间（微秒）
+ * @return 锁定截止时间（微秒），最大为 INT64_MAX
+ */
 static int64_t web_file_auth_lockout_deadline(int64_t now_us)
 {
     if (now_us > INT64_MAX - WEB_FILE_LOGIN_LOCKOUT_US)
