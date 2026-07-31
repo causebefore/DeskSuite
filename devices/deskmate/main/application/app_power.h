@@ -49,7 +49,6 @@ extern "C"
         APP_POWER_WAKEUP_LEFT_BUTTON,  /*!< 左键唤醒 */
         APP_POWER_WAKEUP_RIGHT_BUTTON, /*!< 右键唤醒 */
         APP_POWER_WAKEUP_BOTH_BUTTONS, /*!< 左右键同时命中 EXT1 状态 */
-        APP_POWER_WAKEUP_RTC_TIMER,    /*!< PCF85063 Timer 通过 RTC INT 唤醒 */
         APP_POWER_WAKEUP_TIMER,        /*!< ESP32 内部 Timer 唤醒 */
         APP_POWER_WAKEUP_UNKNOWN,      /*!< 返回成功但没有有效唤醒来源 */
     } app_power_wakeup_source_t;
@@ -84,9 +83,8 @@ extern "C"
         uint32_t                  activity_generation;           /*!< 已接收用户活动代次 */
         uint32_t                  cycle_id;                      /*!< 睡眠尝试编号 */
         uint32_t                  success_count;                 /*!< 按键唤醒并恢复交互次数 */
-        uint32_t                  rtc_timer_refresh_count;       /*!< RTC Timer 唤醒并刷新屏幕次数 */
-        uint32_t                  timer_refresh_count;           /*!< Timer 唤醒并刷新屏幕次数 */
-        uint32_t                  blockers;                      /*!< app_power_blocker_t 位组合 */
+        uint32_t                  timer_refresh_count;     /*!< Timer 唤醒并刷新屏幕次数 */
+        uint32_t                  blockers;                /*!< app_power_blocker_t 位组合 */
         esp_err_t                 primary_error;                 /*!< 最近主操作错误 */
         esp_err_t                 recovery_error;                /*!< 最近诊断或恢复错误 */
     } app_power_status_t;
@@ -106,9 +104,8 @@ extern "C"
      * @brief 启动唯一的 Light-sleep 编排 Task
      *
      * 无活动窗口结束后，若运行中的番茄钟页需要秒级显示，则只停止网络并保持 UI；其他场景
-     * 可逆停止 UI 与网络并进入轻睡眠。普通模式使用内部 Timer 维护唤醒；RTC INT 测试模式
-     * 在每次入睡前清理并启动 PCF85063 Timer，使用其 INT 维护唤醒且不启用内部 Timer。
-     * 维护唤醒刷新一次屏幕后继续睡眠；左右按键唤醒则按网络、语音、UI 的顺序恢复正常交互窗口。
+     * 可逆停止 UI 与网络并进入轻睡眠。使用内部 Timer 维护唤醒；维护唤醒刷新一次屏幕后继续
+     * 睡眠；左右按键唤醒则按网络、语音、UI 的顺序恢复正常交互窗口。
      *
      * @return ESP_OK 已启动；ESP_ERR_INVALID_STATE 生命周期不允许；ESP_ERR_NO_MEM 创建失败
      */
@@ -134,8 +131,7 @@ extern "C"
     /**
      * @brief 同步请求停止电源 Task
      *
-     * 若 Task 已进入 Light-sleep，普通模式最迟等待下一次内部 Timer 唤醒；RTC INT 测试模式
-     * 最迟等待下一次 PCF85063 Timer 或按键唤醒。
+     * 若 Task 已进入 Light-sleep，最迟等待下一次内部 Timer 或按键唤醒。
      *
      * @param[in] timeout_ms 最长等待时间，单位毫秒
      * @return ESP_OK 已停止；ESP_ERR_INVALID_ARG 超时为零；

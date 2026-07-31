@@ -6,23 +6,8 @@ config DESKMATE_LIGHT_SLEEP_ENABLED
     depends on !DESKMATE_WAKE_WORD_ENABLE
     help
         启用后，设备在用户无活动窗口结束且产品事务空闲时进入不复位芯片的
-        Light-sleep。UI 会可逆停止；左右按键恢复交互，维护唤醒源负责刷新一次屏幕。
+        Light-sleep。UI 会可逆停止；左右按键恢复交互，内部 Timer 负责刷新一次屏幕。
         WakeNet 常驻监听启用时自动禁用本功能，因为 CPU 轻睡后无法继续处理麦克风数据。
-
-config DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-    bool "Use RTC INT as exclusive light sleep maintenance wakeup source"
-    default n
-    depends on DESKMATE_LIGHT_SLEEP_ENABLED
-    help
-        用于验证 RTC INT GPIO15 硬件连线。启用后，左右按键与 RTC INT 共同作为 EXT1
-        低电平唤醒源，并完全禁用 ESP32 内部 Timer 唤醒，避免两个定时来源重复命中。
-        BSP 在每次入睡前关闭并清除旧告警输出，使用
-        DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC 装载 PCF85063 的 1 Hz Timer，再进入
-        Light-sleep；任一来源唤醒或睡眠失败后都会停止 Timer 并清除 TF。当前无外部上拉
-        测试还会显式启用 GPIO15 的 RTC 域内部上拉，并在 Light-sleep 期间保持 RTC_PERIPH
-        供电。装载 Timer 前会关闭全部 RTC INT 输出源并清除 AF/TF，等待内部上拉稳定 10 ms
-        后读取 GPIO15 释放基线；基线为低时不启动 Timer 或 Light-sleep。基线为高才继续，
-        若 IDF 仍拒绝睡眠，BSP 会在返回路径再次采样 GPIO15 与 RTC 中断寄存器。
 
 config DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC
     int "Light sleep idle timeout (seconds)"
@@ -41,14 +26,11 @@ config DESKMATE_LIGHT_SLEEP_RETRY_DELAY_MS
 config DESKMATE_LIGHT_SLEEP_REFRESH_INTERVAL_SEC
     int "Light sleep screen refresh interval (seconds)"
     default 60
-    range 10 255 if DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-    range 10 3600 if !DESKMATE_RTC_INT_WAKE_TEST_ENABLED
+    range 10 3600
     depends on DESKMATE_LIGHT_SLEEP_ENABLED
     help
-        普通模式下进入 Light-sleep 后，ESP32 内部 Timer 周期唤醒的间隔。每次 Timer 唤醒
-        会恢复 UI、同步刷新一次屏幕，再次停止 UI 并继续睡眠；默认 60 秒。RTC INT 唤醒
-        测试模式把同一值装载到 PCF85063 的 1 Hz Timer，因此范围限制为最多 255 秒，且不会
-        启用 ESP32 内部 Timer。
+        进入 Light-sleep 后，ESP32 内部 Timer 周期唤醒的间隔。每次 Timer 唤醒
+        会恢复 UI、同步刷新一次屏幕，再次停止 UI 并继续睡眠；默认 60 秒。
 
 endmenu
 

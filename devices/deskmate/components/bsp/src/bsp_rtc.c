@@ -391,83 +391,6 @@ esp_err_t bsp_rtc_set_datetime(const bsp_rtc_datetime_t *value)
     return error;
 }
 
-esp_err_t bsp_rtc_clear_interrupt_sources(void)
-{
-    if (!s_ready)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    const esp_err_t error = pcf85063_driver_clear_interrupt_sources(&s_driver);
-    xSemaphoreGive(s_mutex);
-    if (error == ESP_OK)
-    {
-        ESP_LOGI(TAG, "RTC INT 输出源已全部关闭，AF/TF 已清除");
-    }
-    return error;
-}
-
-esp_err_t bsp_rtc_start_wakeup_timer(uint32_t interval_ms)
-{
-    if (interval_ms == 0U)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (!s_ready)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    const uint64_t interval_s = ((uint64_t) interval_ms + 999ULL) / 1000ULL;
-    if (interval_s == 0U || interval_s > UINT8_MAX)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    esp_err_t error = pcf85063_driver_clear_interrupt_sources(&s_driver);
-    if (error == ESP_OK)
-    {
-        error = pcf85063_driver_start_timer(&s_driver, (uint8_t) interval_s);
-    }
-    if (error != ESP_OK)
-    {
-        const esp_err_t cleanup_error = pcf85063_driver_stop_timer(&s_driver);
-        if (cleanup_error != ESP_OK)
-        {
-            ESP_LOGE(TAG,
-                     "启动 RTC 唤醒计时器失败且回滚停止失败: start=%s stop=%s",
-                     esp_err_to_name(error),
-                     esp_err_to_name(cleanup_error));
-        }
-    }
-    xSemaphoreGive(s_mutex);
-
-    if (error == ESP_OK)
-    {
-        ESP_LOGI(TAG, "RTC 唤醒计时器已启动: %llu 秒，其他 INT 源与 AF/TF 已清理", (unsigned long long) interval_s);
-    }
-    return error;
-}
-
-esp_err_t bsp_rtc_stop_wakeup_timer(void)
-{
-    if (!s_ready)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    ESP_RETURN_ON_ERROR(lock_driver(), TAG, "等待 RTC 事务锁超时");
-    const esp_err_t error = pcf85063_driver_stop_timer(&s_driver);
-    xSemaphoreGive(s_mutex);
-    if (error == ESP_OK)
-    {
-        ESP_LOGI(TAG, "RTC 唤醒计时器已停止，TF 已清除");
-    }
-    return error;
-}
-
 esp_err_t bsp_rtc_set_alarm(const bsp_rtc_alarm_t *alarm)
 {
     if (alarm == NULL)
@@ -631,14 +554,23 @@ esp_err_t bsp_rtc_deinit(void)
     s_interrupt_context  = NULL;
     portEXIT_CRITICAL(&s_interrupt_lock);
 
-    const esp_err_t timer_disable_err = bsp_rtc_stop_wakeup_timer();
-    if (result == ESP_OK)
+    const esp_err_t timer_disable_err = lock_driver();
+    if (timer_disable_err == ESP_OK)
     {
-        result = timer_disable_err;
+        const esp_err_t stop_err = pcf85063_driver_stop_timer(&s_driver);
+        xSemaphoreGive(s_mutex);
+        if (result == ESP_OK)
+        {
+            result = stop_err;
+        }
+        if (stop_err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "关闭 RTC 计时器失败: %s", esp_err_to_name(stop_err));
+        }
     }
-    if (timer_disable_err != ESP_OK)
+    else
     {
-        ESP_LOGW(TAG, "关闭 RTC 计时器失败: %s", esp_err_to_name(timer_disable_err));
+        ESP_LOGW(TAG, "关闭 RTC 计时器前等待事务锁超时");
     }
 
     const esp_err_t disable_err = bsp_rtc_enable_alarm_interrupt(false);

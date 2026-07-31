@@ -41,7 +41,6 @@ static int64_t                   s_last_activity_us;
 static uint32_t                  s_activity_generation;
 static uint32_t                  s_cycle_id;
 static uint32_t                  s_success_count;
-static uint32_t                  s_rtc_timer_refresh_count;
 static uint32_t                  s_timer_refresh_count;
 static uint32_t                  s_blockers;
 static esp_err_t                 s_primary_error;
@@ -135,10 +134,6 @@ static app_power_wakeup_source_t map_wakeup_source(const device_power_wakeup_res
     if (wakeup->right_button)
     {
         return APP_POWER_WAKEUP_RIGHT_BUTTON;
-    }
-    if (wakeup->rtc_timer)
-    {
-        return APP_POWER_WAKEUP_RTC_TIMER;
     }
     if (wakeup->timer)
     {
@@ -713,26 +708,10 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
 
         set_state_step(APP_POWER_STATE_SLEEPING, APP_POWER_STEP_DEVICE_SLEEP);
         device_power_wakeup_result_t wakeup = { 0 };
-#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-        const uint32_t wakeup_interval_ms = s_config.refresh_interval_ms;
-        ESP_LOGI(TAG,
-                 "准备进入轻睡眠，PCF85063 Timer=%lu ms，RTC INT 为唯一维护唤醒源；左右按键可提前唤醒",
-                 (unsigned long) wakeup_interval_ms);
-#else
-        app_power_timer_reason_t timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
-        const uint32_t           wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
+        app_power_timer_reason_t     timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
+        const uint32_t               wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
         log_next_wakeup(wakeup_interval_ms, timer_reason);
-#endif
-        const esp_err_t sleep_error = device_power_enter_light_sleep(wakeup_interval_ms, &wakeup);
-#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-        const esp_err_t sleep_result = sleep_error == ESP_ERR_INVALID_STATE ? ESP_ERR_INVALID_RESPONSE : sleep_error;
-        if (sleep_error == ESP_ERR_INVALID_STATE)
-        {
-            ESP_LOGE(TAG, "RTC INT 基线未释放或 Light-sleep 被拒绝，停止自动重试以避免反复启停 Runtime");
-        }
-#else
-        const esp_err_t sleep_result = sleep_error;
-#endif
+        const esp_err_t sleep_result = device_power_enter_light_sleep(wakeup_interval_ms, &wakeup);
 
         taskENTER_CRITICAL(&s_lock);
         s_state         = APP_POWER_STATE_RESUMING;
@@ -846,27 +825,12 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         ui_stopped = false;
 
         taskENTER_CRITICAL(&s_lock);
-        if (wakeup_source == APP_POWER_WAKEUP_RTC_TIMER)
-        {
-            s_rtc_timer_refresh_count++;
-        }
-        else
-        {
-            s_timer_refresh_count++;
-        }
+        s_timer_refresh_count++;
         s_primary_error  = ESP_OK;
         s_recovery_error = ESP_OK;
-        const uint32_t refresh_count =
-            wakeup_source == APP_POWER_WAKEUP_RTC_TIMER ? s_rtc_timer_refresh_count : s_timer_refresh_count;
+        const uint32_t refresh_count = s_timer_refresh_count;
         taskEXIT_CRITICAL(&s_lock);
-        if (wakeup_source == APP_POWER_WAKEUP_RTC_TIMER)
-        {
-            ESP_LOGI(TAG, "RTC Timer 通过 INT 唤醒并已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
-        }
-        else
-        {
-            ESP_LOGI(TAG, "内部 Timer 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
-        }
+        ESP_LOGI(TAG, "内部 Timer 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
 
         if (preparation_was_interrupted(expected_generation))
         {
@@ -1017,7 +981,6 @@ esp_err_t app_power_init(const app_power_config_t *config)
     s_activity_generation     = 0U;
     s_cycle_id                = 0U;
     s_success_count           = 0U;
-    s_rtc_timer_refresh_count = 0U;
     s_timer_refresh_count     = 0U;
     s_blockers                = APP_POWER_BLOCKER_NONE;
     s_primary_error           = ESP_OK;
@@ -1057,17 +1020,10 @@ esp_err_t app_power_start(void)
         return ESP_ERR_NO_MEM;
     }
 
-#ifdef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
-    ESP_LOGI(TAG,
-             "自动低功耗流程已启动，无活动窗口=%lu ms，PCF85063 Timer=%lu ms，内部 Timer 已禁用",
-             (unsigned long) s_config.idle_timeout_ms,
-             (unsigned long) s_config.refresh_interval_ms);
-#else
     ESP_LOGI(TAG,
              "自动低功耗流程已启动，无活动窗口=%lu ms，Timer 刷新间隔=%lu ms",
              (unsigned long) s_config.idle_timeout_ms,
              (unsigned long) s_config.refresh_interval_ms);
-#endif
     return ESP_OK;
 }
 
@@ -1111,7 +1067,6 @@ esp_err_t app_power_get_status_copy(app_power_status_t *out_status)
         .activity_generation           = s_activity_generation,
         .cycle_id                      = s_cycle_id,
         .success_count                 = s_success_count,
-        .rtc_timer_refresh_count       = s_rtc_timer_refresh_count,
         .timer_refresh_count           = s_timer_refresh_count,
         .blockers                      = s_blockers,
         .primary_error                 = s_primary_error,
@@ -1164,7 +1119,6 @@ esp_err_t app_power_deinit(void)
     s_activity_generation     = 0U;
     s_cycle_id                = 0U;
     s_success_count           = 0U;
-    s_rtc_timer_refresh_count = 0U;
     s_timer_refresh_count     = 0U;
     s_blockers                = APP_POWER_BLOCKER_NONE;
     s_primary_error           = ESP_OK;
