@@ -15,6 +15,9 @@
 
 static const char *TAG = "bsp_power";
 
+/** @brief 标记 console UART 处理模式是否已在初始化时配置 */
+static bool s_uart_handling_initialized = false;
+
 #define BSP_POWER_WAKEUP_MASK        ((1ULL << BOARD_PIN_BTN_LEFT) | (1ULL << BOARD_PIN_BTN_RIGHT))
 
 static const bsp_button_id_t s_buttons[] = {
@@ -25,6 +28,38 @@ static const bsp_button_id_t s_buttons[] = {
 _Static_assert(BOARD_PIN_BTN_LEFT >= 0 && BOARD_PIN_BTN_LEFT < GPIO_NUM_MAX, "左键 GPIO 必须是有效数字 IO");
 _Static_assert(BOARD_PIN_BTN_RIGHT >= 0 && BOARD_PIN_BTN_RIGHT < GPIO_NUM_MAX, "右键 GPIO 必须是有效数字 IO");
 _Static_assert(BOARD_PIN_BTN_LEFT != BOARD_PIN_BTN_RIGHT, "左右按键不能共用 GPIO");
+
+/**
+ * @brief 初始化轻睡眠相关的全局睡眠配置
+ *
+ * 在系统启动早期一次性设置 console UART 处理模式，避免每次入睡前重复调用。
+ *
+ * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 重复初始化；或底层错误码
+ */
+esp_err_t bsp_power_init(void)
+{
+    if (s_uart_handling_initialized)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /*
+     * IDF v6.0.1 默认对 console UART 采用 SUSPEND 策略：入睡前对 UART0 执行 XOFF
+     * 暂停，唤醒后再 XON 恢复。ESP32-S3 上实测唤醒后 UART0 日志静默，疑似 XON
+     * 恢复未生效。改为 FLUSH：入睡前等待 TX FIFO 全部发完，不做 XOFF，从而规避
+     * 唤醒后的 XON 恢复问题，同时保证入睡前的调试日志完整可见。
+     */
+    const esp_err_t error = esp_sleep_set_console_uart_handling_mode(ESP_SLEEP_ALWAYS_FLUSH_UART);
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "配置 console UART 处理模式失败: %s", esp_err_to_name(error));
+        return error;
+    }
+
+    s_uart_handling_initialized = true;
+    ESP_LOGI(TAG, "轻睡眠 UART 处理模式已配置为 FLUSH");
+    return ESP_OK;
+}
 
 /**
  * @brief 确认左右按键均处于释放高电平
@@ -85,14 +120,6 @@ esp_err_t bsp_power_enter_light_sleep(uint32_t timer_wakeup_ms, bsp_power_wakeup
         }
         return operation_error;
     }
-
-    /*
-     * IDF v6.0.1 默认对 console UART 采用 SUSPEND 策略：入睡前对 UART0 执行 XOFF
-     * 暂停，唤醒后再 XON 恢复。ESP32-S3 上实测唤醒后 UART0 日志静默，疑似 XON
-     * 恢复未生效。改为 FLUSH：入睡前等待 TX FIFO 全部发完，不做 XOFF，从而规避
-     * 唤醒后的 XON 恢复问题，同时保证入睡前的调试日志完整可见。
-     */
-    (void) esp_sleep_set_console_uart_handling_mode(ESP_SLEEP_ALWAYS_FLUSH_UART);
 
     ESP_LOGI(TAG,
              "进入轻睡眠，左键 GPIO%d、右键 GPIO%d 或内部 Timer %lu ms 可唤醒",

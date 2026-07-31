@@ -134,6 +134,16 @@ extern "C"
     esp_err_t bsp_button_set_activity_callback_borrow(bsp_button_activity_callback_t callback, void *context);
 
     /**
+     * @brief 初始化轻睡眠相关的全局睡眠配置
+     *
+     * 在系统启动早期一次性设置 console UART 处理模式。重复初始化返回
+     * ESP_ERR_INVALID_STATE。
+     *
+     * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 重复初始化；或底层错误码
+     */
+    esp_err_t bsp_power_init(void);
+
+    /**
      * @brief 按编译配置执行一次完整轻睡眠事务
      *
      * 本函数先确认左右按键均已释放，再配置双按键 EXT1 与内部 Timer 执行一次同步

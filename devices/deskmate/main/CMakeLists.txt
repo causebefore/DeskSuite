@@ -51,6 +51,7 @@ idf_component_register(SRCS
                            esp_common
                            esp_event
                            esp_hw_support
+                           esp_pm
                            esp_system
                            esp_timer
                            freertos

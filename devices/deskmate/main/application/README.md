@@ -262,8 +262,9 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 `app_pomodoro_requires_live_display()` 报告运行中的番茄钟正处于前台，`app_power` 进入
 `APP_POWER_STATE_OFFLINE_DISPLAY`：只由 `app_network` 停止 Dashboard 截止、失败退避及其他
 产品 Timer、远端日志、Network Manager 和 Wi-Fi Driver，UI Runtime 与一秒番茄钟 Timer
-继续运行。Dashboard 截止到达时临时恢复网络并完成维护，活动代次未改变则再次停网；任意按键、
-阶段完成或离开运行中的番茄钟页都会恢复正常网络策略。
+继续运行，并持有 `ESP_PM_NO_LIGHT_SLEEP` 锁阻止自动 Light-sleep，同时允许 DFS 在刷新间隙
+降低 CPU/APB 频率。Dashboard 截止到达时临时恢复网络并完成维护，活动代次未改变则再次停网；
+任意按键、阶段完成或离开运行中的番茄钟页都会释放 PM 锁并恢复正常网络策略。
 
 每次收集低功耗阻止条件前，`app_power` 都同步调用
 `app_voice_reconcile_network_lease()` 修复语音侧可能遗留的实时租约。没有本地租约时直接

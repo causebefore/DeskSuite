@@ -6,6 +6,11 @@
 
 #include "bsp.h"
 
+esp_err_t device_power_init(void)
+{
+    return bsp_power_init();
+}
+
 esp_err_t device_power_enter_light_sleep(uint32_t timer_wakeup_ms, device_power_wakeup_result_t *out_result)
 {
     if (timer_wakeup_ms == 0U || out_result == NULL)

@@ -23,6 +23,15 @@ extern "C"
     } device_power_wakeup_result_t;
 
     /**
+     * @brief 初始化设备轻睡眠能力
+     *
+     * 在系统启动早期一次性配置全局睡眠参数。重复初始化返回 ESP_ERR_INVALID_STATE。
+     *
+     * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 重复初始化；或底层错误码
+     */
+    esp_err_t device_power_init(void);
+
+    /**
      * @brief 按编译配置执行一次完整轻睡眠事务
      *
      * 本函数使用左右按键和 ESP32 内部 Timer 执行一次同步 Light-sleep 事务。调用期间不会

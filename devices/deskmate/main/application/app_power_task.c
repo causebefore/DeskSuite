@@ -13,6 +13,7 @@
 #include "button_service.h"
 #include "device_power.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -48,6 +49,7 @@ static esp_err_t                 s_recovery_error;
 static bool                      s_initialized;
 static bool                      s_started;
 static bool                      s_stop_requested;
+static esp_pm_lock_handle_t      s_offline_display_pm_lock;
 
 /** @brief 在短临界区内更新主状态、步骤和错误事实 */
 static void set_status(app_power_state_t state, app_power_step_t step, esp_err_t primary_error,
@@ -613,6 +615,17 @@ static esp_err_t run_offline_display_session(uint32_t initial_generation)
         return result;
     }
     network_suspended = true;
+
+    /*
+     * 离线显示期间保持 NO_LIGHT_SLEEP 锁：阻止 ESP-IDF 自动进入 Light-sleep，
+     * 从而保证 LVGL tick 与番茄钟一秒 Timer 的时效性；同时不持有 CPU_FREQ_MAX
+     * 锁，允许 DFS 在刷新间隙降低 CPU/APB 频率。
+     */
+    if (s_offline_display_pm_lock != NULL)
+    {
+        (void) esp_pm_lock_acquire(s_offline_display_pm_lock);
+    }
+
     set_status(APP_POWER_STATE_OFFLINE_DISPLAY, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
     ESP_LOGI(TAG, "番茄钟前台进入离线显示，Wi-Fi 已关闭且 UI 保持秒级刷新");
 
@@ -628,7 +641,7 @@ static esp_err_t run_offline_display_session(uint32_t initial_generation)
                 set_status(APP_POWER_STATE_AWAKE, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
                 ESP_LOGI(TAG, "番茄钟离线显示结束，网络连接策略已恢复");
             }
-            return result;
+            break;
         }
 
         if (!network_maintenance_is_due())
@@ -643,6 +656,11 @@ static esp_err_t run_offline_display_session(uint32_t initial_generation)
             break;
         }
         set_status(APP_POWER_STATE_OFFLINE_DISPLAY, APP_POWER_STEP_NONE, ESP_OK, ESP_OK);
+    }
+
+    if (s_offline_display_pm_lock != NULL)
+    {
+        (void) esp_pm_lock_release(s_offline_display_pm_lock);
     }
 
     if (network_suspended)
@@ -967,10 +985,23 @@ esp_err_t app_power_init(const app_power_config_t *config)
         return ESP_ERR_INVALID_STATE;
     }
 
+    const esp_err_t power_init_error = device_power_init();
+    if (power_init_error != ESP_OK && power_init_error != ESP_ERR_INVALID_STATE)
+    {
+        return power_init_error;
+    }
+
     s_stopped_signal = xSemaphoreCreateBinary();
     if (s_stopped_signal == NULL)
     {
         return ESP_ERR_NO_MEM;
+    }
+
+    const esp_err_t pm_lock_error = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "offline_disp", &s_offline_display_pm_lock);
+    if (pm_lock_error != ESP_OK)
+    {
+        ESP_LOGW(TAG, "创建离线显示 PM 锁失败: %s，离线显示仍会继续运行", esp_err_to_name(pm_lock_error));
+        s_offline_display_pm_lock = NULL;
     }
 
     s_config                  = *config;
@@ -1111,6 +1142,11 @@ esp_err_t app_power_deinit(void)
 
     vSemaphoreDelete(s_stopped_signal);
     s_stopped_signal          = NULL;
+    if (s_offline_display_pm_lock != NULL)
+    {
+        (void) esp_pm_lock_delete(s_offline_display_pm_lock);
+        s_offline_display_pm_lock = NULL;
+    }
     s_config                  = (app_power_config_t) { 0 };
     s_state                   = APP_POWER_STATE_STOPPED;
     s_step                    = APP_POWER_STEP_NONE;
