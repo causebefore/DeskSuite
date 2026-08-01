@@ -57,7 +57,8 @@ extern "C"
         bool timer_wakeup_boot; /**< 本次启动是否由内部定时器唤醒 */
         uint32_t accepted_sleep_requests; /**< 已接收的休眠请求数 */
         uint32_t scheduled_wakeup_seconds; /**< 深睡定时间隔；绝对目标时已含 10 秒防提前补偿 */
-        int64_t scheduled_wakeup_at_utc; /**< 服务端绝对唤醒目标 UTC Unix 秒，0 表示相对计划 */
+        int64_t scheduled_wakeup_at_utc; /**< 服务端计划或长期失败整点的 UTC Unix 秒；
+                                              0 表示相对计划 */
         uint64_t target_collection_generation; /**< 自动休眠等待的集合代数 */
         esp_err_t last_error; /**< 最近一次准备或回滚错误 */
     } power_management_app_status_t;
@@ -100,7 +101,8 @@ extern "C"
      *
      * 仅允许在自动休眠模式已经启动且正在等待首轮刷新时调用。调用方必须先完成失败的
      * content_refresh_app 启动回滚；电源管理 Task 收到事实后会按 RTC 内连续失败次数选择
-     * 1/5/15 分钟退避，随后同步停止其余运行期组件并进入定时深睡。
+     * 1/5/15 分钟短期退避，继续失败时按可信 RTC 对齐下一本地整点，随后同步停止其余
+     * 运行期组件并进入定时深睡。RTC 时间不可信时，长期计划退回一小时相对间隔。
      *
      * @param[in] error 内容刷新 Task 启动错误，不能为 ESP_OK
      * @return ESP_OK 失败事实已提交；ESP_ERR_INVALID_ARG 错误码无效；
@@ -112,7 +114,8 @@ extern "C"
      * @brief 在电源管理 Task 尚未初始化时同步收敛启动阶段并进入深睡
      *
      * 本函数供网络准备等早期 Application 失败路径使用。FAILURE_BACKOFF 会更新 RTC 内连续
-     * 失败次数并选择 1/5/15 分钟退避；UNTIL_BUTTON 不设置定时器，只保留按键唤醒。
+     * 失败次数并选择 1/5/15 分钟短期退避，继续失败时按可信 RTC 对齐下一本地整点；
+     * RTC 时间不可信时退回一小时相对间隔。UNTIL_BUTTON 不设置定时器，只保留按键唤醒。
      * 函数会同步停止已经启动的组件、网络和 SD；尚未初始化的显示、网络及其他运行期组件视为
      * 无需清理。显示可用时先让墨水屏进入低功耗，随后启动整机深睡。成功时不返回，只有准备或
      * 回滚失败时才返回错误。调用前本 App 必须尚未初始化。

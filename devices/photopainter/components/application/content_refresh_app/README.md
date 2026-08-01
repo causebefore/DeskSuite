@@ -9,7 +9,8 @@
 - 执行资源：一个 FreeRTOS Task、停止握手信号量和 Task Notification
 
 负责启动后立即刷新、按需取得 Network Manager 会话、校时、上传状态、同步照片集合、停止网络，
-以及 1/5/15 分钟退避。不负责固件 OTA、按键语义、照片导航或墨水屏刷新。
+以及 1/5/15 分钟短期退避和长期失败 RTC 整点计划。不负责固件 OTA、按键语义、照片导航或
+墨水屏刷新。
 
 ## 2. 主要流程
 
@@ -23,7 +24,8 @@
     → display_collection_service_sync
     → remote_log_stop
     → network_manager_stop
-    → 成功按 next_refresh_at 等待；失败按 1/5/15 分钟退避
+    → 成功按 next_refresh_at 等待；失败前三次按 1/5/15 分钟退避
+    → 继续失败时按可信 RTC 等待到下一本地整点，时间不可信则退回相对 60 分钟
 ```
 
 手动刷新和停止使用 Notification 位，不创建命令队列。多次手动请求自动合并；完整刷新执行中
@@ -42,7 +44,8 @@
 - 关闭 Network Manager 前以 10 秒上限同步停止远端日志，避免日志 HTTP 与 Wi-Fi Driver
   释放并发执行。
 - Network Manager 未完成清理时进入 `CLEANUP_FAILED`，拒绝重启和反初始化。
-- 普通网络、协议、SD 错误保留旧集合并进入退避，不停止 Task。
+- 普通网络、协议、SD 错误保留旧集合并进入退避，不停止 Task；长期失败时运行态等待也会
+  对齐可信 RTC 的下一本地整点。
 
 ## 4. 配置与所有权
 
@@ -56,4 +59,5 @@
 
 调用 `network_manager`、`remote_log`、`system_clock`、`device_status_upload_app` 和
 `display_collection_service`。应验证首次会话复用、SNTP 超时、RTC 回写、手动完整刷新、
-1/5/15 分钟退避、下载取消、轮次完成回调位于状态锁外，以及网络清理失败。公共 API 保持 C ABI。
+1/5/15 分钟短期退避、长期失败 RTC 整点计划及时间不可信兜底、下载取消、轮次完成回调位于
+状态锁外，以及网络清理失败。公共 API 保持 C ABI。

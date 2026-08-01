@@ -24,14 +24,36 @@ static constexpr uint32_t CONTENT_REFRESH_BACKOFF_MS[] = {
     300000U,
     900000U,
 };
-/** @brief 连续失败超过三次后使用的一小时重试间隔 */
-static constexpr uint32_t CONTENT_REFRESH_LONG_FAILURE_RETRY_MS = 3600000U;
+/** @brief RTC 时间不可信时，长期失败计划使用的一小时相对兜底间隔 */
+static constexpr uint32_t CONTENT_REFRESH_LONG_FAILURE_FALLBACK_MS = 3600000U;
+/** @brief 长期失败绝对计划使用的整点周期 */
+static constexpr int64_t CONTENT_REFRESH_PLAN_HOUR_SECONDS = 3600LL;
 /** @brief 绝对计划无法换算或已经过期时的重新查询间隔 */
 static constexpr uint32_t CONTENT_REFRESH_SCHEDULE_RETRY_SECONDS = 60U;
 /** @brief 关网前等待远端日志同步上传调用退出的上限 */
 static constexpr uint32_t CONTENT_REFRESH_REMOTE_LOG_STOP_TIMEOUT_MS = 10000U;
 
+/** @brief 计算严格晚于当前时刻的下一本地整点所对应的 UTC Unix 秒 */
+static constexpr int64_t content_refresh_calculate_next_hour_at_utc(
+    int64_t now_utc, int16_t utc_offset_minutes)
+{
+    const int64_t local_timestamp =
+        now_utc + static_cast<int64_t>(utc_offset_minutes) * 60LL;
+    const int64_t seconds_into_hour =
+        ((local_timestamp % CONTENT_REFRESH_PLAN_HOUR_SECONDS)
+         + CONTENT_REFRESH_PLAN_HOUR_SECONDS)
+        % CONTENT_REFRESH_PLAN_HOUR_SECONDS;
+    return now_utc + CONTENT_REFRESH_PLAN_HOUR_SECONDS - seconds_into_hour;
+}
+
+static_assert(content_refresh_calculate_next_hour_at_utc(0, 0) == 3600);
+static_assert(content_refresh_calculate_next_hour_at_utc(3599, 0) == 3600);
+static_assert(content_refresh_calculate_next_hour_at_utc(3600, 0) == 7200);
+static_assert(content_refresh_calculate_next_hour_at_utc(0, 330) == 1800);
+static_assert(content_refresh_calculate_next_hour_at_utc(0, -210) == 1800);
+
 static uint32_t content_refresh_calculate_normal_wait_ms(int64_t next_refresh_at_utc);
+static uint32_t content_refresh_calculate_long_failure_wait_ms();
 
 /**
  * @brief 发布刷新状态
@@ -292,6 +314,35 @@ static uint32_t content_refresh_calculate_normal_wait_ms(int64_t next_refresh_at
     return wait_ms > UINT32_MAX ? UINT32_MAX : (uint32_t) wait_ms;
 }
 
+/** @brief 用可信 RTC 时间计算运行态长期失败到下一本地整点的等待时间 */
+static uint32_t content_refresh_calculate_long_failure_wait_ms()
+{
+    system_clock_snapshot_t snapshot = {};
+    const esp_err_t clock_error = system_clock_get_snapshot_copy(&snapshot);
+    if (clock_error != ESP_OK || !snapshot.valid)
+    {
+        ESP_LOGW(TAG,
+                 "系统时间不可信，运行态长期失败计划退回相对 %lu 秒: error=%s",
+                 (unsigned long) (CONTENT_REFRESH_LONG_FAILURE_FALLBACK_MS / 1000U),
+                 esp_err_to_name(clock_error != ESP_OK ? clock_error
+                                                       : ESP_ERR_INVALID_STATE));
+        return CONTENT_REFRESH_LONG_FAILURE_FALLBACK_MS;
+    }
+
+    const int64_t wakeup_at_utc = content_refresh_calculate_next_hour_at_utc(
+        (int64_t) snapshot.utc_timestamp, snapshot.utc_offset_minutes);
+    const uint32_t wait_seconds =
+        (uint32_t) (wakeup_at_utc - (int64_t) snapshot.utc_timestamp);
+    ESP_LOGI(TAG,
+             "运行态长期失败重试对齐可信 RTC 的下一本地整点: "
+             "wakeup_at=%lld, now=%lld, utc_offset=%d 分钟, wait=%lu 秒",
+             (long long) wakeup_at_utc,
+             (long long) snapshot.utc_timestamp,
+             (int) snapshot.utc_offset_minutes,
+             (unsigned long) wait_seconds);
+    return wait_seconds * 1000U;
+}
+
 /**
  * @brief 执行一轮联网、状态上传、集合同步和网络关闭
  *
@@ -489,6 +540,8 @@ static void content_refresh_task(void *context)
         uint32_t completed_rounds;
         uint32_t next_retry_ms;
         uint32_t normal_wait_ms = 0U;
+        uint8_t next_failure_count = 0U;
+        uint32_t failure_wait_ms = 0U;
         if (error == ESP_OK)
         {
             int64_t next_refresh_at_utc;
@@ -497,6 +550,20 @@ static void content_refresh_task(void *context)
                 g_content_refresh_runtime.status.next_refresh_at_utc;
             taskEXIT_CRITICAL(&g_content_refresh_runtime.state_lock);
             normal_wait_ms = content_refresh_calculate_normal_wait_ms(next_refresh_at_utc);
+        }
+        else
+        {
+            taskENTER_CRITICAL(&g_content_refresh_runtime.state_lock);
+            next_failure_count = g_content_refresh_runtime.status.consecutive_failures;
+            taskEXIT_CRITICAL(&g_content_refresh_runtime.state_lock);
+            if (next_failure_count < UINT8_MAX)
+            {
+                ++next_failure_count;
+            }
+            failure_wait_ms =
+                next_failure_count <= 3U
+                    ? CONTENT_REFRESH_BACKOFF_MS[next_failure_count - 1U]
+                    : content_refresh_calculate_long_failure_wait_ms();
         }
         taskENTER_CRITICAL(&g_content_refresh_runtime.state_lock);
         if (error == ESP_OK)
@@ -509,18 +576,8 @@ static void content_refresh_task(void *context)
         }
         else
         {
-            ++g_content_refresh_runtime.status.consecutive_failures;
-            const uint8_t failure = g_content_refresh_runtime.status.consecutive_failures;
-            if (failure <= 3U)
-            {
-                g_content_refresh_runtime.status.next_retry_ms =
-                    CONTENT_REFRESH_BACKOFF_MS[failure - 1U];
-            }
-            else
-            {
-                g_content_refresh_runtime.status.next_retry_ms =
-                    CONTENT_REFRESH_LONG_FAILURE_RETRY_MS;
-            }
+            g_content_refresh_runtime.status.consecutive_failures = next_failure_count;
+            g_content_refresh_runtime.status.next_retry_ms = failure_wait_ms;
             g_content_refresh_runtime.status.state      = CONTENT_REFRESH_APP_STATE_BACKOFF;
             g_content_refresh_runtime.status.last_error = error;
         }

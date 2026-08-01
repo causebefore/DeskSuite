@@ -39,8 +39,10 @@ static constexpr uint32_t POWER_MANAGEMENT_BACKOFF_SECONDS[] = {
     300U,
     900U,
 };
-/** @brief 连续失败超过三次后使用的一小时重试间隔 */
-static constexpr uint32_t POWER_MANAGEMENT_LONG_FAILURE_RETRY_SECONDS = 3600U;
+/** @brief RTC 时间不可信时，长期失败计划使用的一小时相对兜底间隔 */
+static constexpr uint32_t POWER_MANAGEMENT_LONG_FAILURE_FALLBACK_SECONDS = 3600U;
+/** @brief 长期失败绝对计划使用的整点周期 */
+static constexpr int64_t POWER_MANAGEMENT_PLAN_HOUR_SECONDS = 3600LL;
 /** @brief 服务端绝对时间已过期时尽快重新联网取得新计划 */
 static constexpr uint32_t POWER_MANAGEMENT_EXPIRED_TARGET_RETRY_SECONDS = 60U;
 /** @brief 绝对目标深睡额外延后秒数，避免内部慢时钟漂移导致提前唤醒 */
@@ -60,7 +62,7 @@ static constexpr uint32_t POWER_MANAGEMENT_OTA_TONE_DURATION_MS = 40U;
 /** @brief OTA 状态页相邻文本行的垂直间距 */
 static constexpr uint16_t POWER_MANAGEMENT_OTA_LINE_GAP_PIXELS = 24U;
 
-/** @brief 跨深睡保留的刷新退避状态，不写入 Flash */
+/** @brief 跨深睡保留的刷新退避与绝对唤醒状态，不写入 Flash */
 struct PowerRetainedSchedule
 {
     uint32_t magic;
@@ -70,6 +72,32 @@ struct PowerRetainedSchedule
     int64_t absolute_wakeup_at_utc;
     uint32_t checksum;
 };
+
+/** @brief 一次深睡计划，可同时携带定时器间隔与 RTC 保留的绝对目标 */
+struct PowerSleepSchedule
+{
+    uint32_t wakeup_seconds = 0U;
+    int64_t wakeup_at_utc = 0;
+};
+
+/** @brief 计算严格晚于当前时刻的下一本地整点所对应的 UTC Unix 秒 */
+static constexpr int64_t power_management_calculate_next_hour_at_utc(
+    int64_t now_utc, int16_t utc_offset_minutes)
+{
+    const int64_t local_timestamp =
+        now_utc + static_cast<int64_t>(utc_offset_minutes) * 60LL;
+    const int64_t seconds_into_hour =
+        ((local_timestamp % POWER_MANAGEMENT_PLAN_HOUR_SECONDS)
+         + POWER_MANAGEMENT_PLAN_HOUR_SECONDS)
+        % POWER_MANAGEMENT_PLAN_HOUR_SECONDS;
+    return now_utc + POWER_MANAGEMENT_PLAN_HOUR_SECONDS - seconds_into_hour;
+}
+
+static_assert(power_management_calculate_next_hour_at_utc(0, 0) == 3600);
+static_assert(power_management_calculate_next_hour_at_utc(3599, 0) == 3600);
+static_assert(power_management_calculate_next_hour_at_utc(3600, 0) == 7200);
+static_assert(power_management_calculate_next_hour_at_utc(0, 330) == 1800);
+static_assert(power_management_calculate_next_hour_at_utc(0, -210) == 1800);
 
 /** @brief 深睡复位后仍保留的调度状态 */
 RTC_DATA_ATTR static PowerRetainedSchedule s_retained_schedule;
@@ -146,37 +174,6 @@ static void power_management_set_retained_wakeup_target(int64_t wakeup_at_utc)
         power_management_retained_checksum(s_retained_schedule);
 }
 
-/**
- * @brief 根据最新成功或失败事实更新 RTC 退避状态并返回下一次唤醒间隔
- *
- * @param[in] error ESP_OK 表示完整轮次成功，其他值表示一次连续失败
- * @return 失败时的相对退避秒数；成功时返回 0
- */
-static uint32_t power_management_update_retained_schedule(esp_err_t error)
-{
-    power_management_ensure_retained_schedule();
-    uint32_t wakeup_seconds;
-    if (error == ESP_OK)
-    {
-        s_retained_schedule.consecutive_failures = 0U;
-        wakeup_seconds = 0U;
-    }
-    else
-    {
-        if (s_retained_schedule.consecutive_failures < UINT8_MAX)
-        {
-            ++s_retained_schedule.consecutive_failures;
-        }
-        const uint8_t failures = s_retained_schedule.consecutive_failures;
-        wakeup_seconds = failures <= 3U
-                             ? POWER_MANAGEMENT_BACKOFF_SECONDS[failures - 1U]
-                             : POWER_MANAGEMENT_LONG_FAILURE_RETRY_SECONDS;
-    }
-    s_retained_schedule.checksum =
-        power_management_retained_checksum(s_retained_schedule);
-    return wakeup_seconds;
-}
-
 /** @brief 复制并消费回调写入的最新刷新轮次 */
 static bool power_management_take_round_event(content_refresh_app_round_event_t *out_event)
 {
@@ -244,13 +241,13 @@ static bool power_management_get_failure_sleep_error(esp_err_t *out_error)
     return true;
 }
 
-/** @brief 在最新可信系统时间上把服务端绝对目标换算为深睡定时器相对秒数 */
+/** @brief 在最新可信系统时间上把绝对目标换算为深睡定时器相对秒数 */
 static uint32_t power_management_resolve_wakeup_seconds(int64_t wakeup_at_utc)
 {
     if (wakeup_at_utc <= 0)
     {
         ESP_LOGE(TAG,
-                 "服务端绝对唤醒时间无效，%lu 秒后重新联网获取计划",
+                 "绝对唤醒目标无效，%lu 秒后重新联网获取计划",
                  (unsigned long) POWER_MANAGEMENT_EXPIRED_TARGET_RETRY_SECONDS);
         return POWER_MANAGEMENT_EXPIRED_TARGET_RETRY_SECONDS;
     }
@@ -260,15 +257,15 @@ static uint32_t power_management_resolve_wakeup_seconds(int64_t wakeup_at_utc)
     if (clock_error != ESP_OK || !snapshot.valid)
     {
         ESP_LOGW(TAG,
-                 "系统时间不可信，无法换算服务端绝对唤醒时间，%lu 秒后重新校时",
+                 "系统时间不可信，无法换算绝对唤醒目标，%lu 秒后重新校时",
                  (unsigned long) POWER_MANAGEMENT_EXPIRED_TARGET_RETRY_SECONDS);
         return POWER_MANAGEMENT_EXPIRED_TARGET_RETRY_SECONDS;
     }
     if (wakeup_at_utc <= (int64_t) snapshot.utc_timestamp)
     {
         ESP_LOGW(TAG,
-                 "服务端绝对唤醒时间已经到期，%lu 秒后重新联网获取计划："
-                 "next_refresh_at=%lld, now=%lld",
+                 "绝对唤醒目标已经到期，%lu 秒后重新联网获取计划："
+                 "wakeup_at=%lld, now=%lld",
                  (unsigned long) POWER_MANAGEMENT_EXPIRED_TARGET_RETRY_SECONDS,
                  (long long) wakeup_at_utc,
                  (long long) snapshot.utc_timestamp);
@@ -290,6 +287,77 @@ static uint32_t power_management_resolve_wakeup_seconds(int64_t wakeup_at_utc)
              (long long) snapshot.utc_timestamp,
              (unsigned long) wakeup_seconds);
     return wakeup_seconds;
+}
+
+/** @brief 用可信 RTC 时间生成严格对齐下一本地整点的长期失败计划 */
+static PowerSleepSchedule power_management_calculate_long_failure_schedule()
+{
+    PowerSleepSchedule schedule = {};
+    system_clock_snapshot_t snapshot = {};
+    const esp_err_t clock_error = system_clock_get_snapshot_copy(&snapshot);
+    if (clock_error != ESP_OK || !snapshot.valid)
+    {
+        schedule.wakeup_seconds = POWER_MANAGEMENT_LONG_FAILURE_FALLBACK_SECONDS;
+        ESP_LOGW(TAG,
+                 "系统时间不可信，长期失败计划退回相对 %lu 秒: error=%s",
+                 (unsigned long) schedule.wakeup_seconds,
+                 esp_err_to_name(clock_error != ESP_OK ? clock_error
+                                                       : ESP_ERR_INVALID_STATE));
+        return schedule;
+    }
+
+    schedule.wakeup_at_utc = power_management_calculate_next_hour_at_utc(
+        (int64_t) snapshot.utc_timestamp, snapshot.utc_offset_minutes);
+    const uint32_t remaining_seconds =
+        (uint32_t) (schedule.wakeup_at_utc - (int64_t) snapshot.utc_timestamp);
+    schedule.wakeup_seconds =
+        remaining_seconds + POWER_MANAGEMENT_ABSOLUTE_WAKEUP_DELAY_SECONDS;
+    ESP_LOGI(TAG,
+             "连续失败超过三次，长期重试对齐可信 RTC 的下一本地整点: "
+             "wakeup_at=%lld, now=%lld, utc_offset=%d 分钟, interval=%lu 秒",
+             (long long) schedule.wakeup_at_utc,
+             (long long) snapshot.utc_timestamp,
+             (int) snapshot.utc_offset_minutes,
+             (unsigned long) schedule.wakeup_seconds);
+    return schedule;
+}
+
+/**
+ * @brief 根据最新成功或失败事实更新 RTC 退避状态并返回下一次深睡计划
+ *
+ * 前三次失败返回 1/5/15 分钟相对计划；继续失败时返回可信 RTC 下一本地整点的绝对计划。
+ * RTC 时间不可信时，长期计划退回一小时相对间隔，保证设备仍能恢复联网校时。
+ *
+ * @param[in] error ESP_OK 表示完整轮次成功，其他值表示一次连续失败
+ * @return 下一次深睡计划；成功时两个字段均为 0
+ */
+static PowerSleepSchedule power_management_update_retained_schedule(esp_err_t error)
+{
+    power_management_ensure_retained_schedule();
+    PowerSleepSchedule schedule = {};
+    if (error == ESP_OK)
+    {
+        s_retained_schedule.consecutive_failures = 0U;
+    }
+    else
+    {
+        if (s_retained_schedule.consecutive_failures < UINT8_MAX)
+        {
+            ++s_retained_schedule.consecutive_failures;
+        }
+        const uint8_t failures = s_retained_schedule.consecutive_failures;
+        if (failures <= 3U)
+        {
+            schedule.wakeup_seconds = POWER_MANAGEMENT_BACKOFF_SECONDS[failures - 1U];
+        }
+        else
+        {
+            schedule = power_management_calculate_long_failure_schedule();
+        }
+    }
+    s_retained_schedule.checksum =
+        power_management_retained_checksum(s_retained_schedule);
+    return schedule;
 }
 
 esp_err_t power_management_app_apply_startup_time_gate(bool woken_by_button,
@@ -353,9 +421,9 @@ esp_err_t power_management_app_apply_startup_time_gate(bool woken_by_button,
     device_power_start_deep_sleep();
 }
 
-/** @brief 记录由服务端绝对计划或失败退避计算出的深睡定时器间隔 */
+/** @brief 记录由绝对计划或短期失败退避计算出的深睡定时器间隔 */
 static void power_management_log_wakeup_schedule(
-    uint32_t wakeup_seconds, esp_err_t error, int64_t next_refresh_at_utc)
+    uint32_t wakeup_seconds, esp_err_t error, int64_t wakeup_at_utc)
 {
     const uint32_t hours   = wakeup_seconds / 3600U;
     const uint32_t minutes = (wakeup_seconds % 3600U) / 60U;
@@ -365,11 +433,25 @@ static void power_management_log_wakeup_schedule(
         ESP_LOGI(TAG,
                  "深睡唤醒计划: 服务端 UTC 目标=%lld, 当前预计间隔=%lu 秒"
                  "（%lu 小时 %lu 分 %lu 秒）",
-                 (long long) next_refresh_at_utc,
+                 (long long) wakeup_at_utc,
                  (unsigned long) wakeup_seconds,
                  (unsigned long) hours,
                  (unsigned long) minutes,
                  (unsigned long) seconds);
+    }
+    else if (wakeup_at_utc > 0)
+    {
+        ESP_LOGW(TAG,
+                 "长期失败深睡计划: RTC 下一本地整点 UTC 目标=%lld, "
+                 "当前预计间隔=%lu 秒（%lu 小时 %lu 分 %lu 秒），"
+                 "连续失败=%u 次, error=%s",
+                 (long long) wakeup_at_utc,
+                 (unsigned long) wakeup_seconds,
+                 (unsigned long) hours,
+                 (unsigned long) minutes,
+                 (unsigned long) seconds,
+                 (unsigned int) s_retained_schedule.consecutive_failures,
+                 esp_err_to_name(error));
     }
     else
     {
@@ -567,7 +649,8 @@ static esp_err_t power_management_rollback(PowerStoppedComponents *stopped)
  * 面板深睡前完成，因而配置或面板休眠失败仍可回滚到可运行状态。
  *
  * @param[in] timer_wakeup_seconds 定时唤醒间隔；0 表示本次仅由按键唤醒
- * @param[in] absolute_wakeup_at_utc 服务端绝对唤醒目标；0 表示相对退避或手动休眠
+ * @param[in] absolute_wakeup_at_utc 服务端计划或长期失败整点的绝对唤醒目标；
+ *                                      0 表示短期相对退避或手动休眠
  * @param[in] allow_missing_components true 表示启动失败收敛允许组件尚未初始化
  * @param[out] out_cleanup_failed true 表示失败后的运行期恢复也失败
  * @return 原始停机错误；成功进入深睡时不返回
@@ -643,6 +726,15 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
                 ESP_LOGW(TAG, "休眠前关闭 LED 失败，继续准备深睡: %s",
                          esp_err_to_name(led_error));
             }
+        }
+        if (absolute_wakeup_at_utc > 0)
+        {
+            timer_wakeup_seconds =
+                power_management_resolve_wakeup_seconds(absolute_wakeup_at_utc);
+            ESP_LOGI(TAG,
+                     "配置唤醒源前重新换算绝对目标: wakeup_at=%lld, interval=%lu 秒",
+                     (long long) absolute_wakeup_at_utc,
+                     (unsigned long) timer_wakeup_seconds);
         }
         const uint64_t timer_wakeup_us =
             static_cast<uint64_t>(timer_wakeup_seconds) * 1000000ULL;
@@ -731,19 +823,26 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
 /**
  * @brief 完整停机重试仍失败时，以最小动作进入失败退避深睡
  *
- * 此路径不再依赖各组件的终态确认，只最佳努力关闭蜂鸣器和 LED、重建唤醒源并清除
- * 绝对调度目标。若连唤醒源都无法配置，则重启并由启动流程重新收敛，避免无限保持唤醒。
+ * 此路径不再依赖各组件的终态确认，只最佳努力关闭蜂鸣器和 LED、重建唤醒源并保留
+ * 当前绝对调度目标。若连唤醒源都无法配置，则重启并由启动流程重新收敛，避免无限保持唤醒。
  *
  * @param[in] wakeup_seconds 失败退避唤醒间隔，必须大于 0
+ * @param[in] wakeup_at_utc 绝对唤醒目标；0 表示相对退避
  * @param[in] reason 触发保底深睡的原始错误
  */
 [[noreturn]] static void power_management_enter_forced_failure_sleep(uint32_t wakeup_seconds,
+                                                                     int64_t wakeup_at_utc,
                                                                      esp_err_t reason)
 {
+    if (wakeup_at_utc > 0)
+    {
+        wakeup_seconds = power_management_resolve_wakeup_seconds(wakeup_at_utc);
+    }
     ESP_LOGE(TAG,
-             "完整停机重试仍失败，进入保底深睡: reason=%s interval=%lu 秒",
+             "完整停机重试仍失败，进入保底深睡: reason=%s interval=%lu 秒 target=%lld",
              esp_err_to_name(reason),
-             (unsigned long) wakeup_seconds);
+             (unsigned long) wakeup_seconds,
+             (long long) wakeup_at_utc);
     ESP_ERROR_CHECK_WITHOUT_ABORT(device_buzzer_stop());
     ESP_ERROR_CHECK_WITHOUT_ABORT(device_led_off());
     ESP_ERROR_CHECK_WITHOUT_ABORT(device_power_cancel_deep_sleep());
@@ -758,7 +857,7 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
         esp_restart();
     }
 
-    power_management_set_retained_wakeup_target(0);
+    power_management_set_retained_wakeup_target(wakeup_at_utc);
     ESP_LOGW(TAG,
              "保底深睡唤醒源已配置；任意按键可唤醒，内部定时器将在 %lu 秒后唤醒",
              (unsigned long) wakeup_seconds);
@@ -768,18 +867,20 @@ static esp_err_t power_management_prepare_and_sleep(uint32_t timer_wakeup_second
 esp_err_t power_management_app_prepare_startup_sleep(
     power_management_app_startup_sleep_policy_t policy, esp_err_t reason)
 {
-    uint32_t wakeup_seconds = 0U;
+    PowerSleepSchedule schedule = {};
     if (policy == POWER_MANAGEMENT_APP_STARTUP_SLEEP_FAILURE_BACKOFF)
     {
-        wakeup_seconds = power_management_update_retained_schedule(reason);
-        power_management_log_wakeup_schedule(wakeup_seconds, reason, 0);
+        schedule = power_management_update_retained_schedule(reason);
+        power_management_log_wakeup_schedule(
+            schedule.wakeup_seconds, reason, schedule.wakeup_at_utc);
     }
     ESP_LOGW(TAG,
              "启动阶段未能继续运行，开始收敛到%s深睡: reason=%s",
-             wakeup_seconds > 0U ? "定时重试" : "仅按键唤醒",
+             schedule.wakeup_seconds > 0U ? "定时重试" : "仅按键唤醒",
              esp_err_to_name(reason));
     bool cleanup_failed = false;
-    return power_management_prepare_and_sleep(wakeup_seconds, 0, true, &cleanup_failed);
+    return power_management_prepare_and_sleep(
+        schedule.wakeup_seconds, schedule.wakeup_at_utc, true, &cleanup_failed);
 }
 
 /** @brief 播放一次短促 OTA 检查提示音，失败只记录诊断 */
@@ -1400,11 +1501,14 @@ static void power_management_task(void *context)
             g_power_management_runtime.refresh_start_error = ESP_OK;
             taskEXIT_CRITICAL(&g_power_management_runtime.state_lock);
 
-            sleep_wakeup_seconds =
+            const PowerSleepSchedule failure_schedule =
                 power_management_update_retained_schedule(refresh_start_error);
-            power_management_publish_schedule(sleep_wakeup_seconds, 0, 0U);
+            sleep_wakeup_seconds = failure_schedule.wakeup_seconds;
+            sleep_wakeup_at_utc = failure_schedule.wakeup_at_utc;
+            power_management_publish_schedule(
+                sleep_wakeup_seconds, sleep_wakeup_at_utc, 0U);
             power_management_log_wakeup_schedule(
-                sleep_wakeup_seconds, refresh_start_error, 0);
+                sleep_wakeup_seconds, refresh_start_error, sleep_wakeup_at_utc);
             ESP_LOGW(TAG,
                      "内容刷新 Task 启动失败，立即进入退避深睡: error=%s",
                      esp_err_to_name(refresh_start_error));
@@ -1444,14 +1548,14 @@ static void power_management_task(void *context)
                 }
                 else
                 {
-                    const uint32_t failure_backoff_seconds =
+                    const PowerSleepSchedule failure_schedule =
                         power_management_update_retained_schedule(round_event.round_error);
                     wakeup_at_utc = round_event.round_error == ESP_OK
                                         ? round_event.next_refresh_at_utc
-                                        : 0;
+                                        : failure_schedule.wakeup_at_utc;
                     wakeup_seconds = round_event.round_error == ESP_OK
-                                         ? power_management_resolve_wakeup_seconds(wakeup_at_utc)
-                                         : failure_backoff_seconds;
+                                          ? power_management_resolve_wakeup_seconds(wakeup_at_utc)
+                                          : failure_schedule.wakeup_seconds;
                     power_management_publish_schedule(
                         wakeup_seconds,
                         wakeup_at_utc,
@@ -1459,7 +1563,7 @@ static void power_management_task(void *context)
                     power_management_log_wakeup_schedule(
                         wakeup_seconds,
                         round_event.round_error,
-                        round_event.next_refresh_at_utc);
+                        wakeup_at_utc);
                 }
             }
 
@@ -1758,12 +1862,14 @@ static void power_management_task(void *context)
         esp_err_t failure_sleep_error = ESP_OK;
         if (power_management_get_failure_sleep_error(&failure_sleep_error))
         {
-            sleep_wakeup_seconds =
+            const PowerSleepSchedule failure_schedule =
                 power_management_update_retained_schedule(failure_sleep_error);
-            sleep_wakeup_at_utc = 0;
-            power_management_publish_schedule(sleep_wakeup_seconds, 0, 0U);
+            sleep_wakeup_seconds = failure_schedule.wakeup_seconds;
+            sleep_wakeup_at_utc = failure_schedule.wakeup_at_utc;
+            power_management_publish_schedule(
+                sleep_wakeup_seconds, sleep_wakeup_at_utc, 0U);
             power_management_log_wakeup_schedule(
-                sleep_wakeup_seconds, failure_sleep_error, 0);
+                sleep_wakeup_seconds, failure_sleep_error, sleep_wakeup_at_utc);
             retry_sleep_requested = true;
             sleep_now = true;
             round_ready = false;
@@ -1784,8 +1890,8 @@ static void power_management_task(void *context)
                     sleep_wakeup_at_utc,
                     round_event.collection_generation);
                 ESP_LOGI(TAG,
-                         "实际休眠前已重新换算服务端绝对唤醒时间: "
-                         "next_refresh_at=%lld, interval=%lu 秒",
+                         "实际休眠前已重新换算绝对唤醒目标: "
+                         "wakeup_at=%lld, interval=%lu 秒",
                          (long long) sleep_wakeup_at_utc,
                          (unsigned long) sleep_wakeup_seconds);
             }
@@ -1805,10 +1911,14 @@ static void power_management_task(void *context)
                 sleep_wakeup_seconds, sleep_wakeup_at_utc, false, &cleanup_failed);
             if (error != ESP_OK && !retry_sleep_requested)
             {
-                sleep_wakeup_seconds = power_management_update_retained_schedule(error);
-                sleep_wakeup_at_utc = 0;
-                power_management_publish_schedule(sleep_wakeup_seconds, 0, 0U);
-                power_management_log_wakeup_schedule(sleep_wakeup_seconds, error, 0);
+                const PowerSleepSchedule failure_schedule =
+                    power_management_update_retained_schedule(error);
+                sleep_wakeup_seconds = failure_schedule.wakeup_seconds;
+                sleep_wakeup_at_utc = failure_schedule.wakeup_at_utc;
+                power_management_publish_schedule(
+                    sleep_wakeup_seconds, sleep_wakeup_at_utc, 0U);
+                power_management_log_wakeup_schedule(
+                    sleep_wakeup_seconds, error, sleep_wakeup_at_utc);
                 retry_sleep_requested = true;
                 cleanup_failed = false;
                 power_management_app_publish(
@@ -1817,7 +1927,10 @@ static void power_management_task(void *context)
                          "首次深睡准备失败，按失败退避计划再执行一次完整停机: %s",
                          esp_err_to_name(error));
                 error = power_management_prepare_and_sleep(
-                    sleep_wakeup_seconds, 0, false, &cleanup_failed);
+                    sleep_wakeup_seconds,
+                    sleep_wakeup_at_utc,
+                    false,
+                    &cleanup_failed);
             }
 
             power_management_app_publish(
@@ -1827,7 +1940,9 @@ static void power_management_task(void *context)
             const esp_err_t forced_reason =
                 failure_sleep_error != ESP_OK ? failure_sleep_error : error;
             power_management_enter_forced_failure_sleep(
-                sleep_wakeup_seconds, forced_reason != ESP_OK ? forced_reason : ESP_FAIL);
+                sleep_wakeup_seconds,
+                sleep_wakeup_at_utc,
+                forced_reason != ESP_OK ? forced_reason : ESP_FAIL);
         }
     }
 
