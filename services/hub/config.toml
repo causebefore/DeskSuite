@@ -15,7 +15,7 @@ calendar = "icloud"
 mail = "qq"
 
 [dashboard]
-source_timeout_seconds = 12
+source_timeout_seconds = 20
 
 [zhipu]
 asr_model = "glm-asr-2512"

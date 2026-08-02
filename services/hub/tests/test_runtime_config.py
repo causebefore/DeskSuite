@@ -21,7 +21,7 @@ weather = "mock"
 calendar = "mock"
 mail = "mock"
 [dashboard]
-source_timeout_seconds = 12
+source_timeout_seconds = 20
 [zhipu]
 asr_model = "asr"
 llm_model = "llm"
@@ -111,7 +111,7 @@ def test_settings_load_display_and_internal_provider_config(tmp_path: Path):
     assert settings.server_port == 4321
     assert settings.zhipu_api_key == "test-key"
     assert settings.device_api_token == "device-secret"
-    assert settings.dashboard_source_timeout_seconds == 12
+    assert settings.dashboard_source_timeout_seconds == 20
     assert settings.display_default_city == "上海"
     assert settings.display_default_device_id == "screen-1"
     assert settings.display_template_dir == tmp_path / "web" / "pages"
@@ -196,7 +196,7 @@ def test_settings_rejects_more_than_eight_rss_feeds(tmp_path: Path):
         ServerSettings(config_path, env_path, tmp_path)
 
 
-@pytest.mark.parametrize("timeout", [0, 16])
+@pytest.mark.parametrize("timeout", [0, 21])
 def test_settings_rejects_dashboard_timeout_outside_http_budget(
     tmp_path: Path,
     timeout: int,
@@ -204,7 +204,7 @@ def test_settings_rejects_dashboard_timeout_outside_http_budget(
     config_path = tmp_path / "config.toml"
     env_path = tmp_path / ".env"
     config_path.write_text(
-        CONFIG.replace("source_timeout_seconds = 12", f"source_timeout_seconds = {timeout}"),
+        CONFIG.replace("source_timeout_seconds = 20", f"source_timeout_seconds = {timeout}"),
         encoding="utf-8",
     )
     env_path.write_text("", encoding="utf-8")

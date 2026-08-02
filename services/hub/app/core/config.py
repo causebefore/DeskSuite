@@ -122,9 +122,9 @@ class ServerSettings:
         self.dashboard_source_timeout_seconds = float(
             dashboard["source_timeout_seconds"]
         )
-        if not 1 <= self.dashboard_source_timeout_seconds <= 15:
+        if not 1 <= self.dashboard_source_timeout_seconds <= 20:
             raise ValueError(
-                "dashboard.source_timeout_seconds 必须在 1 到 15 秒之间"
+                "dashboard.source_timeout_seconds 必须在 1 到 20 秒之间"
             )
 
         self.zhipu_api_key = os.getenv(
