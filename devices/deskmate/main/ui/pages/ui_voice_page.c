@@ -2,17 +2,43 @@
  * 文件职责：实现语音交互页（居中大字状态 + 操作提示）。
  * 主要依赖：ui_common、voice_presenter。
  * 调用方：ui_router。
+ *
+ * 控件树只在页面首次显示时创建，状态刷新只修改文本与显隐。
+ * I1 面板上只使用纯黑白标记，不使用透明度或淡入呼吸动画。
  */
 #include "ui_voice_page.h"
 
 #include "voice_presenter.h"
 #include "ui_common.h"
 
+#include <string.h>
+
+/** @brief 语音页固定控件树的借用句柄。 */
+typedef struct
+{
+    lv_obj_t *parent;
+    lv_obj_t *main_text;
+    lv_obj_t *hint;
+    lv_obj_t *busy_marker;
+    lv_obj_t *error_hint;
+} voice_page_widgets_t;
+
+static voice_page_widgets_t s_widgets;
+
+/** @brief 页面容器删除时清空已失效的借用句柄。 */
+static void on_parent_deleted(lv_event_t *event)
+{
+    if (lv_event_get_current_target(event) == s_widgets.parent)
+    {
+        memset(&s_widgets, 0, sizeof(s_widgets));
+    }
+}
+
 /**
  * @brief 把语音状态枚举映射成居中主状态文案
  *
  * @param state 语音交互状态
- * @return 主状态文案字符串字面量（如"正在聆听…"/"语音助手"），调用方无需释放
+ * @return 主状态文案字符串字面量
  */
 static const char *state_main_text(voice_view_state_t state)
 {
@@ -33,106 +59,73 @@ static const char *state_main_text(voice_view_state_t state)
 }
 
 /**
- * @brief 把语音状态枚举映射成副提示文案
+ * @brief 把语音状态枚举映射成右键操作提示
+ *
+ * 开始后右键长按取消整个对话，不把录音误表述为“松开结束”。
  *
  * @param state 语音交互状态
- * @return 副提示文案字符串字面量（如"松开右键结束录音"/"长按右键开始对话"），调用方无需释放
+ * @return 操作提示字符串字面量
  */
 static const char *state_hint_text(voice_view_state_t state)
 {
     switch (state)
     {
         case VOICE_VIEW_STATE_RECORDING:
-            return "松开右键结束录音";
         case VOICE_VIEW_STATE_THINKING:
-            return "等待服务器响应";
         case VOICE_VIEW_STATE_SPEAKING:
-            return "正在播放回复";
+            return "长按右键取消对话";
         case VOICE_VIEW_STATE_ERROR:
-            return "长按右键重试";
+            return "长按右键重新开始";
         case VOICE_VIEW_STATE_IDLE:
         default:
             return "长按右键开始对话";
     }
 }
 
-/**
- * @brief 呼吸动画的执行回调：把动画值写入控件的整体不透明度
- *
- * @param obj    动画目标对象（lv_obj_t *）
- * @param value  当前动画帧的不透明度值（0..255）
- */
-static void anim_opa_cb(void *obj, int32_t value)
+/** @brief 一次性创建主状态、操作提示与二值状态标记。 */
+static void ui_voice_page_create(lv_obj_t *body)
 {
-    lv_obj_set_style_opa((lv_obj_t *) obj, (lv_opa_t) value, 0);
+    s_widgets.main_text = ui_common_new_text24_semibold(body);
+    ui_common_set_label(s_widgets.main_text, "", 0, 100, UI_WIDTH, 30, LV_TEXT_ALIGN_CENTER);
+
+    s_widgets.hint = ui_common_new_text16_regular(body);
+    ui_common_set_label(s_widgets.hint, "", 0, 140, UI_WIDTH, 20, LV_TEXT_ALIGN_CENTER);
+
+    s_widgets.busy_marker = ui_common_new_rule(body, UI_WIDTH / 2 - 24, 174, 48, UI_RULE_STRONG);
+    lv_obj_add_flag(s_widgets.busy_marker, LV_OBJ_FLAG_HIDDEN);
+
+    s_widgets.error_hint = ui_common_new_inverse_text16_semibold(body);
+    ui_common_set_label(s_widgets.error_hint, "", 60, 170, 280, 20, LV_TEXT_ALIGN_CENTER);
+    lv_obj_add_flag(s_widgets.error_hint, LV_OBJ_FLAG_HIDDEN);
 }
 
-/**
- * @brief 按语音状态绘制整页
- *
- * 始终绘制居中主状态文案与副提示文案；活跃态额外绘制带呼吸动画的圆点，
- * 错误态额外绘制底部反白提示条，空闲态额外绘制底部三个小圆点装饰。
- *
- * @param body 页面容器
- * @param v    语音视图切片
- */
-static void ui_voice_page_draw(lv_obj_t *body, const voice_view_model_t *v)
+/** @brief 按最新语音状态更新已有控件的文本与显隐。 */
+static void ui_voice_page_populate(const voice_view_model_t *v)
 {
-    const bool active   = v->busy;
+    const bool error = (v->state == VOICE_VIEW_STATE_ERROR);
+    const bool busy  = (v->busy && !error);
 
-    /* 居中主状态文字（num48 太大，用 text24 放大区域） */
-    lv_obj_t *main_text = ui_common_new_text24(body);
-    if (active)
+    lv_label_set_text(s_widgets.main_text, state_main_text(v->state));
+    lv_label_set_text(s_widgets.hint, state_hint_text(v->state));
+    lv_label_set_text(s_widgets.error_hint, state_hint_text(v->state));
+
+    if (error)
     {
-        lv_obj_set_style_text_color(main_text, lv_color_black(), 0);
-    }
-    ui_common_set_label(main_text, state_main_text(v->state), 0, 100, UI_WIDTH, 30, LV_TEXT_ALIGN_CENTER);
-
-    /* 副提示文字 */
-    lv_obj_t *hint = ui_common_new_text16(body);
-    ui_common_set_label(hint, state_hint_text(v->state), 0, 140, UI_WIDTH, 20, LV_TEXT_ALIGN_CENTER);
-
-    /* 活跃状态：呼吸动画 */
-    if (active)
-    {
-        lv_obj_t *dot = lv_obj_create(body);
-        lv_obj_remove_style_all(dot);
-        lv_obj_set_size(dot, 12, 12);
-        lv_obj_set_style_bg_color(dot, lv_color_black(), 0);
-        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-        lv_obj_align(dot, LV_ALIGN_TOP_MID, 0, 170);
-        lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-
-        lv_anim_t a;
-        lv_anim_init(&a);
-        lv_anim_set_var(&a, dot);
-        lv_anim_set_values(&a, LV_OPA_40, LV_OPA_COVER);
-        lv_anim_set_duration(&a, 800);
-        lv_anim_set_playback_duration(&a, 800);
-        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_set_exec_cb(&a, anim_opa_cb);
-        lv_anim_start(&a);
-    }
-    else if (v->state == VOICE_VIEW_STATE_ERROR)
-    {
-        /* 错误状态：底部反白提示条 */
-        lv_obj_t *bar = ui_common_new_inverse_text16(body);
-        ui_common_set_label(bar, state_hint_text(v->state), 60, 170, 280, 20, LV_TEXT_ALIGN_CENTER);
+        lv_obj_add_flag(s_widgets.hint, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_widgets.busy_marker, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_widgets.error_hint, LV_OBJ_FLAG_HIDDEN);
     }
     else
     {
-        /* IDLE：底部小圆点装饰 */
-        for (int i = 0; i < 3; ++i)
+        lv_obj_clear_flag(s_widgets.hint, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_widgets.error_hint, LV_OBJ_FLAG_HIDDEN);
+        if (busy)
         {
-            lv_obj_t *dot = lv_obj_create(body);
-            lv_obj_remove_style_all(dot);
-            lv_obj_set_size(dot, 6, 6);
-            lv_obj_set_style_bg_color(dot, lv_color_black(), 0);
-            lv_obj_set_style_bg_opa(dot, LV_OPA_30, 0);
-            lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_pos(dot, UI_WIDTH / 2 - 20 + i * 14, 174);
-            lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_clear_flag(s_widgets.busy_marker, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_add_flag(s_widgets.busy_marker, LV_OBJ_FLAG_HIDDEN);
         }
     }
 }
@@ -149,15 +142,35 @@ esp_err_t ui_voice_page_show(lv_obj_t *parent)
         return ESP_ERR_INVALID_ARG;
     }
 
+    const bool parent_callback_registered = (s_widgets.parent == parent);
+    lv_obj_clean(parent);
+    memset(&s_widgets, 0, sizeof(s_widgets));
+    s_widgets.parent = parent;
+    if (!parent_callback_registered)
+    {
+        lv_obj_add_event_cb(parent, on_parent_deleted, LV_EVENT_DELETE, NULL);
+    }
+    ui_voice_page_create(parent);
+
     voice_view_model_t view;
     voice_presenter_get_view_copy(&view);
-
-    lv_obj_clean(parent);
-    ui_voice_page_draw(parent, &view);
+    ui_voice_page_populate(&view);
     return ESP_OK;
 }
 
 esp_err_t ui_voice_page_update(lv_obj_t *parent)
 {
-    return ui_voice_page_show(parent);
+    if (parent == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (parent != s_widgets.parent || s_widgets.main_text == NULL)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    voice_view_model_t view;
+    voice_presenter_get_view_copy(&view);
+    ui_voice_page_populate(&view);
+    return ESP_OK;
 }

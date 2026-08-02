@@ -157,10 +157,10 @@ static lv_obj_t *draw_bar(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, int
  */
 static lv_obj_t *draw_metric_pair(lv_obj_t *parent, const char *key, int32_t x, int32_t y)
 {
-    lv_obj_t *key_label = ui_common_new_text16(parent);
+    lv_obj_t *key_label = ui_common_new_text16_regular(parent);
     ui_common_set_label(key_label, key, x, y, 34, 18, LV_TEXT_ALIGN_LEFT);
 
-    lv_obj_t *value_label = ui_common_new_text16(parent);
+    lv_obj_t *value_label = ui_common_new_text16_regular(parent);
     ui_common_set_label(value_label, "--", x + 34, y, 48, 18, LV_TEXT_ALIGN_RIGHT);
     return value_label;
 }
@@ -178,18 +178,18 @@ static void ui_weather_page_create(lv_obj_t *body)
     memset(&s_widgets, 0, sizeof(s_widgets));
 
     /* ---- 电报式状态带 ---- */
-    s_widgets.city = ui_common_new_text24(body);
+    s_widgets.city = ui_common_new_text24_regular(body);
     ui_common_set_label(s_widgets.city, "--", 6, 0, 54, 26, LV_TEXT_ALIGN_LEFT);
 
     /* 预警槽：居中于城市和状态之间，宽 272px 足以两行放下大多数预警文本。
      * 用 WRAP 自动换行 + CLIP 裁切超长部分，不再滚动——MIP 面板滚动占帧率且抖动。 */
-    s_widgets.warn = ui_common_new_inverse_text16(body);
+    s_widgets.warn = ui_common_new_inverse_text16_semibold(body);
     ui_common_set_label(s_widgets.warn, "", 64, 0, 272, 28, LV_TEXT_ALIGN_CENTER);
     lv_label_set_long_mode(s_widgets.warn, LV_LABEL_LONG_WRAP);
     lv_obj_add_flag(s_widgets.warn, LV_OBJ_FLAG_HIDDEN);
 
     /* 状态（始终反白，update 时按状态切换正/反白） */
-    s_widgets.status = ui_common_new_inverse_text16(body);
+    s_widgets.status = ui_common_new_inverse_text16_semibold(body);
     ui_common_set_label(s_widgets.status, "--", 340, 4, 56, 20, LV_TEXT_ALIGN_RIGHT);
 
     draw_bar(body, 0, 28, UI_WIDTH, 2);
@@ -202,10 +202,10 @@ static void ui_weather_page_create(lv_obj_t *body)
     s_widgets.temp = ui_common_new_num48(body);
     ui_common_set_label(s_widgets.temp, "--", 80, 34, 110, 54, LV_TEXT_ALIGN_LEFT);
 
-    s_widgets.cond = ui_common_new_text24(body);
+    s_widgets.cond = ui_common_new_text24_regular(body);
     ui_common_set_label(s_widgets.cond, "--", 84, 92, 110, 26, LV_TEXT_ALIGN_LEFT);
 
-    s_widgets.air = ui_common_new_text16(body);
+    s_widgets.air = ui_common_new_text16_regular(body);
     ui_common_set_label(s_widgets.air, "空气 --", 84, 122, 110, 18, LV_TEXT_ALIGN_LEFT);
 
     draw_bar(body, 198, 34, 1, 106);
@@ -219,32 +219,32 @@ static void ui_weather_page_create(lv_obj_t *body)
     s_widgets.v_vis    = draw_metric_pair(body, "能见", 312, 104);
 
     /* ---- 三日预报 ---- */
-    (void) ui_common_new_hline(body, 148);
+    (void) ui_common_new_rule(body, 0, 148, UI_WIDTH, UI_RULE_THIN);
 
     const int32_t col_w = UI_WIDTH / 3;
     for (int i = 0; i < 3; ++i)
     {
         const int32_t x         = i * col_w;
-        s_widgets.daily_date[i] = ui_common_new_text16(body);
+        s_widgets.daily_date[i] = ui_common_new_text16_regular(body);
         ui_common_set_label(s_widgets.daily_date[i], "--", x, 156, col_w, 18, LV_TEXT_ALIGN_CENTER);
 
         s_widgets.daily_icon[i] = lv_image_create(body);
         lv_obj_set_pos(s_widgets.daily_icon[i], x + col_w / 2 - 10, 178);
         lv_obj_add_flag(s_widgets.daily_icon[i], LV_OBJ_FLAG_HIDDEN);
 
-        s_widgets.daily_text[i] = ui_common_new_text16(body);
+        s_widgets.daily_text[i] = ui_common_new_text16_regular(body);
         ui_common_set_label(s_widgets.daily_text[i], "--", x, 202, col_w, 18, LV_TEXT_ALIGN_CENTER);
 
-        s_widgets.daily_temp[i] = ui_common_new_text16(body);
+        s_widgets.daily_temp[i] = ui_common_new_text16_regular(body);
         ui_common_set_label(s_widgets.daily_temp[i], "--", x, 222, col_w, 18, LV_TEXT_ALIGN_CENTER);
     }
 
     /* ---- 底部 ---- */
-    s_widgets.sun = ui_common_new_text16(body);
+    s_widgets.sun = ui_common_new_text16_regular(body);
     ui_common_set_label(s_widgets.sun, "", 10, 250, 200, 18, LV_TEXT_ALIGN_LEFT);
     lv_obj_add_flag(s_widgets.sun, LV_OBJ_FLAG_HIDDEN);
 
-    s_widgets.upd = ui_common_new_text16(body);
+    s_widgets.upd = ui_common_new_text16_regular(body);
     ui_common_set_label(s_widgets.upd, "", 240, 250, 150, 18, LV_TEXT_ALIGN_RIGHT);
     lv_obj_add_flag(s_widgets.upd, LV_OBJ_FLAG_HIDDEN);
 }

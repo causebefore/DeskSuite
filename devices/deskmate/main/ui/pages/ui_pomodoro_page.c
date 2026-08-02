@@ -1,6 +1,6 @@
 /**
  * @file ui_pomodoro_page.c
- * @brief 实现灰阶时间轨道番茄钟页面并按秒增量刷新
+ * @brief 实现黑白二值时间轨道番茄钟页面并按秒增量刷新
  */
 #include "ui_pomodoro_page.h"
 
@@ -28,7 +28,7 @@ static lv_obj_t *s_track_outer[TRACK_SEGMENT_COUNT];
 static lv_obj_t *s_track_fill[TRACK_SEGMENT_COUNT];
 static bool      s_created;
 
-/** @brief 创建零圆角灰阶矩形 */
+/** @brief 创建零圆角黑白矩形 */
 static lv_obj_t *new_box(lv_obj_t *parent, int32_t x, int32_t y, int32_t width, int32_t height)
 {
     lv_obj_t *box = lv_obj_create(parent);
@@ -142,10 +142,6 @@ static void update_track(const pomodoro_view_model_t *view)
             lv_obj_set_width(s_track_fill[index], inner_width * (int32_t) fill_percent / 100);
             lv_obj_clear_flag(s_track_fill[index], LV_OBJ_FLAG_HIDDEN);
         }
-        lv_obj_set_style_bg_color(s_track_fill[index],
-                                  view->phase == POMODORO_VIEW_PHASE_FOCUS ? lv_color_black()
-                                                                           : lv_palette_lighten(LV_PALETTE_GREY, 2),
-                                  0);
     }
 }
 

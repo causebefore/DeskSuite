@@ -160,12 +160,6 @@ static const char *message_name(ui_msg_type_t type)
             return "STATUS_UPDATE";
         case UI_MSG_POMODORO_UPDATE:
             return "POMODORO_UPDATE";
-        case UI_MSG_SHOW_TOAST:
-            return "SHOW_TOAST";
-        case UI_MSG_SHOW_LOADING:
-            return "SHOW_LOADING";
-        case UI_MSG_HIDE_LOADING:
-            return "HIDE_LOADING";
         case UI_MSG_OTA_UPDATE:
             return "OTA_UPDATE";
         case UI_MSG_SETTINGS_ACTION:

@@ -24,9 +24,9 @@ esp_err_t ui_quota_page_init(void);
 esp_err_t ui_quota_page_show(lv_obj_t *parent);
 
 /**
- * @brief 根据最新限额数据刷新限额页显示
+ * @brief 仅更新文本与显隐以刷新限额页
  *
  * @param[in] parent 当前 Screen 的页面内容容器
- * @return ESP_OK 成功刷新；ESP_ERR_INVALID_ARG parent 为空
+ * @return ESP_OK 成功刷新；ESP_ERR_INVALID_ARG parent 为空；ESP_ERR_INVALID_STATE 控件树不匹配
  */
 esp_err_t ui_quota_page_update(lv_obj_t *parent);

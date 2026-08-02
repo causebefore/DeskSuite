@@ -29,17 +29,17 @@ static void ui_system_page_draw(lv_obj_t *body, const system_info_view_model_t *
     char       tmp[32];
     int32_t    y = 8;
 
-    lv_obj_t *l  = ui_common_new_text16(body);
+    lv_obj_t *l  = ui_common_new_text16_regular(body);
     snprintf(buf, sizeof(buf), "版本  %s", sys_ok ? s->version : "--");
     ui_common_set_label(l, buf, 18, y, 360, 20, LV_TEXT_ALIGN_LEFT);
     y += 30;
 
-    l = ui_common_new_text16(body);
+    l = ui_common_new_text16_regular(body);
     snprintf(buf, sizeof(buf), "构建  %s", sys_ok ? s->build_time : "--");
     ui_common_set_label(l, buf, 18, y, 360, 20, LV_TEXT_ALIGN_LEFT);
     y += 30;
 
-    l = ui_common_new_text16(body);
+    l = ui_common_new_text16_regular(body);
     if (sys_ok)
     {
         ui_format_uptime(s->uptime_sec, tmp, sizeof(tmp));
@@ -52,7 +52,7 @@ static void ui_system_page_draw(lv_obj_t *body, const system_info_view_model_t *
     ui_common_set_label(l, buf, 18, y, 360, 20, LV_TEXT_ALIGN_LEFT);
     y += 34;
 
-    l = ui_common_new_text16(body);
+    l = ui_common_new_text16_regular(body);
     if (sys_ok)
     {
         ui_format_memory(s->sram_free_kb, s->sram_total_kb, s->sram_used_percent, tmp, sizeof(tmp));
@@ -65,7 +65,7 @@ static void ui_system_page_draw(lv_obj_t *body, const system_info_view_model_t *
     ui_common_set_label(l, buf, 18, y, 360, 20, LV_TEXT_ALIGN_LEFT);
     y += 30;
 
-    l = ui_common_new_text16(body);
+    l = ui_common_new_text16_regular(body);
     if (sys_ok)
     {
         ui_format_memory(s->psram_free_kb, s->psram_total_kb, s->psram_used_percent, tmp, sizeof(tmp));
@@ -78,7 +78,7 @@ static void ui_system_page_draw(lv_obj_t *body, const system_info_view_model_t *
     ui_common_set_label(l, buf, 18, y, 360, 20, LV_TEXT_ALIGN_LEFT);
     y += 30;
 
-    l = ui_common_new_text16(body);
+    l = ui_common_new_text16_regular(body);
     if (sys_ok)
     {
         snprintf(buf, sizeof(buf), "CPU   %uMHz", (unsigned) s->cpu_mhz);

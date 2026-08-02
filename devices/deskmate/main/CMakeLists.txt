@@ -44,8 +44,6 @@ idf_component_register(SRCS
                            "ui/resources/weather_icon_resolver.c"
                            "ui/resources/status_icon_resolver.c"
                           "ui/pages/ui_system_page.c"
-                          "ui/overlays/ui_toast.c"
-                          "ui/overlays/ui_loading.c"
                           "ui/overlays/ui_pomodoro_banner.c"
                        PRIV_REQUIRES
                            esp_common

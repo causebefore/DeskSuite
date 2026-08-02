@@ -1,5 +1,5 @@
 /*
- * 文件职责：实现主页（时钟英雄 + 日程/待办 + 天气/室内）。
+ * 文件职责：实现主页（时钟英雄 + 下一日程/未读邮件 + 天气/室内）。
  * 主要依赖：ui_common、ui_format、weather_icons、home_presenter。
  * 调用方：ui_router。
  *
@@ -22,6 +22,10 @@
 /* ── 动态控件句柄 ── */
 static lv_obj_t *s_clock;        /* 时钟（num48） */
 static lv_obj_t *s_date;         /* 日期 */
+static lv_obj_t *s_next_event;   /* 下一日程标题 */
+static lv_obj_t *s_next_meta;    /* 下一日程时间与地点 */
+static lv_obj_t *s_unread_count; /* 未读邮件数 */
+static lv_obj_t *s_unread_meta;  /* 未读邮件数据状态 */
 static lv_obj_t *s_weather_icon; /* 天气图标 */
 static lv_obj_t *s_weather_temp; /* 天气温度（text24） */
 static lv_obj_t *s_weather_text; /* 天气描述 */
@@ -31,37 +35,9 @@ static lv_obj_t *s_indoor_humi;  /* 室内湿度（text24） */
 static bool      s_created = false;
 
 /**
- * @brief 绘制主页带2 的单栏（日程或待办）
- *
- * line2 为 NULL 时只画标题加一行条目；否则画标题加两行条目。
- *
- * @param parent 父容器
- * @param title  栏标题
- * @param line1  第一行条目文本
- * @param line2  第二行条目文本，可为 NULL
- * @param x      栏左上角 X 坐标
- * @param y      栏左上角 Y 坐标
- */
-static void draw_agenda_column(lv_obj_t *parent, const char *title, const char *line1, const char *line2, int32_t x,
-                               int32_t y)
-{
-    lv_obj_t *t = ui_common_new_text16(parent);
-    ui_common_set_label(t, title, x, y, 184, 18, LV_TEXT_ALIGN_LEFT);
-
-    lv_obj_t *l1 = ui_common_new_text16(parent);
-    ui_common_set_label(l1, line1, x, y + 22, 184, 18, LV_TEXT_ALIGN_LEFT);
-
-    if (line2 != NULL)
-    {
-        lv_obj_t *l2 = ui_common_new_text16(parent);
-        ui_common_set_label(l2, line2, x, y + 40, 184, 18, LV_TEXT_ALIGN_LEFT);
-    }
-}
-
-/**
  * @brief 一次性创建主页全部控件并设置位置、尺寸和样式
  *
- * 创建带1 时钟英雄、带2 日程/待办分栏、带3 天气/室内分栏，并标记 s_created 为 true。
+ * 创建带1 时钟英雄、带2 下一日程/未读邮件分栏、带3 天气/室内分栏，并标记 s_created 为 true。
  *
  * @param body 页面容器
  */
@@ -71,42 +47,58 @@ static void create_layout(lv_obj_t *body)
     s_clock = ui_common_new_num48(body);
     ui_common_set_label(s_clock, "", 0, 8, UI_WIDTH, 56, LV_TEXT_ALIGN_CENTER);
 
-    s_date = ui_common_new_text16(body);
+    s_date = ui_common_new_text16_regular(body);
     ui_common_set_label(s_date, "", 0, 66, UI_WIDTH, 20, LV_TEXT_ALIGN_CENTER);
 
-    (void) ui_common_new_hline(body, 98);
+    (void) ui_common_new_rule(body, 0, 98, UI_WIDTH, UI_RULE_THIN);
 
-    /* ---- 带2: 日程 | 待办 (竖线分栏) ---- */
-    (void) ui_common_new_vline(body, 200, 106, 64);
-    draw_agenda_column(body, "日程", "暂无日程", NULL, 12, 106);
-    draw_agenda_column(body, "待办", "暂无提醒", NULL, 204, 106);
+    /* ---- 带2: 下一日程 | 未读邮件 ---- */
+    (void) ui_common_new_rule(body, 280, 106, UI_RULE_THIN, 64);
 
-    (void) ui_common_new_hline(body, 178);
+    lv_obj_t *next_heading = ui_common_new_text16_semibold(body);
+    ui_common_set_label(next_heading, "下一日程", 12, 106, 256, 18, LV_TEXT_ALIGN_LEFT);
+
+    s_next_event = ui_common_new_text24_semibold(body);
+    ui_common_set_label(s_next_event, "", 12, 126, 256, 28, LV_TEXT_ALIGN_LEFT);
+
+    s_next_meta = ui_common_new_text16_regular(body);
+    ui_common_set_label(s_next_meta, "", 12, 154, 256, 18, LV_TEXT_ALIGN_LEFT);
+
+    lv_obj_t *unread_heading = ui_common_new_text16_semibold(body);
+    ui_common_set_label(unread_heading, "未读邮件", 292, 106, 96, 18, LV_TEXT_ALIGN_CENTER);
+
+    s_unread_count = ui_common_new_text24_semibold(body);
+    ui_common_set_label(s_unread_count, "", 292, 126, 96, 28, LV_TEXT_ALIGN_CENTER);
+
+    s_unread_meta = ui_common_new_text16_regular(body);
+    ui_common_set_label(s_unread_meta, "", 292, 154, 96, 18, LV_TEXT_ALIGN_CENTER);
+
+    (void) ui_common_new_rule(body, 0, 178, UI_WIDTH, UI_RULE_THIN);
 
     /* ---- 带3: 天气 | 室内 (竖线分栏) ---- */
-    (void) ui_common_new_vline(body, 232, 186, 80);
+    (void) ui_common_new_rule(body, 232, 186, UI_RULE_THIN, 80);
 
     /* 天气图标：创建后隐藏，populate 按数据 show/hide */
     s_weather_icon = lv_image_create(body);
     lv_obj_add_flag(s_weather_icon, LV_OBJ_FLAG_HIDDEN);
 
-    s_weather_temp = ui_common_new_text24(body);
+    s_weather_temp = ui_common_new_text24_regular(body);
     ui_common_set_label(s_weather_temp, "--", 40, 190, 76, 26, LV_TEXT_ALIGN_LEFT);
 
-    s_weather_text = ui_common_new_text16(body);
+    s_weather_text = ui_common_new_text16_regular(body);
     ui_common_set_label(s_weather_text, "--", 120, 196, 108, 18, LV_TEXT_ALIGN_LEFT);
 
-    s_weather_meta = ui_common_new_text16(body);
+    s_weather_meta = ui_common_new_text16_regular(body);
     ui_common_set_label(s_weather_meta, "体感 --", 40, 220, 188, 18, LV_TEXT_ALIGN_LEFT);
 
     /* ---- 室内 ---- */
-    lv_obj_t *indoor_label = ui_common_new_text16(body);
+    lv_obj_t *indoor_label = ui_common_new_text16_semibold(body);
     ui_common_set_label(indoor_label, "室内", 240, 190, 148, 18, LV_TEXT_ALIGN_LEFT);
 
-    s_indoor_temp = ui_common_new_text24(body);
+    s_indoor_temp = ui_common_new_text24_regular(body);
     ui_common_set_label(s_indoor_temp, "--.-\xc2\xb0", 240, 210, 80, 26, LV_TEXT_ALIGN_LEFT);
 
-    s_indoor_humi = ui_common_new_text24(body);
+    s_indoor_humi = ui_common_new_text24_regular(body);
     ui_common_set_label(s_indoor_humi, "--%", 322, 210, 66, 26, LV_TEXT_ALIGN_LEFT);
 
     s_created = true;
@@ -115,14 +107,14 @@ static void create_layout(lv_obj_t *body)
 /**
  * @brief 按最新 view 更新主页动态文本和图标
  *
- * 只更新时钟、日期、天气与室内温湿度等动态字段，缺数据时填 "--"，
+ * 只更新时钟、日期、下一日程、未读邮件、天气与室内温湿度，缺数据时显示明确状态，
  * 不创建或销毁控件。
  *
  * @param view 主页视图切片
  */
 static void populate(const home_view_model_t *view)
 {
-    char buf[32];
+    char buf[80];
 
     /* ---- 时钟 + 日期 ---- */
     ui_format_time(&view->time, buf, sizeof(buf));
@@ -130,6 +122,65 @@ static void populate(const home_view_model_t *view)
 
     ui_format_home_date(&view->time, buf, sizeof(buf));
     lv_label_set_text(s_date, buf);
+
+    /* ---- 下一日程 + 未读邮件 ---- */
+    const bool calendar_available =
+        (view->next_event_status == PRESENTATION_DATA_OK || view->next_event_status == PRESENTATION_DATA_STALE);
+    if (calendar_available && view->has_next_event)
+    {
+        lv_label_set_text(s_next_event, view->next_event.title[0] ? view->next_event.title : "(无标题)");
+        if (view->next_event.relative[0] != '\0' && view->next_event.location[0] != '\0')
+        {
+            snprintf(buf, sizeof(buf), "%s · %s", view->next_event.relative, view->next_event.location);
+        }
+        else
+        {
+            snprintf(buf,
+                     sizeof(buf),
+                     "%s",
+                     view->next_event.relative[0] ? view->next_event.relative : view->next_event.location);
+        }
+        lv_label_set_text(s_next_meta, buf);
+        if (buf[0] != '\0')
+        {
+            lv_obj_clear_flag(s_next_meta, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_add_flag(s_next_meta, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    else
+    {
+        const char *next_text = calendar_available
+                                    ? "暂无日程"
+                                    : (view->next_event_status == PRESENTATION_DATA_EMPTY ? "等待同步" : "暂不可用");
+        lv_label_set_text(s_next_event, next_text);
+        lv_obj_add_flag(s_next_meta, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    const bool mail_available =
+        (view->unread_mail_status == PRESENTATION_DATA_OK || view->unread_mail_status == PRESENTATION_DATA_STALE);
+    if (mail_available)
+    {
+        snprintf(buf, sizeof(buf), "%u 封", (unsigned) view->unread_mail_count);
+        lv_label_set_text(s_unread_count, buf);
+        if (view->unread_mail_status == PRESENTATION_DATA_STALE)
+        {
+            lv_label_set_text(s_unread_meta, "离线数据");
+            lv_obj_clear_flag(s_unread_meta, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_add_flag(s_unread_meta, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    else
+    {
+        lv_label_set_text(s_unread_count, "--");
+        lv_label_set_text(s_unread_meta, view->unread_mail_status == PRESENTATION_DATA_EMPTY ? "等待同步" : "暂不可用");
+        lv_obj_clear_flag(s_unread_meta, LV_OBJ_FLAG_HIDDEN);
+    }
 
     /* ---- 天气 ---- */
     const bool ok = (view->weather.status == PRESENTATION_DATA_OK || view->weather.status == PRESENTATION_DATA_STALE);
@@ -168,6 +219,7 @@ static void populate(const home_view_model_t *view)
     if (view->env.status != PRESENTATION_DATA_OK)
     {
         lv_label_set_text(s_indoor_temp, "--.-\xc2\xb0");
+        lv_label_set_text(s_indoor_humi, "--%");
     }
     else
     {
@@ -176,10 +228,10 @@ static void populate(const home_view_model_t *view)
         const int temp_tenth = abs(temp % 100) / 10;
         snprintf(buf, sizeof(buf), "%d.%d\xc2\xb0", temp_whole, temp_tenth);
         lv_label_set_text(s_indoor_temp, buf);
-    }
 
-    snprintf(buf, sizeof(buf), "%u%%", (unsigned) (view->env.humidity_centi / 100));
-    lv_label_set_text(s_indoor_humi, buf);
+        snprintf(buf, sizeof(buf), "%u%%", (unsigned) (view->env.humidity_centi / 100));
+        lv_label_set_text(s_indoor_humi, buf);
+    }
 }
 
 esp_err_t ui_home_page_init(void)
@@ -194,6 +246,10 @@ void ui_home_page_deinit(void)
 {
     s_clock        = NULL;
     s_date         = NULL;
+    s_next_event   = NULL;
+    s_next_meta    = NULL;
+    s_unread_count = NULL;
+    s_unread_meta  = NULL;
     s_weather_icon = NULL;
     s_weather_temp = NULL;
     s_weather_text = NULL;
