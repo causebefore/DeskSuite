@@ -115,7 +115,7 @@ config DESKMATE_WIFI_RECONNECT_BACKOFF_MAX_MS
 
 config DESKMATE_API_HTTP_TIMEOUT_MS
     int "Device API HTTP timeout (ms)"
-    default 20000
+    default 30000
     range 1000 120000
     help
         所有设备 API 请求（dashboard/register/events/settings 等）的 HTTP 超时。
