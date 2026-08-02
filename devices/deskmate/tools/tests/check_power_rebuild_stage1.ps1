@@ -62,11 +62,27 @@ $uiTask = 'main\ui\core\ui_task.c'
 $lvglHeader = 'components\graphics\ui_platform\include\ui_platform_lvgl.h'
 $lvglSource = 'components\graphics\ui_platform\lvgl\lvgl_runtime.c'
 $displayHeader = 'components\device\device_display\include\device_display.h'
+$displayBspSource = 'components\bsp\src\bsp_display.c'
 $appVoiceHeader = 'main\application\app_voice.h'
 
 Assert-Contains $bspHeader 'bsp_power_enter_light_sleep'
 Assert-Contains $bspHeader 'bsp_display_stop'
 Assert-Contains $bspHeader 'bsp_display_start'
+Assert-Contains $displayBspSource 'ST7305_CMD_HIGH_POWER_MODE\s+0x38U'
+Assert-Contains $displayBspSource 'ST7305_CMD_LOW_POWER_MODE\s+0x39U'
+Assert-Contains $displayBspSource 'ST7305_HPM_TO_LPM_VOLTAGE_SETTLE_MS\s+20U'
+Assert-Contains $displayBspSource 'ST7305_HPM_TO_LPM_MODE_SETTLE_MS\s+100U'
+Assert-Contains $displayBspSource 'ST7305_LPM_TO_HPM_MODE_SETTLE_MS\s+300U'
+Assert-Contains $displayBspSource 'ST7305_LPM_TO_HPM_VOLTAGE_SETTLE_MS\s+20U'
+Assert-Contains $displayBspSource `
+    '(?s)lcd_switch_to_low_power_mode\s*\(void\).*?ST7305_CMD_HIGH_POWER_MODE.*?lcd_write_source_voltage_levels.*?lcd_select_source_voltage_set.*?ST7305_HPM_TO_LPM_VOLTAGE_SETTLE_MS.*?ST7305_CMD_LOW_POWER_MODE.*?ST7305_HPM_TO_LPM_MODE_SETTLE_MS'
+Assert-Contains $displayBspSource `
+    '(?s)lcd_switch_to_high_power_mode\s*\(void\).*?ST7305_CMD_LOW_POWER_MODE.*?ST7305_CMD_HIGH_POWER_MODE.*?ST7305_LPM_TO_HPM_MODE_SETTLE_MS.*?lcd_write_source_voltage_levels.*?lcd_select_source_voltage_set.*?ST7305_LPM_TO_HPM_VOLTAGE_SETTLE_MS'
+Assert-Contains $displayBspSource `
+    '(?s)bsp_display_stop\s*\(uint32_t\s+timeout_ms\).*?bsp_display_wait_flush_done.*?gpio_intr_disable.*?lcd_switch_to_low_power_mode.*?lcd_set_io_hold\(true\)'
+Assert-Contains $displayBspSource `
+    '(?s)bsp_display_start\s*\(void\).*?lcd_set_io_hold\(false\).*?lcd_switch_to_high_power_mode.*?gpio_intr_enable.*?set_display_accepting_frames\(true\)'
+Assert-NotContains $displayBspSource 'ST7305_CMD_SLEEP_IN|lcd_cmd\(0x10U?\)'
 Assert-Contains $bspSource 'esp_sleep_enable_ext1_wakeup_io'
 Assert-Contains $bspSource 'esp_sleep_enable_timer_wakeup'
 Assert-Contains $bspSource 'esp_sleep_disable_ext1_wakeup_io'

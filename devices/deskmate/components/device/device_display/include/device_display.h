@@ -25,9 +25,11 @@ extern "C"
     esp_err_t device_display_init(void);
 
     /**
-     * @brief 同步停止新帧并等待显示传输静止
+     * @brief 同步停止新帧并让显示控制器进入低功耗扫描模式
      *
-     * 本函数保留显示 Task、总线、控制器和缓冲区，适用于 Light-sleep 前的可逆停止。
+     * 本函数保留显示 Task、总线、控制器和缓冲区，适用于 Light-sleep 前的可逆停止。返回成功时
+     * 显示传输已静止，控制器已进入低功耗扫描状态，输出脚已保持；模式切换约 120 ms，包含在
+     * 总超时内。仅可在允许阻塞的 Task 上下文调用。
      *
      * @param[in] timeout_ms 等待在途刷新完成的总超时，单位毫秒
      * @return ESP_OK 已停止或原本已停止；ESP_ERR_INVALID_ARG 超时无效；
@@ -36,9 +38,10 @@ extern "C"
     esp_err_t device_display_stop(uint32_t timeout_ms);
 
     /**
-     * @brief 恢复已停止的显示设备
+     * @brief 让已停止的显示控制器恢复高功耗扫描
      *
-     * 本函数不重新初始化总线或面板控制器。
+     * 本函数不重新初始化总线或面板控制器；控制器按规定时序恢复正常扫描后才重新接受显示帧，
+     * 固定阻塞约 320 ms，仅可在允许阻塞的 Task 上下文调用。
      *
      * @return ESP_OK 已运行或原本正在运行；ESP_ERR_INVALID_STATE 尚未初始化；
      *         或底层错误码

@@ -270,10 +270,12 @@ extern "C"
     esp_err_t bsp_display_init(void);
 
     /**
-     * @brief 同步停止新帧并等待 RLCD 传输静止
+     * @brief 同步停止新帧并让 ST7305 切换到低功耗扫描模式
      *
      * 本函数保留刷新 Task、SPI、面板控制器和全部缓冲区；返回 ESP_OK 时不会再接受新帧，
-     * 已提交 DMA 已完成，LCD 输出脚已保持为 Light-sleep 安全状态。
+     * 已提交 DMA 已完成，TE 中断已关闭，ST7305 已按数据手册时序进入 LPM，LCD 输出脚已保持为
+     * Light-sleep 安全状态。LPM 切换在 DMA 静止后固定等待约 120 ms，包含在总超时内。仅可在
+     * 允许阻塞的 Task 上下文调用。
      *
      * @param[in] timeout_ms 等待在途刷新完成的总超时，单位毫秒
      * @return ESP_OK 已停止或原本已停止；ESP_ERR_INVALID_ARG 超时为零；
@@ -282,9 +284,10 @@ extern "C"
     esp_err_t bsp_display_stop(uint32_t timeout_ms);
 
     /**
-     * @brief 恢复已停止的 RLCD 并重新接受显示帧
+     * @brief 让已停止的 ST7305 恢复高功耗扫描并重新接受显示帧
      *
-     * 本函数不复位或重新初始化面板控制器。
+     * 本函数不复位或重新初始化面板控制器；按数据手册时序恢复 HPM 后才开启 TE 中断和帧入口，
+     * 固定阻塞约 320 ms，仅可在允许阻塞的 Task 上下文调用。
      *
      * @return ESP_OK 已运行或原本正在运行；ESP_ERR_INVALID_STATE 尚未初始化；
      *         或 GPIO 恢复错误码

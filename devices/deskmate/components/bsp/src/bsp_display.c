@@ -32,12 +32,28 @@
 #define RLCD_DISPLAY_TASK_STACK     3584
 #define RLCD_DISPLAY_TASK_PRIO      5
 #define RLCD_RESET_RELEASE_DELAY_MS 150U
+#define ST7305_CMD_HIGH_POWER_MODE             0x38U
+#define ST7305_CMD_LOW_POWER_MODE              0x39U
+#define ST7305_HPM_TO_LPM_VOLTAGE_SETTLE_MS    20U
+#define ST7305_HPM_TO_LPM_MODE_SETTLE_MS       100U
+#define ST7305_HPM_TO_LPM_TOTAL_DELAY_MS                                                \
+    (ST7305_HPM_TO_LPM_VOLTAGE_SETTLE_MS + ST7305_HPM_TO_LPM_MODE_SETTLE_MS)
+#define ST7305_LPM_TO_HPM_MODE_SETTLE_MS       300U
+#define ST7305_LPM_TO_HPM_VOLTAGE_SETTLE_MS    20U
 #define RLCD_PARKED_OUTPUT_MASK                                                                \
     ((1ULL << BOARD_RLCD_PIN_DC) | (1ULL << BOARD_RLCD_PIN_CS) | (1ULL << BOARD_RLCD_PIN_SCLK) \
      | (1ULL << BOARD_RLCD_PIN_MOSI) | (1ULL << BOARD_RLCD_PIN_RST))
 /* 显示行为、TE 时序和极性见 Kconfig: DeskMate Display */
 
 static const char *TAG = "bsp_display";
+
+/* 当前板型已经验证过的 ST7305 源极电压设置。四个元素分别对应寄存器内的 Set1~Set4，
+ * 运行期 HPM/LPM 切换只按数据手册重写这些值，不改变现有面板调校。 */
+static const uint8_t s_st7305_vshp[]               = { 0x69, 0x69, 0x69, 0x69 };
+static const uint8_t s_st7305_vslp[]               = { 0x19, 0x19, 0x19, 0x19 };
+static const uint8_t s_st7305_vshn[]               = { 0x4B, 0x4B, 0x4B, 0x4B };
+static const uint8_t s_st7305_vsln[]               = { 0x19, 0x19, 0x19, 0x19 };
+static const uint8_t s_st7305_source_voltage_set[] = { 0x00 };
 
 typedef struct
 {
@@ -143,6 +159,61 @@ static esp_err_t lcd_data(const uint8_t *data, size_t len)
 {
     ESP_RETURN_ON_ERROR(gpio_set_level(BOARD_RLCD_PIN_DC, 1), TAG, "设置 DC 数据电平失败");
     return lcd_tx_sync(data, len);
+}
+
+/** @brief 重写当前板型的四组 ST7305 源极电压参数 */
+static esp_err_t lcd_write_source_voltage_levels(void)
+{
+    ESP_RETURN_ON_ERROR(lcd_cmd(0xC1), TAG, "写 ST7305 VSHP 命令失败");
+    ESP_RETURN_ON_ERROR(lcd_data(s_st7305_vshp, sizeof(s_st7305_vshp)), TAG, "写 ST7305 VSHP 数据失败");
+    ESP_RETURN_ON_ERROR(lcd_cmd(0xC2), TAG, "写 ST7305 VSLP 命令失败");
+    ESP_RETURN_ON_ERROR(lcd_data(s_st7305_vslp, sizeof(s_st7305_vslp)), TAG, "写 ST7305 VSLP 数据失败");
+    ESP_RETURN_ON_ERROR(lcd_cmd(0xC4), TAG, "写 ST7305 VSHN 命令失败");
+    ESP_RETURN_ON_ERROR(lcd_data(s_st7305_vshn, sizeof(s_st7305_vshn)), TAG, "写 ST7305 VSHN 数据失败");
+    ESP_RETURN_ON_ERROR(lcd_cmd(0xC5), TAG, "写 ST7305 VSLN 命令失败");
+    ESP_RETURN_ON_ERROR(lcd_data(s_st7305_vsln, sizeof(s_st7305_vsln)), TAG, "写 ST7305 VSLN 数据失败");
+    return ESP_OK;
+}
+
+/** @brief 选择当前板型已经验证过的 ST7305 源极电压组 */
+static esp_err_t lcd_select_source_voltage_set(void)
+{
+    ESP_RETURN_ON_ERROR(lcd_cmd(0xC9), TAG, "写 ST7305 源极电压组命令失败");
+    return lcd_data(s_st7305_source_voltage_set, sizeof(s_st7305_source_voltage_set));
+}
+
+/**
+ * @brief 按 ST7305 V0.2 7.11 的 HPM 到 LPM 时序降低面板扫描功耗
+ *
+ * 调用前必须停止新帧、等待 DMA 静止并关闭 TE 中断。时序固定为 HPM、重写源极电压、
+ * 等待 20 ms、LPM、等待 100 ms；不能简化成只发送 0x39。
+ */
+static esp_err_t lcd_switch_to_low_power_mode(void)
+{
+    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_HIGH_POWER_MODE), TAG, "确认 ST7305 HPM 失败");
+    ESP_RETURN_ON_ERROR(lcd_write_source_voltage_levels(), TAG, "写 ST7305 LPM 源极电压失败");
+    ESP_RETURN_ON_ERROR(lcd_select_source_voltage_set(), TAG, "选择 ST7305 LPM 源极电压失败");
+    vTaskDelay(pdMS_TO_TICKS(ST7305_HPM_TO_LPM_VOLTAGE_SETTLE_MS));
+    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_LOW_POWER_MODE), TAG, "切换 ST7305 LPM 失败");
+    vTaskDelay(pdMS_TO_TICKS(ST7305_HPM_TO_LPM_MODE_SETTLE_MS));
+    return ESP_OK;
+}
+
+/**
+ * @brief 按 ST7305 V0.2 7.11 的 LPM 到 HPM 时序恢复正常扫描
+ *
+ * 时序固定为 LPM、HPM、等待 300 ms、重写源极电压、等待 20 ms。完成后才能恢复
+ * TE 中断和新帧提交，避免把 LPM 的低频 TE 当作正常刷新节拍。
+ */
+static esp_err_t lcd_switch_to_high_power_mode(void)
+{
+    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_LOW_POWER_MODE), TAG, "确认 ST7305 LPM 失败");
+    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_HIGH_POWER_MODE), TAG, "切换 ST7305 HPM 失败");
+    vTaskDelay(pdMS_TO_TICKS(ST7305_LPM_TO_HPM_MODE_SETTLE_MS));
+    ESP_RETURN_ON_ERROR(lcd_write_source_voltage_levels(), TAG, "写 ST7305 HPM 源极电压失败");
+    ESP_RETURN_ON_ERROR(lcd_select_source_voltage_set(), TAG, "选择 ST7305 HPM 源极电压失败");
+    vTaskDelay(pdMS_TO_TICKS(ST7305_LPM_TO_HPM_VOLTAGE_SETTLE_MS));
+    return ESP_OK;
 }
 
 /**
@@ -251,6 +322,76 @@ static void set_display_accepting_frames(bool accepting)
     taskEXIT_CRITICAL(&s_state_lock);
 }
 
+/**
+ * @brief 显示停止失败后恢复 HPM、TE 与新帧入口
+ *
+ * GPIO 可能只保持了一部分，因此先统一解除；只有 HPM 和 TE 都恢复成功后才重新开放帧入口。
+ *
+ * @param[in] primary_error 触发恢复的原始错误
+ * @return 恢复完整时返回原始错误；恢复不完整时返回首个恢复错误
+ */
+static esp_err_t restore_running_after_stop_failure(esp_err_t primary_error)
+{
+    const esp_err_t release_error = lcd_set_io_hold(false);
+    s_io_held                     = release_error != ESP_OK;
+
+    const esp_err_t mode_error =
+        release_error == ESP_OK ? lcd_switch_to_high_power_mode() : ESP_ERR_INVALID_STATE;
+    esp_err_t interrupt_error = ESP_OK;
+    if (mode_error == ESP_OK && s_te_interrupt_suspended)
+    {
+        interrupt_error = gpio_intr_enable(BOARD_RLCD_PIN_TE);
+        if (interrupt_error == ESP_OK)
+        {
+            s_te_interrupt_suspended = false;
+        }
+    }
+
+    if (release_error == ESP_OK && mode_error == ESP_OK && interrupt_error == ESP_OK)
+    {
+        set_display_accepting_frames(true);
+        return primary_error;
+    }
+
+    ESP_LOGE(TAG,
+             "显示停止失败后的运行态恢复不完整: release=%s, hpm=%s, te=%s",
+             esp_err_to_name(release_error),
+             esp_err_to_name(mode_error),
+             esp_err_to_name(interrupt_error));
+    return release_error != ESP_OK ? release_error : (mode_error != ESP_OK ? mode_error : interrupt_error);
+}
+
+/**
+ * @brief 显示启动失败后恢复 LPM 和 GPIO 保持
+ *
+ * @param[in] primary_error 触发恢复的原始错误
+ * @return 恢复完整时返回原始错误；恢复不完整时返回首个恢复错误
+ */
+static esp_err_t restore_stopped_after_start_failure(esp_err_t primary_error)
+{
+    const esp_err_t mode_error = lcd_switch_to_low_power_mode();
+    const esp_err_t hold_error = lcd_set_io_hold(true);
+    esp_err_t       release_error = ESP_OK;
+    s_io_held                     = hold_error == ESP_OK;
+    if (hold_error != ESP_OK)
+    {
+        release_error = lcd_set_io_hold(false);
+        s_io_held     = release_error != ESP_OK;
+    }
+
+    if (mode_error == ESP_OK && hold_error == ESP_OK)
+    {
+        return primary_error;
+    }
+
+    ESP_LOGE(TAG,
+             "显示启动失败后的停止态恢复不完整: lpm=%s, hold=%s, release=%s",
+             esp_err_to_name(mode_error),
+             esp_err_to_name(hold_error),
+             esp_err_to_name(release_error));
+    return mode_error != ESP_OK ? mode_error : (hold_error != ESP_OK ? hold_error : release_error);
+}
+
 static esp_err_t lcd_init_spi(void)
 {
     spi_bus_config_t bus_cfg = {
@@ -319,9 +460,6 @@ static esp_err_t lcd_init_controller(void)
     const uint8_t d6[]          = { 0x17, 0x02 };
     const uint8_t d1[]          = { 0x01 };
     const uint8_t c0[]          = { 0x11, 0x04 };
-    const uint8_t c1[]          = { 0x69, 0x69, 0x69, 0x69 };
-    const uint8_t c2[]          = { 0x19, 0x19, 0x19, 0x19 };
-    const uint8_t c4[]          = { 0x4B, 0x4B, 0x4B, 0x4B };
     const uint8_t d8[]          = { 0x80, 0xE9 };
     const uint8_t b2[]          = { 0x02 };
     const uint8_t b3[]          = { 0xE5, 0xF6, 0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45 };
@@ -329,7 +467,6 @@ static esp_err_t lcd_init_controller(void)
     const uint8_t gate_timing[] = { 0x32, 0x03, 0x1F };
     const uint8_t b7[]          = { 0x13 };
     const uint8_t b0[]          = { 0x64 };
-    const uint8_t c9[]          = { 0x00 };
     const uint8_t madctl[]      = { 0x48 };
     const uint8_t pixfmt[]      = { 0x11 };
     const uint8_t b9[]          = { 0x20 };
@@ -345,14 +482,7 @@ static esp_err_t lcd_init_controller(void)
     ESP_RETURN_ON_ERROR(lcd_data(d1, sizeof(d1)), TAG, "写 0xD1 数据失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0xC0), TAG, "写 0xC0 失败");
     ESP_RETURN_ON_ERROR(lcd_data(c0, sizeof(c0)), TAG, "写 0xC0 数据失败");
-    ESP_RETURN_ON_ERROR(lcd_cmd(0xC1), TAG, "写 0xC1 失败");
-    ESP_RETURN_ON_ERROR(lcd_data(c1, sizeof(c1)), TAG, "写 0xC1 数据失败");
-    ESP_RETURN_ON_ERROR(lcd_cmd(0xC2), TAG, "写 0xC2 失败");
-    ESP_RETURN_ON_ERROR(lcd_data(c2, sizeof(c2)), TAG, "写 0xC2 数据失败");
-    ESP_RETURN_ON_ERROR(lcd_cmd(0xC4), TAG, "写 0xC4 失败");
-    ESP_RETURN_ON_ERROR(lcd_data(c4, sizeof(c4)), TAG, "写 0xC4 数据失败");
-    ESP_RETURN_ON_ERROR(lcd_cmd(0xC5), TAG, "写 0xC5 失败");
-    ESP_RETURN_ON_ERROR(lcd_data(c2, sizeof(c2)), TAG, "写 0xC5 数据失败");
+    ESP_RETURN_ON_ERROR(lcd_write_source_voltage_levels(), TAG, "初始化 ST7305 源极电压失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0xD8), TAG, "写 0xD8 失败");
     ESP_RETURN_ON_ERROR(lcd_data(d8, sizeof(d8)), TAG, "写 0xD8 数据失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0xB2), TAG, "写 0xB2 失败");
@@ -371,8 +501,7 @@ static esp_err_t lcd_init_controller(void)
     ESP_RETURN_ON_ERROR(lcd_cmd(0x11), TAG, "退出 sleep 失败");
     esp_rom_delay_us(200 * 1000);
 
-    ESP_RETURN_ON_ERROR(lcd_cmd(0xC9), TAG, "写 0xC9 失败");
-    ESP_RETURN_ON_ERROR(lcd_data(c9, sizeof(c9)), TAG, "写 0xC9 数据失败");
+    ESP_RETURN_ON_ERROR(lcd_select_source_voltage_set(), TAG, "选择 ST7305 源极电压组失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0x36), TAG, "写 MADCTL 失败");
     ESP_RETURN_ON_ERROR(lcd_data(madctl, sizeof(madctl)), TAG, "写 MADCTL 数据失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0x3A), TAG, "写像素格式失败");
@@ -390,7 +519,7 @@ static esp_err_t lcd_init_controller(void)
     ESP_RETURN_ON_ERROR(lcd_data(tear, sizeof(tear)), TAG, "写 TE 数据失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0xD0), TAG, "设置自动电源失败");
     ESP_RETURN_ON_ERROR(lcd_data(d0, sizeof(d0)), TAG, "写自动电源数据失败");
-    ESP_RETURN_ON_ERROR(lcd_cmd(0x38), TAG, "关闭 idle 失败");
+    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_HIGH_POWER_MODE), TAG, "切换 ST7305 HPM 失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0x29), TAG, "开启显示失败");
     return ESP_OK;
 }
@@ -1243,9 +1372,15 @@ esp_err_t bsp_display_stop(uint32_t timeout_ms)
     {
         return ESP_ERR_INVALID_ARG;
     }
+    if (timeout_ms != UINT32_MAX && timeout_ms <= ST7305_HPM_TO_LPM_TOTAL_DELAY_MS)
+    {
+        return ESP_ERR_TIMEOUT;
+    }
 
     set_display_accepting_frames(false);
-    const esp_err_t wait_error = bsp_display_wait_flush_done(timeout_ms);
+    const uint32_t flush_timeout_ms = timeout_ms == UINT32_MAX ? UINT32_MAX
+                                                               : timeout_ms - ST7305_HPM_TO_LPM_TOTAL_DELAY_MS;
+    const esp_err_t wait_error = bsp_display_wait_flush_done(flush_timeout_ms);
     if (wait_error != ESP_OK)
     {
         set_display_accepting_frames(true);
@@ -1258,19 +1393,21 @@ esp_err_t bsp_display_stop(uint32_t timeout_ms)
         set_display_accepting_frames(true);
         return interrupt_error;
     }
-    s_te_interrupt_suspended   = true;
+    s_te_interrupt_suspended = true;
+
+    const esp_err_t mode_error = lcd_switch_to_low_power_mode();
+    if (mode_error != ESP_OK)
+    {
+        return restore_running_after_stop_failure(mode_error);
+    }
 
     const esp_err_t hold_error = lcd_set_io_hold(true);
     if (hold_error != ESP_OK)
     {
-        (void) lcd_set_io_hold(false);
-        (void) gpio_intr_enable(BOARD_RLCD_PIN_TE);
-        s_te_interrupt_suspended = false;
-        set_display_accepting_frames(true);
-        return hold_error;
+        return restore_running_after_stop_failure(hold_error);
     }
     s_io_held = true;
-    ESP_LOGI(TAG, "显示已停止，DMA 静止且 LCD 输出脚已保持");
+    ESP_LOGI(TAG, "显示已停止，ST7305 已进入 LPM 且 LCD 输出脚已保持");
     return ESP_OK;
 }
 
@@ -1284,32 +1421,45 @@ esp_err_t bsp_display_start(void)
     {
         return ESP_OK;
     }
-    if (!s_io_held)
+    if (s_io_held)
     {
-        return ESP_ERR_INVALID_STATE;
+        const esp_err_t hold_error = lcd_set_io_hold(false);
+        if (hold_error != ESP_OK)
+        {
+            const esp_err_t restore_error = lcd_set_io_hold(true);
+            /* 重新保持失败时实际引脚状态不确定，保留 true 让下次 start 再次统一解除。 */
+            s_io_held = true;
+            if (restore_error != ESP_OK)
+            {
+                ESP_LOGE(TAG,
+                         "解除 LCD GPIO 保持失败且重新保持失败: release=%s, hold=%s",
+                         esp_err_to_name(hold_error),
+                         esp_err_to_name(restore_error));
+                return restore_error;
+            }
+            return hold_error;
+        }
+        s_io_held = false;
     }
 
-    const esp_err_t hold_error = lcd_set_io_hold(false);
-    if (hold_error != ESP_OK)
+    const esp_err_t mode_error = lcd_switch_to_high_power_mode();
+    if (mode_error != ESP_OK)
     {
-        return hold_error;
+        return restore_stopped_after_start_failure(mode_error);
     }
-    s_io_held = false;
 
     if (s_te_interrupt_suspended)
     {
         const esp_err_t interrupt_error = gpio_intr_enable(BOARD_RLCD_PIN_TE);
         if (interrupt_error != ESP_OK)
         {
-            (void) lcd_set_io_hold(true);
-            s_io_held = true;
-            return interrupt_error;
+            return restore_stopped_after_start_failure(interrupt_error);
         }
         s_te_interrupt_suspended = false;
     }
 
     set_display_accepting_frames(true);
-    ESP_LOGI(TAG, "显示已恢复并重新接受刷新");
+    ESP_LOGI(TAG, "ST7305 已恢复 HPM，显示重新接受刷新");
     return ESP_OK;
 }
 
