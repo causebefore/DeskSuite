@@ -159,8 +159,9 @@ deskmate_api 执行 HTTP GET 并单次解析 JSON
 
 成功 Dashboard 响应中的 `next_refresh_at_utc` 是清醒态和 Light-sleep 状态下下一次自动同步
 的唯一正常调度权威。`app_network` 在清醒态把它换算为一次性 Timer；`app_power` 在
-Light-sleep 前把同一截止时间换算为内部唤醒间隔。完整同步失败后才使用本地失败退避，失败
-退避只负责错误恢复，不构成第二套正常刷新周期。
+Light-sleep 前把同一截止时间换算为内部唤醒间隔。完整同步失败后才使用包含 Light-sleep 时间的
+单调失败截止；默认连续失败按 1、5、15、60 分钟递进并封顶，成功后重置。失败退避只负责错误
+恢复，不构成第二套正常刷新周期，也不增加每分钟屏幕维护之外的唤醒。
 
 后端上下文是无 Task、无持久化状态的按值快照。持久化字段由 Application 装配，稳定硬件设备
 ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保存第二套身份来源。网络诊断

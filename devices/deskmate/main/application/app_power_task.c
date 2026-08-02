@@ -444,21 +444,15 @@ static esp_err_t restore_awake_runtime(bool *network_suspended, bool *voice_stop
     return first_error;
 }
 
-/** @brief 判断当前 Dashboard 正常截止或失败退避截止是否已经到达；未知时间按到期处理 */
+/** @brief 判断当前 Dashboard 正常截止或失败退避截止是否已经到达；未知截止按到期处理 */
 static bool network_maintenance_is_due(void)
 {
-    int64_t next_sync_at_utc = 0;
-    if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) != ESP_OK)
+    uint32_t delay_ms = 0U;
+    if (app_network_get_next_dashboard_sync_interval_ms(&delay_ms) != ESP_OK)
     {
         return true;
     }
-
-    system_clock_snapshot_t clock = { 0 };
-    if (system_clock_get_snapshot_copy(&clock) != ESP_OK || !clock.valid)
-    {
-        return true;
-    }
-    return (int64_t) clock.utc_timestamp >= next_sync_at_utc;
+    return delay_ms == 0U;
 }
 
 typedef enum
@@ -476,19 +470,16 @@ typedef enum
  */
 static uint32_t next_power_save_interval_ms(app_power_timer_reason_t *out_reason)
 {
-    uint32_t                 interval_ms     = s_config.refresh_interval_ms;
-    app_power_timer_reason_t reason          = APP_POWER_TIMER_REASON_SCREEN;
+    uint32_t                 interval_ms = s_config.refresh_interval_ms;
+    app_power_timer_reason_t reason      = APP_POWER_TIMER_REASON_SCREEN;
 
-    int64_t                 next_sync_at_utc = 0;
-    system_clock_snapshot_t clock            = { 0 };
-    if (app_network_get_next_dashboard_sync_at_utc(&next_sync_at_utc) == ESP_OK
-        && system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid)
+    uint32_t dashboard_delay_ms          = 0U;
+    if (app_network_get_next_dashboard_sync_interval_ms(&dashboard_delay_ms) == ESP_OK)
     {
-        const int64_t  remaining_seconds = next_sync_at_utc - (int64_t) clock.utc_timestamp;
-        const uint64_t remaining_ms      = remaining_seconds <= 0 ? 1ULL : (uint64_t) remaining_seconds * 1000ULL;
-        if (remaining_ms < interval_ms)
+        const uint32_t effective_delay_ms = dashboard_delay_ms == 0U ? 1U : dashboard_delay_ms;
+        if (effective_delay_ms <= interval_ms)
         {
-            interval_ms = (uint32_t) remaining_ms;
+            interval_ms = effective_delay_ms;
             reason      = APP_POWER_TIMER_REASON_DASHBOARD;
         }
     }
@@ -554,8 +545,8 @@ static void log_next_wakeup(uint32_t interval_ms, app_power_timer_reason_t reaso
 /**
  * @brief 在 Timer 唤醒维护窗口恢复网络、同步 Dashboard 并再次可逆停网
  *
- * Dashboard 同步失败不会破坏旧截止时间，网络成功停回后允许继续按分钟重试；网络 start/stop
- * 失败则无法证明整机睡眠条件，作为主流程错误返回。
+ * Dashboard 同步失败不会破坏旧截止时间，网络成功停回后等待失败退避截止；网络 start/stop 失败
+ * 则无法证明整机睡眠条件，作为主流程错误返回。
  *
  * @param[in] expected_generation 当前睡眠会话锁存的活动代次
  * @param[in,out] network_suspended 网络暂停状态
@@ -583,7 +574,7 @@ static esp_err_t run_network_maintenance(uint32_t expected_generation, bool *net
     }
     else
     {
-        ESP_LOGW(TAG, "联网维护同步失败，将在下次 Timer 唤醒重试: %s", esp_err_to_name(sync_error));
+        ESP_LOGW(TAG, "联网维护同步失败，已记录失败退避截止: %s", esp_err_to_name(sync_error));
     }
 
     if (preparation_was_interrupted(expected_generation))

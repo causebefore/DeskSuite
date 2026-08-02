@@ -93,7 +93,10 @@ typedef struct
     uint32_t                 generation;
 } control_response_slot_t;
 
-static const char *TAG = "app_network_task";
+static const char *TAG                                       = "app_network_task";
+
+/** @brief Dashboard 连续完整同步失败后的退避倍率，默认对应 1、5、15、60 分钟 */
+static const uint8_t s_dashboard_failure_retry_multipliers[] = { 1U, 5U, 15U, 60U };
 
 static QueueHandle_t                      s_command_queue;
 static TaskHandle_t                       s_task;
@@ -120,6 +123,8 @@ static bool                               s_manager_change_pending;
 static bool                               s_dashboard_online;
 static int64_t                            s_next_refresh_at_utc;
 static int64_t                            s_dashboard_retry_at_utc;
+static int64_t                            s_dashboard_retry_deadline_us;
+static uint8_t                            s_dashboard_failure_retry_stage;
 static bool                               s_remote_log_initialized;
 static uint32_t                           s_active_lease_generation;
 static uint32_t                           s_next_lease_generation = 1U;
@@ -591,9 +596,11 @@ static esp_err_t fetch_dashboard(void)
     if (error == ESP_OK)
     {
         taskENTER_CRITICAL(&s_state_lock);
-        s_next_refresh_at_utc     = dashboard.next_refresh_at_utc;
-        s_dashboard_retry_pending = false;
-        s_dashboard_retry_at_utc  = 0;
+        s_next_refresh_at_utc           = dashboard.next_refresh_at_utc;
+        s_dashboard_retry_pending       = false;
+        s_dashboard_retry_at_utc        = 0;
+        s_dashboard_retry_deadline_us   = 0;
+        s_dashboard_failure_retry_stage = 0U;
         taskEXIT_CRITICAL(&s_state_lock);
     }
     return error;
@@ -724,20 +731,33 @@ static void schedule_reconnect_backoff(void)
 /**
  * @brief 把 Dashboard 完整同步失败收敛为独立的本地重试截止
  *
- * 可信 UTC 可用时记录绝对重试时间，供清醒态 Timer 与 Light-sleep 共用；时间不可信时仅保留
- * retry pending，由清醒态 Timer 或 Light-sleep 屏幕维护周期提供有界重试机会。
+ * 连续失败依次使用 1、5、15、60 倍基础间隔，成功后回到第一档。单调截止供清醒态 Timer 与
+ * Light-sleep 共用；可信 UTC 可用时额外保存等价绝对时间用于查询和日志。
+ *
+ * @return 本次选中的失败退避间隔，单位秒
  */
-static void mark_dashboard_failure_retry(void)
+static uint32_t mark_dashboard_failure_retry(void)
 {
-    system_clock_snapshot_t clock       = { 0 };
-    const bool              clock_valid = system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid;
-    const int64_t           retry_at_utc =
-        clock_valid ? (int64_t) clock.utc_timestamp + CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC : 0;
+    system_clock_snapshot_t clock            = { 0 };
+    const bool              clock_valid      = system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid;
+    const int64_t           retry_started_us = esp_timer_get_time();
 
     taskENTER_CRITICAL(&s_state_lock);
-    s_dashboard_retry_pending = true;
-    s_dashboard_retry_at_utc  = retry_at_utc;
+    const uint8_t last_stage =
+        (uint8_t) (sizeof(s_dashboard_failure_retry_multipliers) / sizeof(s_dashboard_failure_retry_multipliers[0])
+                   - 1U);
+    const uint8_t  stage = s_dashboard_failure_retry_stage < last_stage ? s_dashboard_failure_retry_stage : last_stage;
+    const uint32_t retry_delay_sec = (uint32_t) CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC
+                                     * (uint32_t) s_dashboard_failure_retry_multipliers[stage];
+    s_dashboard_retry_pending      = true;
+    s_dashboard_retry_at_utc       = clock_valid ? (int64_t) clock.utc_timestamp + retry_delay_sec : 0;
+    s_dashboard_retry_deadline_us  = retry_started_us + (int64_t) retry_delay_sec * 1000000LL;
+    if (s_dashboard_failure_retry_stage < last_stage)
+    {
+        ++s_dashboard_failure_retry_stage;
+    }
     taskEXIT_CRITICAL(&s_state_lock);
+    return retry_delay_sec;
 }
 
 /**
@@ -758,7 +778,7 @@ static void reschedule_dashboard_timer(void)
     const bool enabled =
         s_dashboard_auto_sync_enabled && s_active_lease_type == APP_NETWORK_LEASE_NONE && !s_power_save_suspended;
     const bool    retry_pending       = s_dashboard_retry_pending;
-    const int64_t retry_at_utc        = s_dashboard_retry_at_utc;
+    const int64_t retry_deadline_us   = s_dashboard_retry_deadline_us;
     const int64_t next_refresh_at_utc = s_next_refresh_at_utc;
     taskEXIT_CRITICAL(&s_state_lock);
     if (!enabled)
@@ -770,17 +790,9 @@ static void reschedule_dashboard_timer(void)
     const char *reason   = NULL;
     if (retry_pending)
     {
-        system_clock_snapshot_t clock = { 0 };
-        if (retry_at_utc > 0 && system_clock_get_snapshot_copy(&clock) == ESP_OK && clock.valid)
-        {
-            const int64_t remaining_seconds = retry_at_utc - (int64_t) clock.utc_timestamp;
-            delay_us = remaining_seconds > 0 ? (uint64_t) remaining_seconds * 1000000ULL : DASHBOARD_TIMER_MIN_DELAY_US;
-        }
-        else
-        {
-            delay_us = (uint64_t) CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC * 1000000ULL;
-        }
-        reason = "同步失败退避";
+        const int64_t remaining_us = retry_deadline_us - esp_timer_get_time();
+        delay_us                   = remaining_us > 0 ? (uint64_t) remaining_us : DASHBOARD_TIMER_MIN_DELAY_US;
+        reason                     = "同步失败退避";
     }
     else if (next_refresh_at_utc > 0)
     {
@@ -809,11 +821,10 @@ static void reschedule_dashboard_timer(void)
         return;
     }
     ESP_LOGI(TAG,
-             "Dashboard 自动同步已安排: 原因=%s，等待=%llu ms，服务端截止=%lld，失败重试截止=%lld",
+             "Dashboard 自动同步已安排: 原因=%s，等待=%llu ms，服务端截止=%lld",
              reason,
              (unsigned long long) ((delay_us + 999ULL) / 1000ULL),
-             (long long) next_refresh_at_utc,
-             (long long) retry_at_utc);
+             (long long) next_refresh_at_utc);
 }
 
 /**
@@ -1264,9 +1275,12 @@ static esp_err_t execute_sync_command(void)
         }
         else if (!is_sync_cancel_requested())
         {
-            mark_dashboard_failure_retry();
+            const uint32_t retry_delay_sec = mark_dashboard_failure_retry();
             set_dashboard_online(false);
-            ESP_LOGW(TAG, "Dashboard 同步失败: %s", esp_err_to_name(error));
+            ESP_LOGW(TAG,
+                     "Dashboard 同步失败，%lu 秒后重试: %s",
+                     (unsigned long) retry_delay_sec,
+                     esp_err_to_name(error));
         }
     }
 
@@ -1879,8 +1893,11 @@ static void dashboard_timer_cb(void *arg)
     const esp_err_t error = app_network_request_sync();
     if (error != ESP_OK && error != ESP_ERR_INVALID_STATE)
     {
-        mark_dashboard_failure_retry();
-        ESP_LOGW(TAG, "Dashboard Timer 投递同步失败: %s", esp_err_to_name(error));
+        const uint32_t retry_delay_sec = mark_dashboard_failure_retry();
+        ESP_LOGW(TAG,
+                 "Dashboard Timer 投递同步失败，%lu 秒后重试: %s",
+                 (unsigned long) retry_delay_sec,
+                 esp_err_to_name(error));
         reschedule_dashboard_timer();
     }
 }
@@ -2183,6 +2200,41 @@ esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp)
         return ESP_ERR_INVALID_STATE;
     }
     *out_utc_timestamp = next_sync_at_utc;
+    return ESP_OK;
+}
+
+esp_err_t app_network_get_next_dashboard_sync_interval_ms(uint32_t *out_interval_ms)
+{
+    ESP_RETURN_ON_FALSE(out_interval_ms != NULL, ESP_ERR_INVALID_ARG, TAG, "下一次 Dashboard 同步间隔输出为空");
+
+    taskENTER_CRITICAL(&s_state_lock);
+    const bool    retry_pending       = s_dashboard_retry_pending;
+    const int64_t retry_deadline_us   = s_dashboard_retry_deadline_us;
+    const int64_t next_refresh_at_utc = s_next_refresh_at_utc;
+    taskEXIT_CRITICAL(&s_state_lock);
+
+    uint64_t delay_ms = 0U;
+    if (retry_pending)
+    {
+        if (retry_deadline_us <= 0)
+        {
+            return ESP_ERR_INVALID_STATE;
+        }
+        const int64_t remaining_us = retry_deadline_us - esp_timer_get_time();
+        delay_ms                   = remaining_us <= 0 ? 0U : ((uint64_t) remaining_us + 999ULL) / 1000ULL;
+    }
+    else
+    {
+        system_clock_snapshot_t clock = { 0 };
+        if (next_refresh_at_utc <= 0 || system_clock_get_snapshot_copy(&clock) != ESP_OK || !clock.valid)
+        {
+            return ESP_ERR_INVALID_STATE;
+        }
+        const int64_t remaining_seconds = next_refresh_at_utc - (int64_t) clock.utc_timestamp;
+        delay_ms                        = remaining_seconds <= 0 ? 0U : (uint64_t) remaining_seconds * 1000ULL;
+    }
+
+    *out_interval_ms = delay_ms > UINT32_MAX ? UINT32_MAX : (uint32_t) delay_ms;
     return ESP_OK;
 }
 

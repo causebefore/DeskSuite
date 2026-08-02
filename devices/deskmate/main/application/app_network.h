@@ -127,6 +127,17 @@ extern "C"
     esp_err_t app_network_get_next_dashboard_sync_at_utc(int64_t *out_utc_timestamp);
 
     /**
+ * @brief 查询下一次 Dashboard 自动同步的剩余相对间隔
+ *
+ * 正常调度由可信系统时间换算服务端 `next_refresh_at_utc`；失败退避使用包含 Light-sleep 时间的
+ * 单调截止，因此 RTC/SNTP 暂不可用时仍能遵守连续失败退避。
+ *
+ * @param[out] out_interval_ms 剩余间隔，单位毫秒；0 表示已经到期
+ * @return ESP_OK 已复制；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚无可用截止
+ */
+    esp_err_t app_network_get_next_dashboard_sync_interval_ms(uint32_t *out_interval_ms);
+
+    /**
  * @brief 从当前持久化设置构造完整后端连接上下文
  *
  * 产品 ID 与固件目标来自构建生成头，设备 ID 由共享 protocols 组件基于 Wi-Fi Station

@@ -70,7 +70,7 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
 | `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
 | `app_web_console` | SD/在线前置检查、产品 Settings/Status Provider 装配、网页控制台网络租约、Service 启停与安全回滚 |
-| `app_power` | 拥有 60 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、内部 Timer 维护刷新和按键唤醒闭环 |
+| `app_power` | 拥有 30 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、内部 Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
 | `app_network` | Network Manager 会话退避、统一后端上下文、Dashboard 绝对截止与失败退避、同步维护回执、OTA、远端日志生命周期、互斥网络产品租约、链路变化通知和通用低功耗停网握手 |
 
@@ -131,9 +131,11 @@ Weather → Calendar → Mail → Quota 的显式 Presenter 刷新顺序；四�
 其余页面采用新快照。401 只收敛为鉴权失败，不清除 Token 或尝试注册。成功响应中的
 `next_refresh_at_utc` 是下一次 Dashboard 自动同步
 的唯一正常调度权威：清醒态使用一次性 `esp_timer` 对齐绝对截止，Light-sleep 使用同一截止
-时间决定何时恢复网络。完整同步失败后才使用
-`CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC`，本地退避只负责错误恢复，不再存在 NVS 相对
-刷新周期。系统时间重新校准后会按同一绝对截止重新换算清醒态 Timer。它还在每个网络会话上线
+时间决定何时恢复网络。完整同步失败后才以
+`CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC` 为第一档，连续失败依次按 1、5、15、60 倍退避并
+在最后一档封顶；成功后回到第一档。失败退避保存包含 Light-sleep 时间的单调截止，RTC/SNTP
+暂不可用时也不会在每分钟屏幕维护唤醒时提前联网。本地退避只负责错误恢复，不再存在 NVS 相对刷新周期。
+系统时间重新校准后会按同一绝对截止重新换算清醒态 Timer。它还在每个网络会话上线
 后按当前服务地址和稳定设备 ID
 启动产品标识为 `2` 的远端日志上传，并在停止 Network Manager 前同步停止上传 Task，不额外延长
 在线窗口或增加轻睡眠唤醒就绪事件。远端日志只在网络上线且服务地址有效时才以 8 条队列、4 条批次
@@ -276,7 +278,8 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止时间更近则缩短本轮间隔以对齐计划整点；
 普通周期保持停网；可信 UTC 到达 Dashboard 返回的 `next_refresh_at_utc` 后，电源 Task 恢复
 网络、同步等待 Dashboard 完成、保存新截止时间并再次停网，随后 UI 从 Presenter 重同步并
-等待完整显示传输。同步失败保留旧截止时间，下个 Timer 周期重试。Timer 维护窗口不启动语音
+等待完整显示传输。同步失败保留旧截止时间，并按默认 1、5、15、60 分钟的本地退避截止重试；
+一分钟屏幕维护唤醒不会提前联网，因此失败退避不增加唤醒次数，只减少 Wi-Fi 恢复次数。Timer 维护窗口不启动语音
 Runtime；左右键唤醒则按以下链路恢复产品按键事实：
 
 ```text

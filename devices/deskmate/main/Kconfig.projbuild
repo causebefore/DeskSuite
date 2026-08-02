@@ -11,10 +11,10 @@ config DESKMATE_LIGHT_SLEEP_ENABLED
 
 config DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC
     int "Light sleep idle timeout (seconds)"
-    default 60
+    default 30
     range 10 3600
     help
-        最后一次产品活动后保持唤醒的时间，默认 60 秒。
+        最后一次产品活动后保持唤醒的时间，默认 30 秒。
 
 config DESKMATE_LIGHT_SLEEP_RETRY_DELAY_MS
     int "Light sleep retry delay (ms)"
@@ -135,11 +135,12 @@ config DESKMATE_API_SYNC_RETRY_DELAY_MS
         同步重试退避基数（× attempt），单位毫秒。
 
 config DESKMATE_DASHBOARD_FAILURE_RETRY_SEC
-    int "Dashboard failure retry interval in seconds"
+    int "Dashboard first failure retry interval in seconds"
     default 60
     range 10 3600
     help
-        Dashboard 完整同步重试仍失败后，再次尝试同步的本地退避间隔。
+        Dashboard 完整同步重试仍失败后的第一档本地退避间隔。连续失败依次使用
+        1、5、15、60 倍间隔并在最后一档封顶；任意一次成功同步后回到第一档。
         成功场景只使用服务端 next_refresh_at_utc，不使用本地相对刷新周期。
 
 config DESKMATE_API_DASHBOARD_JSON_MAX
