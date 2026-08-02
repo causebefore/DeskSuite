@@ -14,7 +14,8 @@ static void update_view_from_store(const deskmate_api_dashboard_quota_t *data)
 {
     if (data == NULL || !data->valid)
     {
-        s_view.status = PRESENTATION_DATA_EMPTY;
+        memset(&s_view, 0, sizeof(s_view));
+        s_view.status = PRESENTATION_DATA_ERROR;
         return;
     }
 
@@ -38,18 +39,13 @@ static void update_view_from_store(const deskmate_api_dashboard_quota_t *data)
         snprintf(s_view.limits[i].next_reset, sizeof(s_view.limits[i].next_reset), "%s", data->limits[i].next_reset);
     }
 
-    /* spec §5.2 降级：!available → ERROR；available 且 limits 空 → EMPTY；否则 OK */
-    if (!data->available)
+    if (!data->available || data->error[0] != '\0')
     {
         s_view.status = PRESENTATION_DATA_ERROR;
     }
-    else if (s_view.limit_count > 0)
-    {
-        s_view.status = PRESENTATION_DATA_OK;
-    }
     else
     {
-        s_view.status = PRESENTATION_DATA_EMPTY;
+        s_view.status = PRESENTATION_DATA_OK;
     }
 }
 
@@ -66,10 +62,26 @@ esp_err_t quota_presenter_refresh(void)
     const esp_err_t                error = dashboard_store_get_quota_copy(&data);
     if (error != ESP_OK)
     {
+        if (s_view.status == PRESENTATION_DATA_OK)
+        {
+            s_view.status = PRESENTATION_DATA_STALE;
+        }
+        else if (s_view.status == PRESENTATION_DATA_EMPTY)
+        {
+            s_view.status = PRESENTATION_DATA_ERROR;
+        }
         return error;
     }
     update_view_from_store(&data);
     return ESP_OK;
+}
+
+void quota_presenter_set_stale(void)
+{
+    if (s_view.status == PRESENTATION_DATA_OK)
+    {
+        s_view.status = PRESENTATION_DATA_STALE;
+    }
 }
 
 void quota_presenter_get_view_copy(quota_view_model_t *out_view)

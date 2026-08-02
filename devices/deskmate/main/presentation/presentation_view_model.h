@@ -18,10 +18,10 @@
 /** @brief 数据状态枚举 */
 typedef enum
 {
-    PRESENTATION_DATA_EMPTY = 0, /*!< 数据为空，尚未获取 */
-    PRESENTATION_DATA_OK,        /*!< 数据有效 */
-    PRESENTATION_DATA_STALE,     /*!< 数据过期，但仍可显示 */
-    PRESENTATION_DATA_ERROR,     /*!< 数据获取失败 */
+    PRESENTATION_DATA_EMPTY = 0, /*!< 尚未取得任何数据 */
+    PRESENTATION_DATA_OK,        /*!< 已取得有效数据，业务集合允许为空 */
+    PRESENTATION_DATA_STALE,     /*!< 上次有效数据已过期，但仍可显示 */
+    PRESENTATION_DATA_ERROR,     /*!< 数据源获取失败，当前没有有效新数据 */
 } presentation_data_status_t;
 
 /** @brief 配网门户 View Model */

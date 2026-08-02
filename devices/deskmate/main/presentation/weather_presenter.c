@@ -38,7 +38,8 @@ static void update_weather_view(const deskmate_api_dashboard_weather_t *weather)
 {
     if (weather == NULL || !weather->valid)
     {
-        s_view.status = PRESENTATION_DATA_EMPTY;
+        memset(&s_view, 0, sizeof(s_view));
+        s_view.status = PRESENTATION_DATA_ERROR;
         return;
     }
 
@@ -58,7 +59,7 @@ static void update_weather_view(const deskmate_api_dashboard_weather_t *weather)
     s_view.daily_count  = weather->daily_count > 3 ? 3 : weather->daily_count;
     s_view.aqi          = weather->aqi;
     copy_text(s_view.aqi_category, sizeof(s_view.aqi_category), weather->aqi_category);
-    s_view.status = PRESENTATION_DATA_OK;
+    s_view.status = weather->error[0] == '\0' ? PRESENTATION_DATA_OK : PRESENTATION_DATA_ERROR;
 
     for (uint8_t i = 0; i < s_view.daily_count; ++i)
     {
@@ -85,10 +86,26 @@ esp_err_t weather_presenter_refresh(void)
     const esp_err_t                  error = dashboard_store_get_weather_copy(&weather);
     if (error != ESP_OK)
     {
+        if (s_view.status == PRESENTATION_DATA_OK)
+        {
+            s_view.status = PRESENTATION_DATA_STALE;
+        }
+        else if (s_view.status == PRESENTATION_DATA_EMPTY)
+        {
+            s_view.status = PRESENTATION_DATA_ERROR;
+        }
         return error;
     }
     update_weather_view(&weather);
     return ESP_OK;
+}
+
+void weather_presenter_set_stale(void)
+{
+    if (s_view.status == PRESENTATION_DATA_OK)
+    {
+        s_view.status = PRESENTATION_DATA_STALE;
+    }
 }
 
 void weather_presenter_get_view_copy(weather_view_model_t *out_view)

@@ -409,12 +409,12 @@ static esp_err_t init_presenters(void)
 {
     ESP_RETURN_ON_ERROR(status_bar_presenter_init(), TAG, "状态栏 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(weather_presenter_init(), TAG, "天气页 Presenter 初始化失败");
-    ESP_RETURN_ON_ERROR(home_presenter_init(), TAG, "首页 Presenter 初始化失败");
-    ESP_RETURN_ON_ERROR(settings_presenter_init(), TAG, "设置页 Presenter 初始化失败");
-    ESP_RETURN_ON_ERROR(system_presenter_init(), TAG, "系统页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(calendar_presenter_init(), TAG, "日历页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(mail_presenter_init(), TAG, "邮箱页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(quota_presenter_init(), TAG, "限额页 Presenter 初始化失败");
+    ESP_RETURN_ON_ERROR(home_presenter_init(), TAG, "首页 Presenter 初始化失败");
+    ESP_RETURN_ON_ERROR(settings_presenter_init(), TAG, "设置页 Presenter 初始化失败");
+    ESP_RETURN_ON_ERROR(system_presenter_init(), TAG, "系统页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(voice_presenter_init(), TAG, "语音页 Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(ota_presenter_init(), TAG, "OTA Presenter 初始化失败");
     ESP_RETURN_ON_ERROR(web_console_presenter_init(), TAG, "网页控制台 Presenter 初始化失败");

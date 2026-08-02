@@ -1,11 +1,13 @@
 /*
- * 文件职责：聚合时间、天气和环境事实并维护首页 View Model。
+ * 文件职责：聚合时间、天气、环境、下一日程和未读邮件事实并维护首页 View Model。
  */
 #include "home_presenter.h"
 
 #include <string.h>
 #include <time.h>
 
+#include "calendar_presenter.h"
+#include "mail_presenter.h"
 #include "presentation_dispatch.h"
 #include "weather_presenter.h"
 #include "environment_service.h"
@@ -41,6 +43,32 @@ static void load_time_view(home_time_view_model_t *out)
     out->hour   = (uint8_t) local_time.tm_hour;
     out->minute = (uint8_t) local_time.tm_min;
     out->status = PRESENTATION_DATA_OK;
+}
+
+/**
+ * @brief 从日历和邮箱页 View Model 裁剪首页摘要
+ *
+ * 下一日程保持日历列表的既有排序并选择首条事件；业务列表有效但为空时保留 OK 状态，
+ * 由 has_next_event 明确表达没有可展示事件。
+ *
+ * @param[out] out_view 接收首页摘要字段
+ */
+static void load_dashboard_summary(home_view_model_t *out_view)
+{
+    calendar_view_model_t calendar = { 0 };
+    calendar_presenter_get_view_copy(&calendar);
+    out_view->next_event_status = calendar.status;
+    if ((calendar.status == PRESENTATION_DATA_OK || calendar.status == PRESENTATION_DATA_STALE)
+        && calendar.event_count > 0)
+    {
+        out_view->next_event     = calendar.events[0];
+        out_view->has_next_event = true;
+    }
+
+    mail_view_model_t mail = { 0 };
+    mail_presenter_get_view_copy(&mail);
+    out_view->unread_mail_status = mail.status;
+    out_view->unread_mail_count  = mail.unread_count;
 }
 
 /**
@@ -104,7 +132,9 @@ void home_presenter_get_view_copy(home_view_model_t *out_view)
     {
         return;
     }
+    memset(out_view, 0, sizeof(*out_view));
     load_time_view(&out_view->time);
     out_view->env = s_env_view;
     weather_presenter_get_view_copy(&out_view->weather);
+    load_dashboard_summary(out_view);
 }

@@ -10,16 +10,17 @@
 
 static calendar_view_model_t s_view;
 
-/** 
+/**
  * @brief 从 Dashboard Store 日历数据更新 View Model
- * 
+ *
  * @param[in] data 日历数据
  */
 static void update_view_from_store(const deskmate_api_dashboard_calendar_t *data)
 {
     if (data == NULL || !data->valid)
     {
-        s_view.status = PRESENTATION_DATA_EMPTY;
+        memset(&s_view, 0, sizeof(s_view));
+        s_view.status = PRESENTATION_DATA_ERROR;
         return;
     }
 
@@ -40,7 +41,7 @@ static void update_view_from_store(const deskmate_api_dashboard_calendar_t *data
         snprintf(s_view.events[i].location, sizeof(s_view.events[i].location), "%s", data->events[i].location);
     }
 
-    s_view.status = (s_view.event_count > 0) ? PRESENTATION_DATA_OK : PRESENTATION_DATA_EMPTY;
+    s_view.status = data->error[0] == '\0' ? PRESENTATION_DATA_OK : PRESENTATION_DATA_ERROR;
 }
 
 esp_err_t calendar_presenter_init(void)
@@ -56,10 +57,26 @@ esp_err_t calendar_presenter_refresh(void)
     const esp_err_t                   error = dashboard_store_get_calendar_copy(&data);
     if (error != ESP_OK)
     {
+        if (s_view.status == PRESENTATION_DATA_OK)
+        {
+            s_view.status = PRESENTATION_DATA_STALE;
+        }
+        else if (s_view.status == PRESENTATION_DATA_EMPTY)
+        {
+            s_view.status = PRESENTATION_DATA_ERROR;
+        }
         return error;
     }
     update_view_from_store(&data);
     return ESP_OK;
+}
+
+void calendar_presenter_set_stale(void)
+{
+    if (s_view.status == PRESENTATION_DATA_OK)
+    {
+        s_view.status = PRESENTATION_DATA_STALE;
+    }
 }
 
 void calendar_presenter_get_view_copy(calendar_view_model_t *out_view)

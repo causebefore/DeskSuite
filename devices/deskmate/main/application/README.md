@@ -127,8 +127,10 @@ Dashboard 的 HTTP 与 JSON schema 契约位于 Product Protocols：
 只校验并提交整份快照，不缓存原始 JSON，也不再次解析。`app_network` 拥有拉取时机、重试和
 Weather → Calendar → Mail → Quota 的显式 Presenter 刷新顺序；四个 Presenter 直接读取
 `dashboard_store` 对应切片，不再经过四个中间 Data 组件或订阅其事件。完成四次刷新尝试后只
-发布一次统一呈现更新；单个 Presenter 刷新失败时记录错误并保留该页上一份 View Model，不阻断
-其余页面采用新快照。401 只收敛为鉴权失败，不清除 Token 或尝试注册。成功响应中的
+发布一次统一呈现更新；单个 Presenter 刷新失败时记录错误并保留该页上一份 View Model，已有
+有效数据改标 `STALE`，尚无数据改标 `ERROR`，且不阻断其余页面采用新快照。完整同步失败或
+Network Manager 离线时，`app_network` 会在统一页面刷新前把四个旧 `OK` View Model 标记为
+`STALE`，避免缓存数据继续显示为在线。401 只收敛为鉴权失败，不清除 Token 或尝试注册。成功响应中的
 `next_refresh_at_utc` 是下一次 Dashboard 自动同步
 的唯一正常调度权威：清醒态使用一次性 `esp_timer` 对齐绝对截止，Light-sleep 使用同一截止
 时间决定何时恢复网络。完整同步失败后才以
@@ -309,6 +311,9 @@ Dashboard 同步失败是可重试的数据错误；语音、网络或 UI 无法
   `.\tools\tests\check_button_event_driven.ps1`。
 - 语音生命周期和低功耗顺序执行
   `.\tools\tests\check_voice_power_lifecycle.ps1`。
+- 低功耗维护契约执行 `.\tools\tests\check_power_rebuild_stage1.ps1`。
+- 网页控制台产品 Provider 回归执行
+  `.\tools\tests\check_web_console_product_providers.ps1`。
 - 固件编译必须通过仓库统一命令 `& .\ds.ps1 build deskmate` 执行。
 
 相关规范：

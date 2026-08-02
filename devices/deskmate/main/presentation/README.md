@@ -66,6 +66,12 @@ Application 或下层不可变事实
 
 当前 Presenter 包括首页、天气、日历、邮件、限额、设置、系统、语音、状态栏、OTA 和网页
 文件管理。
+`home_presenter` 通过现有日历和邮箱 Presenter 的整结构复制接口裁剪首页摘要：下一日程保持
+日历列表既有顺序并选择首条有界事件，未读邮件数保留收件箱完整计数；它不直接读取
+Dashboard Store，也不复制完整列表给首页 UI。Dashboard 列表成功但条目为零时状态仍为 `OK`，
+`EMPTY` 只表示尚未
+取得快照；单数据源错误使用 `ERROR`，后续完整同步失败时由 Application 将旧的 `OK` 快照
+标记为 `STALE`。
 `settings_presenter` 聚合网络阶段、SSID、IP、RSSI、Portal 与当前版本；`system_presenter`
 只提供版本、构建时间、运行时长、SRAM、PSRAM 和 CPU 频率，不再复制网络字段。
 `ota_presenter` 保存带锁快照，并以检查中、无更新、有更新、下载中、检查失败和安装失败表达
@@ -124,8 +130,9 @@ Service 与产品 Provider 直接完成，不产生新的设备端 View Model �
 
 - 静态核对本目录不包含 `app_*.h` 或 `ui_*.h`。
 - 静态核对 UI 只通过 `*_presenter_get_view_copy()` 读取页面数据。
-- 本轮未运行测试、网页生成器、固件编译或视觉实机检查；后续编译需通过统一命令
-  `& .\ds.ps1 build deskmate`，视觉验收需在目标硬件完成。
+- 静态核对有效空列表为 `OK`、单源失败为 `ERROR`、旧有效快照为 `STALE`。
+- 本轮未运行固件编译或视觉实机检查；后续编译需通过统一命令 `& .\ds.ps1 build deskmate`，
+  视觉验收需在目标硬件完成。
 
 相关规范：
 

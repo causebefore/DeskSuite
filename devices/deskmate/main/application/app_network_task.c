@@ -526,9 +526,17 @@ static bool is_sync_cancel_requested(void)
     return cancelled;
 }
 
-/** @brief 仅在服务连通事实变化时更新状态栏 */
+/** @brief 更新服务连通事实，并在离线时标记现有 Dashboard View Model 已过期 */
 static void set_dashboard_online(bool online)
 {
+    if (!online)
+    {
+        weather_presenter_set_stale();
+        calendar_presenter_set_stale();
+        mail_presenter_set_stale();
+        quota_presenter_set_stale();
+    }
+
     taskENTER_CRITICAL(&s_state_lock);
     const bool changed = s_dashboard_online != online;
     s_dashboard_online = online;
@@ -1066,10 +1074,9 @@ static void handle_manager_changed_command(void)
     {
         link_change_callback(link_change_context);
     }
-    (void) presentation_dispatch_status_update();
-
     if (status.state == NETWORK_STATE_ONLINE)
     {
+        (void) presentation_dispatch_status_update();
         reset_reconnect_policy();
         if (previous != NETWORK_STATE_ONLINE)
         {
@@ -1117,6 +1124,7 @@ static void handle_manager_changed_command(void)
     }
 #endif
     set_dashboard_online(false);
+    (void) presentation_dispatch_status_update();
 
     if (status.state == NETWORK_STATE_PROVISIONING || status.state == NETWORK_STATE_VALIDATING)
     {
@@ -1277,6 +1285,7 @@ static esp_err_t execute_sync_command(void)
         {
             const uint32_t retry_delay_sec = mark_dashboard_failure_retry();
             set_dashboard_online(false);
+            (void) presentation_dispatch_status_update();
             ESP_LOGW(TAG,
                      "Dashboard 同步失败，%lu 秒后重试: %s",
                      (unsigned long) retry_delay_sec,

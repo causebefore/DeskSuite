@@ -23,6 +23,13 @@ esp_err_t calendar_presenter_init(void);
 esp_err_t calendar_presenter_refresh(void);
 
 /**
+ * @brief 将当前有效日历数据标记为过期
+ *
+ * 仅把 OK 状态改为 STALE；其他状态保持不变。
+ */
+void calendar_presenter_set_stale(void);
+
+/**
  * @brief 复制日历页当前 View Model
  *
  * @param[out] out_view 接收日历页 View Model

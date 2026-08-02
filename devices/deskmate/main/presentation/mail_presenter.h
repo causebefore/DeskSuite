@@ -23,6 +23,13 @@ esp_err_t mail_presenter_init(void);
 esp_err_t mail_presenter_refresh(void);
 
 /**
+ * @brief 将当前有效邮箱数据标记为过期
+ *
+ * 仅把 OK 状态改为 STALE；其他状态保持不变。
+ */
+void mail_presenter_set_stale(void);
+
+/**
  * @brief 复制邮箱页当前 View Model
  *
  * @param[out] out_view 接收邮箱页 View Model
