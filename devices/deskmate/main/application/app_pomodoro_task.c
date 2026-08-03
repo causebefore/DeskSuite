@@ -5,6 +5,7 @@
 #include "app_pomodoro_internal.h"
 #include "app_page.h"
 #include "app_power.h"
+#include "audio_service.h"
 
 #include <limits.h>
 #include <string.h>
@@ -19,13 +20,50 @@
 #define US_PER_SECOND 1000000LL
 #define US_PER_MINUTE (60LL * US_PER_SECOND)
 
-static const char             *TAG = "app_pomodoro_task";
-static uint64_t                s_presentation_revision;
-static bool                    s_dispatched_snapshot_valid;
-static app_pomodoro_snapshot_t s_last_dispatched_snapshot;
-static bool                    s_dispatched_settings_result_valid;
-static uint64_t                s_last_dispatched_settings_request_id;
+static const char                           *TAG = "app_pomodoro_task";
+static uint64_t                              s_presentation_revision;
+static bool                                  s_dispatched_snapshot_valid;
+static app_pomodoro_snapshot_t               s_last_dispatched_snapshot;
+static bool                                  s_dispatched_settings_result_valid;
+static uint64_t                              s_last_dispatched_settings_request_id;
 static app_pomodoro_settings_update_result_t s_last_dispatched_settings_result;
+
+#define APP_POMODORO_COMPLETE_MP3_PATH "/sdcard/pomodoro-complete.mp3"
+
+/** @brief 在状态锁和 Presenter 发布之外提交一次幂等的完成提示音请求。 */
+static void request_completion_audio(uint64_t completion_generation)
+{
+    if (completion_generation == 0U)
+    {
+        return;
+    }
+    const esp_err_t error =
+        audio_service_request_play_mp3_file_copy(APP_POMODORO_COMPLETE_MP3_PATH, completion_generation);
+    if (error != ESP_OK)
+    {
+        ESP_LOGW(TAG,
+                 "提交番茄钟完成提示音失败: generation=%llu error=%s",
+                 (unsigned long long) completion_generation,
+                 esp_err_to_name(error));
+    }
+}
+
+/** @brief 在状态锁之外取消已经确认、重置或进入下一阶段的旧提示音。 */
+static void cancel_completion_audio(uint64_t completion_generation)
+{
+    if (completion_generation == 0U)
+    {
+        return;
+    }
+    const esp_err_t error = audio_service_request_cancel_file_playback(completion_generation);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND)
+    {
+        ESP_LOGW(TAG,
+                 "取消番茄钟完成提示音失败: generation=%llu error=%s",
+                 (unsigned long long) completion_generation,
+                 esp_err_to_name(error));
+    }
+}
 
 static uint64_t next_generation(uint64_t current)
 {
@@ -58,8 +96,7 @@ static pomodoro_view_run_state_t presenter_run_state(app_pomodoro_run_state_t st
 }
 
 /** @brief 把 Pomodoro Owner 设置请求状态显式映射为 Presenter 状态。 */
-static pomodoro_view_settings_update_state_t presenter_settings_update_state(
-    app_pomodoro_settings_update_state_t state)
+static pomodoro_view_settings_update_state_t presenter_settings_update_state(app_pomodoro_settings_update_state_t state)
 {
     switch (state)
     {
@@ -74,11 +111,9 @@ static pomodoro_view_settings_update_state_t presenter_settings_update_state(
 }
 
 /** @brief 判断非番茄钟页面是否需要刷新状态栏、完成提示或设置视图 */
-static bool snapshot_requires_dispatch(
-    const app_pomodoro_snapshot_t *snapshot,
-    bool settings_result_valid,
-    uint64_t settings_request_id,
-    const app_pomodoro_settings_update_result_t *settings_result)
+static bool snapshot_requires_dispatch(const app_pomodoro_snapshot_t *snapshot, bool settings_result_valid,
+                                       uint64_t                                     settings_request_id,
+                                       const app_pomodoro_settings_update_result_t *settings_result)
 {
     if (!s_dispatched_snapshot_valid)
     {
@@ -102,10 +137,7 @@ static bool snapshot_requires_dispatch(
            || settings_result_valid != s_dispatched_settings_result_valid
            || (settings_result_valid
                && (settings_request_id != s_last_dispatched_settings_request_id
-                   || memcmp(settings_result,
-                             &s_last_dispatched_settings_result,
-                             sizeof(*settings_result))
-                          != 0));
+                   || memcmp(settings_result, &s_last_dispatched_settings_result, sizeof(*settings_result)) != 0));
 }
 
 /** @brief 在状态锁外把同一版完整事实同步给 Presenter，再发布专用刷新事件 */
@@ -116,9 +148,9 @@ static void publish_current_snapshot(void)
     uint64_t                              settings_request_id;
     app_pomodoro_settings_update_result_t settings_result = { 0 };
     xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
-    snapshot                  = g_app_pomodoro_runtime.runtime_data.snapshot;
-    settings_result_valid     = g_app_pomodoro_runtime.latest_settings_update_result_valid;
-    settings_request_id       = g_app_pomodoro_runtime.latest_settings_request_id;
+    snapshot              = g_app_pomodoro_runtime.runtime_data.snapshot;
+    settings_result_valid = g_app_pomodoro_runtime.latest_settings_update_result_valid;
+    settings_request_id   = g_app_pomodoro_runtime.latest_settings_request_id;
     if (settings_result_valid)
     {
         settings_result = g_app_pomodoro_runtime.latest_settings_update_result;
@@ -131,34 +163,33 @@ static void publish_current_snapshot(void)
         return;
     }
     const pomodoro_presenter_input_t input = {
-        .revision              = ++s_presentation_revision,
-        .phase                 = presenter_phase(snapshot.phase),
-        .next_phase            = presenter_phase(snapshot.next_phase),
-        .run_state             = presenter_run_state(snapshot.run_state),
-        .remaining_seconds     = snapshot.remaining_seconds,
-        .duration_seconds      = snapshot.phase_duration_seconds,
-        .completed_in_cycle    = snapshot.completed_in_cycle,
-        .today_count           = snapshot.today_focus_count,
-        .pending_count         = snapshot.pending_focus_count,
-        .focus_minutes         = snapshot.settings.focus_minutes,
-        .short_break_minutes   = snapshot.settings.short_break_minutes,
-        .long_break_minutes    = snapshot.settings.long_break_minutes,
-        .long_break_interval   = snapshot.settings.long_break_interval,
-        .settings_version      = snapshot.settings_version,
+        .revision                     = ++s_presentation_revision,
+        .phase                        = presenter_phase(snapshot.phase),
+        .next_phase                   = presenter_phase(snapshot.next_phase),
+        .run_state                    = presenter_run_state(snapshot.run_state),
+        .remaining_seconds            = snapshot.remaining_seconds,
+        .duration_seconds             = snapshot.phase_duration_seconds,
+        .completed_in_cycle           = snapshot.completed_in_cycle,
+        .today_count                  = snapshot.today_focus_count,
+        .pending_count                = snapshot.pending_focus_count,
+        .focus_minutes                = snapshot.settings.focus_minutes,
+        .short_break_minutes          = snapshot.settings.short_break_minutes,
+        .long_break_minutes           = snapshot.settings.long_break_minutes,
+        .long_break_interval          = snapshot.settings.long_break_interval,
+        .settings_version             = snapshot.settings_version,
         .settings_update_result_valid = settings_result_valid,
         .settings_update_request_id   = settings_result_valid ? settings_request_id : 0U,
-        .settings_update_state =
-            settings_result_valid ? presenter_settings_update_state(settings_result.state)
-                                  : POMODORO_VIEW_SETTINGS_UPDATE_PENDING,
-        .settings_update_version = settings_result_valid ? settings_result.version : 0U,
-        .settings_update_error   = settings_result_valid ? settings_result.error : ESP_OK,
-        .date_verified         = snapshot.date_verified,
-        .settings_saved        = snapshot.settings_saved,
-        .completion_latched    = snapshot.completion_latched,
-        .completion_generation = snapshot.completion_generation,
-        .expected_end_valid    = snapshot.expected_end_valid,
-        .expected_end_utc      = snapshot.expected_end_utc,
-        .last_error            = snapshot.last_error,
+        .settings_update_state        = settings_result_valid ? presenter_settings_update_state(settings_result.state)
+                                                              : POMODORO_VIEW_SETTINGS_UPDATE_PENDING,
+        .settings_update_version      = settings_result_valid ? settings_result.version : 0U,
+        .settings_update_error        = settings_result_valid ? settings_result.error : ESP_OK,
+        .date_verified                = snapshot.date_verified,
+        .settings_saved               = snapshot.settings_saved,
+        .completion_latched           = snapshot.completion_latched,
+        .completion_generation        = snapshot.completion_generation,
+        .expected_end_valid           = snapshot.expected_end_valid,
+        .expected_end_utc             = snapshot.expected_end_utc,
+        .last_error                   = snapshot.last_error,
     };
     bool            accepted = false;
     const esp_err_t error    = pomodoro_presenter_apply(&input, &accepted);
@@ -169,11 +200,7 @@ static void publish_current_snapshot(void)
     }
     if (accepted
         && (app_page_get_current() == PRESENTATION_PAGE_POMODORO
-            || snapshot_requires_dispatch(
-                &snapshot,
-                settings_result_valid,
-                settings_request_id,
-                &settings_result)))
+            || snapshot_requires_dispatch(&snapshot, settings_result_valid, settings_request_id, &settings_result)))
     {
         const esp_err_t dispatch_error = presentation_dispatch_pomodoro_update();
         if (dispatch_error != ESP_OK)
@@ -182,9 +209,9 @@ static void publish_current_snapshot(void)
         }
         else
         {
-            s_last_dispatched_snapshot  = snapshot;
-            s_dispatched_snapshot_valid = true;
-            s_dispatched_settings_result_valid = settings_result_valid;
+            s_last_dispatched_snapshot            = snapshot;
+            s_dispatched_snapshot_valid           = true;
+            s_dispatched_settings_result_valid    = settings_result_valid;
             s_last_dispatched_settings_request_id = settings_result_valid ? settings_request_id : 0U;
             s_last_dispatched_settings_result =
                 settings_result_valid ? settings_result : (app_pomodoro_settings_update_result_t) { 0 };
@@ -546,15 +573,12 @@ static void confirm_done_locked(void)
  * @param[in] state 最终状态，只允许 SUCCEEDED 或 FAILED
  * @param[in] error SUCCEEDED 为 ESP_OK，FAILED 为最终错误
  */
-static void finish_settings_update_locked(
-    uint64_t request_id,
-    app_pomodoro_settings_update_state_t state,
-    esp_err_t error)
+static void finish_settings_update_locked(uint64_t request_id, app_pomodoro_settings_update_state_t state,
+                                          esp_err_t error)
 {
     if (!g_app_pomodoro_runtime.latest_settings_update_result_valid
         || g_app_pomodoro_runtime.latest_settings_request_id != request_id
-        || g_app_pomodoro_runtime.latest_settings_update_result.state
-               != APP_POMODORO_SETTINGS_UPDATE_STATE_PENDING)
+        || g_app_pomodoro_runtime.latest_settings_update_result.state != APP_POMODORO_SETTINGS_UPDATE_STATE_PENDING)
     {
         return;
     }
@@ -575,13 +599,12 @@ static void finish_settings_update_locked(
  */
 static void update_settings_locked(const app_pomodoro_command_t *command)
 {
-    app_pomodoro_runtime_data_t *state = &g_app_pomodoro_runtime.runtime_data;
-    const app_pomodoro_settings_update_t *update = &command->settings_update;
-    esp_err_t                              validation_error = ESP_OK;
+    app_pomodoro_runtime_data_t          *state            = &g_app_pomodoro_runtime.runtime_data;
+    const app_pomodoro_settings_update_t *update           = &command->settings_update;
+    esp_err_t                             validation_error = ESP_OK;
     if (!g_app_pomodoro_runtime.latest_settings_update_result_valid
         || g_app_pomodoro_runtime.latest_settings_request_id != command->settings_request_id
-        || g_app_pomodoro_runtime.latest_settings_update_result.state
-               != APP_POMODORO_SETTINGS_UPDATE_STATE_PENDING)
+        || g_app_pomodoro_runtime.latest_settings_update_result.state != APP_POMODORO_SETTINGS_UPDATE_STATE_PENDING)
     {
         state->snapshot.last_error = ESP_ERR_INVALID_STATE;
         return;
@@ -594,22 +617,20 @@ static void update_settings_locked(const app_pomodoro_command_t *command)
     {
         validation_error = ESP_ERR_INVALID_VERSION;
     }
-    else if (state->snapshot.run_state != APP_POMODORO_RUN_STATE_IDLE
-             || state->snapshot.settings_version == UINT64_MAX)
+    else if (state->snapshot.run_state != APP_POMODORO_RUN_STATE_IDLE || state->snapshot.settings_version == UINT64_MAX)
     {
         validation_error = ESP_ERR_INVALID_STATE;
     }
     if (validation_error != ESP_OK)
     {
         state->snapshot.last_error = validation_error;
-        finish_settings_update_locked(
-            command->settings_request_id,
-            APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED,
-            validation_error);
+        finish_settings_update_locked(command->settings_request_id,
+                                      APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED,
+                                      validation_error);
         return;
     }
 
-    state->snapshot.settings               = update->settings;
+    state->snapshot.settings = update->settings;
     state->snapshot.settings_version++;
     state->snapshot.phase_duration_seconds = duration_seconds_for(state, APP_POMODORO_PHASE_FOCUS);
     state->snapshot.remaining_seconds      = state->snapshot.phase_duration_seconds;
@@ -619,8 +640,8 @@ static void update_settings_locked(const app_pomodoro_command_t *command)
         .long_break_minutes  = update->settings.long_break_minutes,
         .long_break_interval = update->settings.long_break_interval,
     };
-    state->snapshot.settings_saved = false;
-    state->snapshot.last_error     = ESP_OK;
+    state->snapshot.settings_saved                               = false;
+    state->snapshot.last_error                                   = ESP_OK;
     g_app_pomodoro_runtime.latest_settings_update_result.version = state->snapshot.settings_version;
     xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     const esp_err_t error = pomodoro_store_save_settings_copy(&stored);
@@ -677,9 +698,13 @@ static app_pomodoro_wakeup_result_t reconcile_locked(void)
  */
 static bool handle_command(const app_pomodoro_command_t *command)
 {
-    bool publish                    = true;
-    bool notify_completion_activity = false;
+    bool     publish                    = true;
+    bool     notify_completion_activity = false;
+    uint64_t completion_to_play         = 0U;
+    uint64_t completion_to_cancel       = 0U;
     xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
+    const app_pomodoro_snapshot_t *snapshot = &g_app_pomodoro_runtime.runtime_data.snapshot;
+    const uint64_t previous_completion      = snapshot->completion_latched ? snapshot->completion_generation : 0U;
     switch (command->type)
     {
         case APP_POMODORO_COMMAND_START:
@@ -766,7 +791,7 @@ static bool handle_command(const app_pomodoro_command_t *command)
             update_expected_end_locked();
             break;
         case APP_POMODORO_COMMAND_RECONCILE:
-            g_app_pomodoro_runtime.reconcile_result = reconcile_locked();
+            g_app_pomodoro_runtime.reconcile_result               = reconcile_locked();
             g_app_pomodoro_runtime.completed_reconcile_request_id = command->reconcile_request_id;
             publish = g_app_pomodoro_runtime.reconcile_result != APP_POMODORO_WAKEUP_NO_CHANGE;
             break;
@@ -779,12 +804,24 @@ static bool handle_command(const app_pomodoro_command_t *command)
             publish = false;
             break;
     }
-    const bool reconcile = command->type == APP_POMODORO_COMMAND_RECONCILE;
+    const bool reconcile              = command->type == APP_POMODORO_COMMAND_RECONCILE;
+    snapshot                          = &g_app_pomodoro_runtime.runtime_data.snapshot;
+    const uint64_t current_completion = snapshot->completion_latched ? snapshot->completion_generation : 0U;
+    if (previous_completion != 0U && previous_completion != current_completion)
+    {
+        completion_to_cancel = previous_completion;
+    }
+    if (current_completion != 0U && current_completion != previous_completion)
+    {
+        completion_to_play = current_completion;
+    }
     xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     if (publish)
     {
         publish_current_snapshot();
     }
+    cancel_completion_audio(completion_to_cancel);
+    request_completion_audio(completion_to_play);
     if (notify_completion_activity)
     {
         const esp_err_t activity_error = app_power_notify_activity();
@@ -804,10 +841,20 @@ void app_pomodoro_task(void *arg)
 {
     (void) arg;
     xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
+    const uint64_t previous_completion = g_app_pomodoro_runtime.runtime_data.snapshot.completion_latched
+                                             ? g_app_pomodoro_runtime.runtime_data.snapshot.completion_generation
+                                             : 0U;
     normalize_date_locked();
     (void) reconcile_locked();
+    const uint64_t current_completion = g_app_pomodoro_runtime.runtime_data.snapshot.completion_latched
+                                            ? g_app_pomodoro_runtime.runtime_data.snapshot.completion_generation
+                                            : 0U;
     xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     publish_current_snapshot();
+    if (current_completion != 0U && current_completion != previous_completion)
+    {
+        request_completion_audio(current_completion);
+    }
     (void) xSemaphoreGive(g_app_pomodoro_runtime.ready_sem);
 
     app_pomodoro_command_t command;
