@@ -32,6 +32,7 @@ extern "C"
         VOICE_SERVICE_EVENT_DONE,      /*!< 整个对话回合完成 */
         VOICE_SERVICE_EVENT_CANCELLED, /*!< 用户取消本轮对话 */
         VOICE_SERVICE_EVENT_ERROR,     /*!< 出错 */
+        VOICE_SERVICE_EVENT_NO_SPEECH, /*!< 前导窗口内未检测到有效人声 */
     } voice_service_event_t;
 
     ESP_EVENT_DECLARE_BASE(VOICE_SERVICE_EVENT);
@@ -103,7 +104,8 @@ extern "C"
      *
      * 录音 duration_ms → 上传 → 播放回复。整个流程在后台任务执行，立即返回 ESP_OK。
      * 调用方必须先确认网络在线，并持有覆盖本轮会话的产品网络租约；链路中途断开时，
-     * Transport 错误会由后台任务收敛为 VOICE_SERVICE_EVENT_ERROR。
+     * Transport 错误会由后台任务收敛为 VOICE_SERVICE_EVENT_ERROR。VAD 前导窗口内未检测到
+     * 有效人声时不上传 PCM，并以 VOICE_SERVICE_EVENT_NO_SPEECH 正常结束本轮会话。
      *
      * @param[in] backend 本轮完整后端上下文，函数返回前按值复制
      * @param[in] duration_ms 录音时长（毫秒），范围 2000～10000

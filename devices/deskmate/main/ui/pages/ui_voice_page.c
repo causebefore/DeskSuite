@@ -52,6 +52,8 @@ static const char *state_main_text(voice_view_state_t state)
             return "回复中";
         case VOICE_VIEW_STATE_ERROR:
             return "出错，请重试";
+        case VOICE_VIEW_STATE_NO_SPEECH:
+            return "没有听到语音";
         case VOICE_VIEW_STATE_IDLE:
         default:
             return "语音助手";
@@ -76,6 +78,7 @@ static const char *state_hint_text(voice_view_state_t state)
             return "长按右键取消对话";
         case VOICE_VIEW_STATE_ERROR:
             return "长按右键重新开始";
+        case VOICE_VIEW_STATE_NO_SPEECH:
         case VOICE_VIEW_STATE_IDLE:
         default:
             return "长按右键开始对话";

@@ -25,6 +25,8 @@ static voice_view_state_t state_from_event(int32_t event_id)
             return VOICE_VIEW_STATE_SPEAKING;
         case VOICE_SERVICE_EVENT_ERROR:
             return VOICE_VIEW_STATE_ERROR;
+        case VOICE_SERVICE_EVENT_NO_SPEECH:
+            return VOICE_VIEW_STATE_NO_SPEECH;
         case VOICE_SERVICE_EVENT_CANCELLED:
         case VOICE_SERVICE_EVENT_DONE:
         default:

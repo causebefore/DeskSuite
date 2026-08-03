@@ -71,6 +71,14 @@ struct voice_ws_attempt_t
     bool   received_response{};
 };
 
+/** @brief 一次录音操作的私有结果，区分技术错误和正常的无有效人声。 */
+struct VoiceRecordResult
+{
+    esp_err_t error{ ESP_FAIL };
+    size_t    pcm_size_bytes{};
+    bool      speech_detected{};
+};
+
 static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len, voice_ws_attempt_t *out_attempt);
 
 VoiceServiceRuntime::~VoiceServiceRuntime() noexcept
@@ -140,7 +148,7 @@ static bool session_cancelled(void)
 static void finish_chat_task(voice_service_event_t terminal_event)
 {
     /* 先把终态排进事件队列，再释放 busy。这样下一轮 RECORDING 不会先于
-     * 上一轮 DONE/ERROR/CANCELLED 到达 UI，避免界面被旧终态覆盖。 */
+     * 上一轮终态到达 UI，避免界面被旧终态覆盖。 */
     esp_err_t post_err = ESP_FAIL;
     for (int attempt = 1; attempt <= 3 && post_err != ESP_OK; ++attempt)
     {
@@ -288,17 +296,24 @@ static void on_stream_frame(voice_protocol_frame_type_t type, const uint8_t *pay
 
 /* ── 录音阶段：双麦 AFE 降噪 ─────────────────────────── */
 
-/* 录音阶段：采集双麦数据，经 audio_processor_service（AFE 双麦降噪）
- * 处理后输出单声道 16kHz PCM，存入 buf。
- * 返回录到的字节数。duration_ms 控制录音时长。 */
-static size_t record_denoised_pcm(int16_t *buf, size_t buf_samples, uint32_t duration_ms)
+/**
+ * @brief 采集双麦数据并区分有效人声、正常静默和技术错误
+ *
+ * @param[in,out] buf AFE 单声道 16 kHz PCM 输出缓冲区
+ * @param[in] buf_samples 缓冲区可容纳的 int16_t 样本数
+ * @param[in] duration_ms 最长录音时长
+ * @return 录音错误、有效 PCM 字节数和人声检测事实
+ */
+static VoiceRecordResult record_denoised_pcm(int16_t *buf, size_t buf_samples, uint32_t duration_ms)
 {
+    VoiceRecordResult result{};
     /* 默认配置在本会话中启动 feed/fetch；仅启用 WakeNet 时任务和输入会常驻。 */
     esp_err_t err = audio_processor_service_capture_start(buf, buf_samples);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "启动 AFE 收集失败: %s", esp_err_to_name(err));
-        return 0;
+        result.error = err;
+        return result;
     }
 
     /* 忽略唤醒词尾音：继续收集 PCM，但在短保护窗后重置 VAD 活动判定，
@@ -310,7 +325,8 @@ static size_t record_denoised_pcm(int16_t *buf, size_t buf_samples, uint32_t dur
         size_t ignored_samples = 0U;
         (void) audio_processor_service_capture_stop(&ignored_samples);
         ESP_LOGE(TAG, "重置 AFE 会话活动状态失败: %s", esp_err_to_name(err));
-        return 0;
+        result.error = err;
+        return result;
     }
 
     /* 按 duration 计时（feed_task 实时喂、fetch_task 实时收集） */
@@ -326,7 +342,7 @@ static size_t record_denoised_pcm(int16_t *buf, size_t buf_samples, uint32_t dur
         waited += 10;
         if (!audio_processor_service_capture_has_speech() && waited >= CONFIG_DESKMATE_VOICE_VAD_LEAD_TIMEOUT_MS)
         {
-            ESP_LOGW(TAG, "VAD 前导超时：%u ms 未检测到人声", (unsigned) waited);
+            ESP_LOGI(TAG, "VAD 前导窗口结束：%u ms 未检测到有效人声", (unsigned) waited);
             break;
         }
         if (audio_processor_service_capture_has_speech()
@@ -342,13 +358,23 @@ static size_t record_denoised_pcm(int16_t *buf, size_t buf_samples, uint32_t dur
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "停止 AFE 收集失败: samples=%u err=%s", (unsigned) denoised_samples, esp_err_to_name(err));
-        return 0;
+        result.error = err;
+        return result;
     }
+    result.error           = ESP_OK;
+    result.speech_detected = audio_processor_service_capture_has_speech();
+    if (!result.speech_detected)
+    {
+        ESP_LOGI(TAG, "录音结束：未检测到有效人声，不提交网络请求");
+        return result;
+    }
+
+    result.pcm_size_bytes = denoised_samples * VOICE_SAMPLE_SIZE;
     ESP_LOGI(TAG,
              "录音完成: 降噪输出 %u 样本, %d ms",
              (unsigned) denoised_samples,
              (int) (denoised_samples * 1000 / VOICE_SAMPLE_RATE));
-    return audio_processor_service_capture_has_speech() ? denoised_samples * VOICE_SAMPLE_SIZE : 0;
+    return result;
 }
 
 /* ── 流式上传 + 边收边播 ─────────────────────────────── */
@@ -474,6 +500,7 @@ void voice_service_run_chat(VoiceServiceRuntime *runtime)
     const size_t          buffer_samples = VOICE_SAMPLE_RATE * (duration_ms / 1000U) + VOICE_SAMPLE_RATE;
     size_t                pcm_bytes      = 0U;
     voice_ws_attempt_t    websocket_attempt{};
+    VoiceRecordResult     record_result{};
     bool                  can_fallback_http = false;
 
     /* 分配录音缓冲：16kHz（AFE 输出）×时长×2字节，放 PSRAM */
@@ -488,17 +515,23 @@ void voice_service_run_chat(VoiceServiceRuntime *runtime)
 
     /* ---- 录音阶段：双麦 AFE 降噪 ---- */
     publish(VOICE_SERVICE_EVENT_RECORDING);
-    pcm_bytes = record_denoised_pcm(runtime->record_buffer, buffer_samples, duration_ms);
+    record_result = record_denoised_pcm(runtime->record_buffer, buffer_samples, duration_ms);
+    err           = record_result.error;
     if (session_cancelled())
     {
         terminal_event = VOICE_SERVICE_EVENT_CANCELLED;
         goto cleanup;
     }
-    if (pcm_bytes == 0U)
+    if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "录音失败");
         goto cleanup;
     }
+    if (!record_result.speech_detected)
+    {
+        terminal_event = VOICE_SERVICE_EVENT_NO_SPEECH;
+        goto cleanup;
+    }
+    pcm_bytes = record_result.pcm_size_bytes;
 
     /* ---- 流式上传 + 边收边播阶段 ---- */
     publish(VOICE_SERVICE_EVENT_THINKING);

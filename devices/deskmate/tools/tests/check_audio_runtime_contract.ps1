@@ -90,6 +90,9 @@ $voiceHeader = 'components\services\voice_service\include\voice_service.h'
 $voiceSource = 'components\services\voice_service\src\voice_service.cpp'
 $voiceTask = 'components\services\voice_service\src\voice_service_task.cpp'
 $voiceInternal = 'components\services\voice_service\src\voice_service_internal.hpp'
+$voicePresenter = 'main\presentation\voice_presenter.c'
+$voiceViewModel = 'main\presentation\presentation_view_model.h'
+$voicePage = 'main\ui\pages\ui_voice_page.c'
 $pomodoroTask = 'main\application\app_pomodoro_task.c'
 $powerTask = 'main\application\app_power_task.c'
 $appVoice = 'main\application\app_voice.c'
@@ -163,6 +166,19 @@ Assert-NotContains $voiceTask 'voice_play|playback_task|StreamBuffer' 'Voice Tas
 Assert-Contains $voiceSource 'audio_service_open_pcm_stream' 'Voice 未在首个 TTS PCM 帧打开统一流'
 Assert-Contains $voiceSource 'audio_service_write_pcm_stream_borrow' 'Voice 未向统一 PCM 流提交样本'
 Assert-Contains $voiceSource 'audio_service_close_pcm_stream' 'Voice 未通过统一 PCM 流收敛结束'
+Assert-Contains $voiceHeader 'VOICE_SERVICE_EVENT_NO_SPEECH' 'Voice 未定义无有效人声正常终态'
+Assert-Contains $voiceSource `
+    '(?s)if\s*\(!record_result\.speech_detected\).*?terminal_event\s*=\s*VOICE_SERVICE_EVENT_NO_SPEECH.*?goto\s+cleanup;.*?publish\(VOICE_SERVICE_EVENT_THINKING\)' `
+    'Voice 未在网络上传前把无有效人声收敛为正常终态'
+Assert-NotContains $voiceSource 'ESP_LOG[EW]\(TAG,\s*"VAD 前导' 'Voice 仍把无有效人声记录为警告或错误'
+Assert-Contains $appVoice 'VOICE_SERVICE_EVENT_NO_SPEECH' 'App Voice 未在无有效人声终态释放网络租约'
+Assert-Contains $voiceViewModel 'VOICE_VIEW_STATE_NO_SPEECH' '语音 View Model 未提供无有效人声中性状态'
+Assert-Contains $voicePresenter `
+    '(?s)VOICE_SERVICE_EVENT_NO_SPEECH.*?VOICE_VIEW_STATE_NO_SPEECH' `
+    'Voice Presenter 未映射无有效人声事实'
+Assert-Contains $voicePage `
+    '(?s)VOICE_VIEW_STATE_NO_SPEECH:\s*return\s*"没有听到语音";' `
+    '语音页未提供无有效人声中性提示'
 Assert-Contains $voiceSource `
     '(?s)uploaded_pcm_bytes\s*==\s*0U.*?!websocket_attempt\.received_response' `
     'WebSocket 回退未同时约束零上传和未收到响应'

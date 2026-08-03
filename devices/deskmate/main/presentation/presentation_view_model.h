@@ -158,6 +158,7 @@ typedef enum
     VOICE_VIEW_STATE_THINKING,  /*!< 思考中（等待 AI 响应） */
     VOICE_VIEW_STATE_SPEAKING,  /*!< 播报中 */
     VOICE_VIEW_STATE_ERROR,     /*!< 错误状态 */
+    VOICE_VIEW_STATE_NO_SPEECH, /*!< 未检测到有效人声 */
 } voice_view_state_t;
 
 /** @brief 语音页 View Model */

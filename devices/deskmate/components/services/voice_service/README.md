@@ -28,10 +28,12 @@
 ```text
 chat 请求
     → voice_chat 采集 AFE PCM
-    → WebSocket 上传并接收协议帧
-    → 首个 TTS PCM 打开 Audio Service PCM 流
-    → 正常 END 排空关闭；协议/网络/取消错误丢弃关闭
-    → DONE / CANCELLED / ERROR
+    → VAD 判定
+        ├─ 前导超时：不上传 PCM → NO_SPEECH
+        └─ 检测到有效人声：WebSocket 上传并接收协议帧
+             → 首个 TTS PCM 打开 Audio Service PCM 流
+             → 正常 END 排空关闭；协议/网络/取消错误丢弃关闭
+             → DONE / CANCELLED / ERROR
 ```
 
 WebSocket 只有在尚未成功上传任何 PCM 字节且尚未收到任何响应时才允许回退 HTTP；部分上传
@@ -67,7 +69,9 @@ Audio Service 或 Processor。
 
 ## 7. 故障与恢复
 
-任务创建失败、无有效语音、网络错误、协议错误、PCM 写入或关闭错误都收敛为明确会话终态。
+VAD 前导窗口内没有有效人声属于正常 `NO_SPEECH` 终态：不上传 PCM、`last_error` 保持
+`ESP_OK`，由 Application 释放网络租约。任务创建失败、AFE 采集失败、网络错误、协议错误、
+PCM 写入或关闭错误才收敛为 `ERROR`。
 Audio Service 的同步关闭若超时，会立刻升级为丢弃请求；底层仍保留真实清理状态，不把超时
 伪装成成功。是否展示错误、重试或禁用语音由 Application 决定。
 

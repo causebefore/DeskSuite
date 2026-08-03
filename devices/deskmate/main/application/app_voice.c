@@ -137,7 +137,8 @@ static void on_voice_application_event(void *arg, esp_event_base_t base, int32_t
     (void) base;
     (void) data;
 
-    if (id == VOICE_SERVICE_EVENT_DONE || id == VOICE_SERVICE_EVENT_CANCELLED || id == VOICE_SERVICE_EVENT_ERROR)
+    if (id == VOICE_SERVICE_EVENT_DONE || id == VOICE_SERVICE_EVENT_CANCELLED || id == VOICE_SERVICE_EVENT_ERROR
+        || id == VOICE_SERVICE_EVENT_NO_SPEECH)
     {
         if (s_control_lock != NULL)
         {
