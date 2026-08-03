@@ -297,7 +297,7 @@ void audio_processor_task_runtime_get_status(audio_processor_task_status_t *out_
     }
     if (audio_processor_runtime_get() == nullptr || s_events == NULL)
     {
-        *out_status = (audio_processor_task_status_t) { 0 };
+        *out_status = {};
         return;
     }
     const EventBits_t bits = xEventGroupGetBits(s_events);

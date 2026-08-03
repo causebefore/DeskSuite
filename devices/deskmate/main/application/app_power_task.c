@@ -896,9 +896,9 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             return ESP_OK;
         }
 
-        const uint32_t blockers = collect_runtime_blockers();
-        set_blockers(blockers);
-        if (blockers != APP_POWER_BLOCKER_NONE)
+        const uint32_t refresh_blockers = collect_runtime_blockers();
+        set_blockers(refresh_blockers);
+        if (refresh_blockers != APP_POWER_BLOCKER_NONE)
         {
             result = restore_awake_runtime(&network_suspended, &voice_stopped, &ui_stopped);
             if (result != ESP_OK)

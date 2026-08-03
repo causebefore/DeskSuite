@@ -237,7 +237,7 @@ esp_err_t audio_processor_service_init(void)
     if (s_ctx.hardware_sample_rate_hz != APS_AFE_SAMPLE_RATE)
     {
         esp_ae_rate_cvt_cfg_t cvt_cfg = {
-            .src_rate        = (int) s_ctx.hardware_sample_rate_hz,
+            .src_rate        = s_ctx.hardware_sample_rate_hz,
             .dest_rate       = APS_AFE_SAMPLE_RATE,
             .channel         = APS_AFE_MIC_CHANNELS,
             .bits_per_sample = ESP_AE_BIT16,
@@ -448,7 +448,7 @@ esp_err_t audio_processor_service_get_status_copy(audio_processor_service_status
     }
     xSemaphoreTake(s_control_lock, portMAX_DELAY);
     xSemaphoreTake(s_capture_lock, portMAX_DELAY);
-    audio_processor_task_status_t task_status = { 0 };
+    audio_processor_task_status_t task_status{};
     audio_processor_task_runtime_get_status(&task_status);
     *out_status = (audio_processor_service_status_t) {
         .state         = s_ctx.state,
@@ -513,7 +513,7 @@ esp_err_t audio_processor_service_capture_start(int16_t *out_buf, size_t out_cap
     s_ctx.capture_state           = AUDIO_PROCESSOR_CAPTURE_CAPTURING;
     xSemaphoreGive(s_capture_lock);
 
-    audio_processor_task_status_t task_status = { 0 };
+    audio_processor_task_status_t task_status{};
     audio_processor_task_runtime_get_status(&task_status);
 #if CONFIG_DESKMATE_WAKE_WORD_ENABLE
     /* WakeNet 常驻 feed/fetch，保留既有的会话起点清理语义。 */
