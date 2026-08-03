@@ -177,7 +177,7 @@ static uint32_t collect_runtime_blockers(void)
 
     voice_service_status_t voice = { 0 };
     if (voice_service_get_status_copy(&voice) != ESP_OK || voice.state == VOICE_SERVICE_STATE_CLEANUP_FAILED
-        || voice.session_busy || voice.chat_task_active)
+        || voice.session_busy || voice.conversation_task_active)
     {
         blockers |= APP_POWER_BLOCKER_VOICE;
     }

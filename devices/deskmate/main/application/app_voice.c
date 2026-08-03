@@ -35,7 +35,7 @@ static bool s_wake_handler_registered;
 static wake_arbiter_t s_wake_arbiter;
 #endif
 
-/* 对话时长与唤醒词冷却见 Kconfig: DeskMate Audio/Voice。 */
+/* 单轮录音、后续等待与唤醒词冷却见 Kconfig: DeskMate Audio/Voice。 */
 
 /**
  * @brief 释放当前 App 持有的实时语音网络租约
@@ -83,9 +83,9 @@ static uint32_t remaining_ms(int64_t deadline_us)
 }
 
 /**
- * @brief 先取得实时网络租约，再启动一次语音对话
+ * @brief 先取得实时网络租约，再启动一次连续语音会话
  */
-static esp_err_t start_voice_chat(uint32_t duration_ms)
+static esp_err_t start_voice_conversation(uint32_t chat_duration_ms)
 {
     if (s_control_lock == NULL)
     {
@@ -119,7 +119,8 @@ static esp_err_t start_voice_chat(uint32_t duration_ms)
     }
 
     s_network_lease_generation = generation;
-    err                        = voice_service_request_chat(&backend, duration_ms);
+    err =
+        voice_service_request_conversation_copy(&backend, chat_duration_ms, CONFIG_DESKMATE_VOICE_FOLLOWUP_TIMEOUT_MS);
     if (err != ESP_OK)
     {
         (void) release_network_lease_locked(APP_VOICE_LEASE_TIMEOUT_MS);
@@ -129,7 +130,7 @@ static esp_err_t start_voice_chat(uint32_t duration_ms)
 }
 
 /**
- * @brief 在语音终态释放实时网络租约
+ * @brief 在连续语音会话终态释放实时网络租约
  */
 static void on_voice_application_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -151,7 +152,7 @@ static void on_voice_application_event(void *arg, esp_event_base_t base, int32_t
 
 #if CONFIG_DESKMATE_WAKE_WORD_ENABLE
 /**
- * @brief 仲裁唤醒词事件并在取得网络租约后启动语音对话
+ * @brief 仲裁唤醒词事件并在取得网络租约后启动连续语音会话
  */
 static void on_wake_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -169,11 +170,11 @@ static void on_wake_event(void *arg, esp_event_base_t base, int32_t id, void *da
         return;
     }
 
-    ESP_LOGI(TAG, "唤醒通过，触发语音对话");
-    esp_err_t err = start_voice_chat(CONFIG_DESKMATE_VOICE_CHAT_DURATION_MS);
+    ESP_LOGI(TAG, "唤醒通过，触发连续语音会话");
+    esp_err_t err = start_voice_conversation(CONFIG_DESKMATE_VOICE_CHAT_DURATION_MS);
     if (err != ESP_OK)
     {
-        ESP_LOGW(TAG, "唤醒触发对话失败: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "唤醒触发连续会话失败: %s", esp_err_to_name(err));
         return;
     }
 
@@ -456,7 +457,7 @@ esp_err_t app_voice_get_status_copy(app_voice_status_t *out_status)
 }
 
 /**
- * @brief 把语音页长按输入解释为开始或取消对话
+ * @brief 把语音页长按输入解释为开始或取消连续语音会话
  */
 bool app_voice_consume_input(device_button_event_t key_event)
 {
@@ -476,18 +477,18 @@ bool app_voice_consume_input(device_button_event_t key_event)
     {
         if (voice_service_is_busy())
         {
-            ESP_LOGI(TAG, "右键长按：取消当前语音对话");
+            ESP_LOGI(TAG, "右键长按：取消当前连续语音会话");
             const esp_err_t error = voice_service_cancel();
             if (error != ESP_OK)
             {
-                ESP_LOGW(TAG, "取消语音对话请求未被接受: %s", esp_err_to_name(error));
+                ESP_LOGW(TAG, "取消连续语音会话请求未被接受: %s", esp_err_to_name(error));
             }
             return true;
         }
-        esp_err_t err = start_voice_chat(CONFIG_DESKMATE_VOICE_CHAT_DURATION_MS);
+        esp_err_t err = start_voice_conversation(CONFIG_DESKMATE_VOICE_CHAT_DURATION_MS);
         if (err != ESP_OK)
         {
-            ESP_LOGW(TAG, "启动语音对话失败: %s", esp_err_to_name(err));
+            ESP_LOGW(TAG, "启动连续语音会话失败: %s", esp_err_to_name(err));
         }
         return true;
     }

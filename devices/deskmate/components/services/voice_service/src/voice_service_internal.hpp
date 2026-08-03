@@ -31,13 +31,14 @@ class VoiceServiceRuntime final {
     EventGroupHandle_t session_events{};
     portMUX_TYPE       session_lock = portMUX_INITIALIZER_UNLOCKED;
 
-    protocol_backend_context_t chat_backend{};
+    protocol_backend_context_t conversation_backend{};
     uint32_t                   chat_duration_ms{};
-    TaskHandle_t               chat_task{};
+    uint32_t                   followup_timeout_ms{};
+    TaskHandle_t               conversation_task{};
     int16_t                   *record_buffer{};
     size_t                     record_capacity_samples{};
 };
 
-void      voice_service_run_chat(VoiceServiceRuntime *runtime);
-esp_err_t voice_service_chat_task_start(VoiceServiceRuntime *runtime);
-bool      voice_service_chat_task_active(VoiceServiceRuntime *runtime);
+void      voice_service_run_conversation(VoiceServiceRuntime *runtime);
+esp_err_t voice_service_conversation_task_start(VoiceServiceRuntime *runtime);
+bool      voice_service_conversation_task_active(VoiceServiceRuntime *runtime);

@@ -147,7 +147,8 @@
 
 | 首选词 | 类别 | 中文固定译法 | 唯一含义 | 适用形式与边界 |
 | --- | --- | --- | --- | --- |
-| `chat` | 语音领域对象 | 语音对话回合 | 从录音、上传、响应到播放终态的一次完整语音事务 | 用作 `request_chat()` 的操作对象；不替代通用连接 `session`、Task 或回调 |
+| `chat` | 语音领域对象 | 语音对话回合 | 从录音、上传、响应到回复播放收敛的一次完整语音事务 | 用于 `run_chat_turn()` 等单轮操作；不替代连续 `conversation`、通用连接 `session`、Task 或回调 |
+| `conversation` | 语音领域对象 | 语音连续会话 | 一次产品触发后承载零个或多个 `chat`，直到首轮无声、后续等待超时、取消或错误才结束 | 用作 `request_conversation_copy()` 的操作对象和会话终态；不替代网络 `session`、Task 或单个 `chat` |
 | `speech` | 语音领域事实 | 有效人声 | AFE/VAD 在一次采集中是否检测到满足门限的人声事实 | 用于 `has_speech`、`NO_SPEECH` 等检测结果；不表示 PCM 数据、TTS 内容或完整 `chat` |
 | `playback` | 音频领域对象 | 播放事务 | 由 Audio Service 独占的一次文件或 PCM 输出事务及其状态 | 用于 `playback_state`、播放结果和取消操作；不表示解码步骤、底层 `write` I/O 或 Service 生命周期 |
 | `console` | 本地管理领域对象 | 管理控制台 | 通过本地 Web UI 与 HTTP API 聚合可裁剪设备管理能力的交互表面 | 只以 `web_console` 组合使用；不表示 UART/REPL 终端、配网 Portal、命令行或产品策略所有者 |

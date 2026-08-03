@@ -166,12 +166,25 @@ Assert-NotContains $voiceTask 'voice_play|playback_task|StreamBuffer' 'Voice Tas
 Assert-Contains $voiceSource 'audio_service_open_pcm_stream' 'Voice 未在首个 TTS PCM 帧打开统一流'
 Assert-Contains $voiceSource 'audio_service_write_pcm_stream_borrow' 'Voice 未向统一 PCM 流提交样本'
 Assert-Contains $voiceSource 'audio_service_close_pcm_stream' 'Voice 未通过统一 PCM 流收敛结束'
+Assert-Contains $voiceHeader 'voice_service_request_conversation_copy\s*\(' 'Voice 未提供连续会话复制请求接口'
+Assert-Contains $voiceHeader 'bool\s+conversation_task_active' 'Voice 状态未暴露连续会话 Task 事实'
+Assert-NotContains $voiceHeader 'voice_service_request_chat\s*\(' 'Voice 仍暴露单回合请求接口'
+Assert-NotContains $voiceHeader 'chat_task_active' 'Voice 状态仍暴露单回合 Task 字段'
 Assert-Contains $voiceHeader 'VOICE_SERVICE_EVENT_NO_SPEECH' 'Voice 未定义无有效人声正常终态'
 Assert-Contains $voiceSource `
-    '(?s)if\s*\(!record_result\.speech_detected\).*?terminal_event\s*=\s*VOICE_SERVICE_EVENT_NO_SPEECH.*?goto\s+cleanup;.*?publish\(VOICE_SERVICE_EVENT_THINKING\)' `
-    'Voice 未在网络上传前把无有效人声收敛为正常终态'
+    '(?s)if\s*\(!record_result\.speech_detected\).*?if\s*\(is_followup\).*?terminal_event\s*=\s*VOICE_SERVICE_EVENT_DONE;.*?else.*?terminal_event\s*=\s*VOICE_SERVICE_EVENT_NO_SPEECH;.*?goto\s+cleanup;.*?publish\(VOICE_SERVICE_EVENT_THINKING\)' `
+    'Voice 未在网络上传前区分首轮无声与后续静默正常结束'
+Assert-Contains $voiceSource `
+    '(?s)lead_timeout_ms\s*=\s*is_followup\s*\?\s*followup_timeout_ms\s*:\s*CONFIG_DESKMATE_VOICE_VAD_LEAD_TIMEOUT_MS' `
+    'Voice 未区分首轮和后续语音等待时长'
+Assert-Contains $voiceSource `
+    '(?s)activity_guard_ms\s*=\s*is_followup\s*\?\s*0U\s*:\s*CONFIG_DESKMATE_VOICE_VAD_WAKE_GUARD_MS' `
+    'Voice 后续录音仍可能套用首轮唤醒词尾音保护窗'
+Assert-Contains $voiceSource '回复已排空，继续等待后续语音' 'Voice 未在回复排空后继续下一轮录音'
 Assert-NotContains $voiceSource 'ESP_LOG[EW]\(TAG,\s*"VAD 前导' 'Voice 仍把无有效人声记录为警告或错误'
 Assert-Contains $appVoice 'VOICE_SERVICE_EVENT_NO_SPEECH' 'App Voice 未在无有效人声终态释放网络租约'
+Assert-Contains $appVoice 'voice_service_request_conversation_copy' 'App Voice 未请求连续语音会话'
+Assert-Contains $appVoice 'CONFIG_DESKMATE_VOICE_FOLLOWUP_TIMEOUT_MS' 'App Voice 未传入后续等待配置'
 Assert-Contains $voiceViewModel 'VOICE_VIEW_STATE_NO_SPEECH' '语音 View Model 未提供无有效人声中性状态'
 Assert-Contains $voicePresenter `
     '(?s)VOICE_SERVICE_EVENT_NO_SPEECH.*?VOICE_VIEW_STATE_NO_SPEECH' `
@@ -184,6 +197,11 @@ Assert-Contains $voiceSource `
     'WebSocket 回退未同时约束零上传和未收到响应'
 Assert-Contains 'main\Kconfig.projbuild' '(?s)DESKMATE_VOICE_CHAT_DURATION_MS.*?range\s+2000\s+10000' `
     'Voice 会话时长未统一为 2000 到 10000 ms'
+Assert-Contains 'main\Kconfig.projbuild' `
+    '(?s)DESKMATE_VOICE_FOLLOWUP_TIMEOUT_MS.*?default\s+5000.*?range\s+1000\s+10000' `
+    'Voice 未提供默认 5 秒的后续语音等待配置'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_VOICE_FOLLOWUP_TIMEOUT_MS=5000' `
+    'Voice 默认配置未固定 5 秒后续语音等待'
 
 Assert-NotContains $appVoice 'audio_service_|processor_idle|input_active|output_active' `
     'app_voice 仍转发通用音频状态或管理 Audio Service'
@@ -191,6 +209,7 @@ Assert-NotContains $appVoiceHeader 'processor_idle|input_active|output_active' '
 Assert-Contains $powerTask 'audio_service_get_status_copy' 'Power 未直接读取 Audio Service'
 Assert-Contains $powerTask 'audio_processor_service_get_status_copy' 'Power 未直接读取 Processor'
 Assert-Contains $powerTask 'voice_service_get_status_copy' 'Power 未直接读取 Voice Service'
+Assert-Contains $powerTask 'voice\.conversation_task_active' 'Power 未把连续会话 Task 作为睡眠阻塞事实'
 Assert-Contains $powerTask 'APP_POWER_BLOCKER_AUDIO_PLAYBACK' 'Power 未建立独立播放阻塞条件'
 Assert-Contains $powerTask 'AUDIO_SERVICE_PLAYBACK_STATE_IDLE' 'Power 未把非空闲播放事务作为阻塞条件'
 Assert-Contains $appMain '(?s)device_audio_init.*?audio_service_init.*?audio_service_start.*?audio_processor_service_init.*?voice_service_init' `

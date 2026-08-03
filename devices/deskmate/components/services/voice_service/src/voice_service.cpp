@@ -84,7 +84,7 @@ static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len, voice
 VoiceServiceRuntime::~VoiceServiceRuntime() noexcept
 {
     assert(session_events == nullptr);
-    assert(chat_task == nullptr);
+    assert(conversation_task == nullptr);
     assert(record_buffer == nullptr);
 }
 
@@ -145,10 +145,10 @@ static bool session_cancelled(void)
            && (xEventGroupGetBits(runtime->session_events) & VOICE_SESSION_CANCELLED) != 0U;
 }
 
-static void finish_chat_task(voice_service_event_t terminal_event)
+static void finish_conversation_task(voice_service_event_t terminal_event)
 {
-    /* 先把终态排进事件队列，再释放 busy。这样下一轮 RECORDING 不会先于
-     * 上一轮终态到达 UI，避免界面被旧终态覆盖。 */
+    /* 先把终态排进事件队列，再释放 busy，保证 Application 只在整个连续会话
+     * 已经收敛后释放产品网络租约。 */
     esp_err_t post_err = ESP_FAIL;
     for (int attempt = 1; attempt <= 3 && post_err != ESP_OK; ++attempt)
     {
@@ -302,9 +302,12 @@ static void on_stream_frame(voice_protocol_frame_type_t type, const uint8_t *pay
  * @param[in,out] buf AFE 单声道 16 kHz PCM 输出缓冲区
  * @param[in] buf_samples 缓冲区可容纳的 int16_t 样本数
  * @param[in] duration_ms 最长录音时长
+ * @param[in] lead_timeout_ms 本轮检测到首个人声前的等待时长
+ * @param[in] activity_guard_ms 重置 VAD 活动事实前保留的唤醒词尾音保护时长
  * @return 录音错误、有效 PCM 字节数和人声检测事实
  */
-static VoiceRecordResult record_denoised_pcm(int16_t *buf, size_t buf_samples, uint32_t duration_ms)
+static VoiceRecordResult record_denoised_pcm(int16_t *buf, size_t buf_samples, uint32_t duration_ms,
+                                             uint32_t lead_timeout_ms, uint32_t activity_guard_ms)
 {
     VoiceRecordResult result{};
     /* 默认配置在本会话中启动 feed/fetch；仅启用 WakeNet 时任务和输入会常驻。 */
@@ -318,7 +321,10 @@ static VoiceRecordResult record_denoised_pcm(int16_t *buf, size_t buf_samples, u
 
     /* 忽略唤醒词尾音：继续收集 PCM，但在短保护窗后重置 VAD 活动判定，
      * 后续必须由用户真正说话重新触发人声状态。 */
-    vTaskDelay(pdMS_TO_TICKS(CONFIG_DESKMATE_VOICE_VAD_WAKE_GUARD_MS));
+    if (activity_guard_ms > 0U)
+    {
+        vTaskDelay(pdMS_TO_TICKS(activity_guard_ms));
+    }
     err = audio_processor_service_capture_reset_activity();
     if (err != ESP_OK)
     {
@@ -340,7 +346,7 @@ static VoiceRecordResult record_denoised_pcm(int16_t *buf, size_t buf_samples, u
         }
         vTaskDelay(pdMS_TO_TICKS(10));
         waited += 10;
-        if (!audio_processor_service_capture_has_speech() && waited >= CONFIG_DESKMATE_VOICE_VAD_LEAD_TIMEOUT_MS)
+        if (!audio_processor_service_capture_has_speech() && waited >= lead_timeout_ms)
         {
             ESP_LOGI(TAG, "VAD 前导窗口结束：%u ms 未检测到有效人声", (unsigned) waited);
             break;
@@ -412,9 +418,10 @@ static esp_err_t voice_http_stream(const uint8_t *upload, size_t upload_len)
 {
     VoiceServiceRuntime *runtime  = s_runtime;
     char                 url[256] = { 0 };
-    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), runtime->chat_backend.base_url, "api/v1/voice/chat"),
-                        TAG,
-                        "构造 Voice HTTP 地址失败");
+    ESP_RETURN_ON_ERROR(
+        protocol_url_build(url, sizeof(url), runtime->conversation_backend.base_url, "api/v1/voice/chat"),
+        TAG,
+        "构造 Voice HTTP 地址失败");
 
     char rate_header[16]  = { 0 };
     char auth_header[112] = { 0 };
@@ -426,8 +433,8 @@ static esp_err_t voice_http_stream(const uint8_t *upload, size_t upload_len)
     size_t header_count = 2U;
     protocol_identity_add_headers(headers,
                                   &header_count,
-                                  runtime->chat_backend.token,
-                                  runtime->chat_backend.device_id,
+                                  runtime->conversation_backend.token,
+                                  runtime->conversation_backend.device_id,
                                   auth_header,
                                   sizeof(auth_header));
 
@@ -492,56 +499,23 @@ static esp_err_t voice_http_stream(const uint8_t *upload, size_t upload_len)
     return stream.got_end ? ESP_OK : ESP_FAIL;
 }
 
-void voice_service_run_chat(VoiceServiceRuntime *runtime)
+/**
+ * @brief 执行一个 chat 的上传与回复播放，并保留安全的 HTTP 回退边界
+ *
+ * @param[in] pcm 单声道 16 kHz PCM
+ * @param[in] pcm_bytes PCM 字节数
+ * @return ESP_OK 回合回复已经完整排空；其他值表示网络、协议或播放失败
+ */
+static esp_err_t run_chat_turn(const int16_t *pcm, size_t pcm_bytes)
 {
-    const uint32_t        duration_ms    = runtime->chat_duration_ms;
-    esp_err_t             err            = ESP_FAIL;
-    voice_service_event_t terminal_event = VOICE_SERVICE_EVENT_ERROR;
-    const size_t          buffer_samples = VOICE_SAMPLE_RATE * (duration_ms / 1000U) + VOICE_SAMPLE_RATE;
-    size_t                pcm_bytes      = 0U;
-    voice_ws_attempt_t    websocket_attempt{};
-    VoiceRecordResult     record_result{};
-    bool                  can_fallback_http = false;
-
-    /* 分配录音缓冲：16kHz（AFE 输出）×时长×2字节，放 PSRAM */
-    runtime->record_buffer                  = static_cast<int16_t *>(
-        heap_caps_malloc(buffer_samples * VOICE_SAMPLE_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (runtime->record_buffer == nullptr)
-    {
-        ESP_LOGE(TAG, "分配录音缓冲失败 (%u 样本)", (unsigned) buffer_samples);
-        goto cleanup;
-    }
-    runtime->record_capacity_samples = buffer_samples;
-
-    /* ---- 录音阶段：双麦 AFE 降噪 ---- */
-    publish(VOICE_SERVICE_EVENT_RECORDING);
-    record_result = record_denoised_pcm(runtime->record_buffer, buffer_samples, duration_ms);
-    err           = record_result.error;
-    if (session_cancelled())
-    {
-        terminal_event = VOICE_SERVICE_EVENT_CANCELLED;
-        goto cleanup;
-    }
-    if (err != ESP_OK)
-    {
-        goto cleanup;
-    }
-    if (!record_result.speech_detected)
-    {
-        terminal_event = VOICE_SERVICE_EVENT_NO_SPEECH;
-        goto cleanup;
-    }
-    pcm_bytes = record_result.pcm_size_bytes;
-
-    /* ---- 流式上传 + 边收边播阶段 ---- */
-    publish(VOICE_SERVICE_EVENT_THINKING);
-    err = voice_ws_stream(reinterpret_cast<const uint8_t *>(runtime->record_buffer), pcm_bytes, &websocket_attempt);
-    can_fallback_http = err != ESP_OK && !session_cancelled() && websocket_attempt.uploaded_pcm_bytes == 0U
-                        && !websocket_attempt.received_response;
+    voice_ws_attempt_t websocket_attempt{};
+    esp_err_t          err = voice_ws_stream(reinterpret_cast<const uint8_t *>(pcm), pcm_bytes, &websocket_attempt);
+    const bool can_fallback_http = err != ESP_OK && !session_cancelled() && websocket_attempt.uploaded_pcm_bytes == 0U
+                                   && !websocket_attempt.received_response;
     if (can_fallback_http)
     {
         ESP_LOGW(TAG, "WebSocket 不可用(%s)，回退 HTTP 流式接口", esp_err_to_name(err));
-        err = voice_http_stream(reinterpret_cast<const uint8_t *>(runtime->record_buffer), pcm_bytes);
+        err = voice_http_stream(reinterpret_cast<const uint8_t *>(pcm), pcm_bytes);
     }
     else if (err != ESP_OK && !session_cancelled())
     {
@@ -551,19 +525,91 @@ void voice_service_run_chat(VoiceServiceRuntime *runtime)
                  (int) websocket_attempt.received_response,
                  esp_err_to_name(err));
     }
-    if (session_cancelled())
-    {
-        terminal_event = VOICE_SERVICE_EVENT_CANCELLED;
-        goto cleanup;
-    }
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "语音对话失败");
-        goto cleanup;
-    }
+    return err;
+}
 
-    ESP_LOGI(TAG, "语音对话回合完成");
-    terminal_event = VOICE_SERVICE_EVENT_DONE;
+void voice_service_run_conversation(VoiceServiceRuntime *runtime)
+{
+    const uint32_t        chat_duration_ms     = runtime->chat_duration_ms;
+    const uint32_t        followup_timeout_ms  = runtime->followup_timeout_ms;
+    esp_err_t             err                  = ESP_FAIL;
+    voice_service_event_t terminal_event       = VOICE_SERVICE_EVENT_ERROR;
+    const size_t          buffer_samples       = VOICE_SAMPLE_RATE * (chat_duration_ms / 1000U) + VOICE_SAMPLE_RATE;
+    uint32_t              completed_chat_count = 0U;
+
+    /* 分配录音缓冲：16kHz（AFE 输出）×时长×2字节，放 PSRAM */
+    runtime->record_buffer                     = static_cast<int16_t *>(
+        heap_caps_malloc(buffer_samples * VOICE_SAMPLE_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (runtime->record_buffer == nullptr)
+    {
+        ESP_LOGE(TAG, "分配录音缓冲失败 (%u 样本)", (unsigned) buffer_samples);
+        goto cleanup;
+    }
+    runtime->record_capacity_samples = buffer_samples;
+
+    while (true)
+    {
+        if (session_cancelled())
+        {
+            terminal_event = VOICE_SERVICE_EVENT_CANCELLED;
+            goto cleanup;
+        }
+
+        const bool     is_followup     = completed_chat_count > 0U;
+        const uint32_t lead_timeout_ms = is_followup ? followup_timeout_ms : CONFIG_DESKMATE_VOICE_VAD_LEAD_TIMEOUT_MS;
+        const uint32_t activity_guard_ms = is_followup ? 0U : CONFIG_DESKMATE_VOICE_VAD_WAKE_GUARD_MS;
+
+        /* ---- 录音阶段：双麦 AFE 降噪 ---- */
+        publish(VOICE_SERVICE_EVENT_RECORDING);
+        const VoiceRecordResult record_result = record_denoised_pcm(runtime->record_buffer,
+                                                                    buffer_samples,
+                                                                    chat_duration_ms,
+                                                                    lead_timeout_ms,
+                                                                    activity_guard_ms);
+        err                                   = record_result.error;
+        if (session_cancelled())
+        {
+            terminal_event = VOICE_SERVICE_EVENT_CANCELLED;
+            goto cleanup;
+        }
+        if (err != ESP_OK)
+        {
+            goto cleanup;
+        }
+        if (!record_result.speech_detected)
+        {
+            if (is_followup)
+            {
+                ESP_LOGI(TAG,
+                         "连续语音会话结束：%u ms 未检测到后续人声，已完成 %u 个回合",
+                         (unsigned) lead_timeout_ms,
+                         (unsigned) completed_chat_count);
+                terminal_event = VOICE_SERVICE_EVENT_DONE;
+            }
+            else
+            {
+                terminal_event = VOICE_SERVICE_EVENT_NO_SPEECH;
+            }
+            goto cleanup;
+        }
+
+        /* ---- 流式上传 + 边收边播阶段 ---- */
+        publish(VOICE_SERVICE_EVENT_THINKING);
+        err = run_chat_turn(runtime->record_buffer, record_result.pcm_size_bytes);
+        if (session_cancelled())
+        {
+            terminal_event = VOICE_SERVICE_EVENT_CANCELLED;
+            goto cleanup;
+        }
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "语音对话回合失败: turn=%u", (unsigned) (completed_chat_count + 1U));
+            goto cleanup;
+        }
+
+        ++completed_chat_count;
+        ESP_LOGI(TAG, "语音对话回合完成: turn=%u，回复已排空，继续等待后续语音", (unsigned) completed_chat_count);
+    }
 
 cleanup:
     heap_caps_free(runtime->record_buffer);
@@ -572,7 +618,7 @@ cleanup:
     portENTER_CRITICAL(&runtime->session_lock);
     runtime->last_error = terminal_event == VOICE_SERVICE_EVENT_ERROR ? (err != ESP_OK ? err : ESP_FAIL) : ESP_OK;
     portEXIT_CRITICAL(&runtime->session_lock);
-    finish_chat_task(terminal_event);
+    finish_conversation_task(terminal_event);
 }
 
 esp_err_t voice_service_init(void)
@@ -657,7 +703,7 @@ esp_err_t voice_service_stop(void)
     runtime->state = VOICE_SERVICE_STATE_STOPPING;
     portEXIT_CRITICAL(&runtime->session_lock);
 
-    if (voice_service_chat_task_active(runtime))
+    if (voice_service_conversation_task_active(runtime))
     {
         portENTER_CRITICAL(&runtime->session_lock);
         runtime->state = VOICE_SERVICE_STATE_RUNNING;
@@ -688,13 +734,13 @@ esp_err_t voice_service_deinit(void)
     }
     portEXIT_CRITICAL(&runtime->session_lock);
 
-    if (voice_service_chat_task_active(runtime))
+    if (voice_service_conversation_task_active(runtime))
     {
         return ESP_ERR_INVALID_STATE;
     }
     vEventGroupDelete(runtime->session_events);
     runtime->session_events = nullptr;
-    memset(&runtime->chat_backend, 0, sizeof(runtime->chat_backend));
+    memset(&runtime->conversation_backend, 0, sizeof(runtime->conversation_backend));
 
     s_runtime = nullptr;
     runtime->~VoiceServiceRuntime();
@@ -703,9 +749,14 @@ esp_err_t voice_service_deinit(void)
     return ESP_OK;
 }
 
-esp_err_t voice_service_request_chat(const protocol_backend_context_t *backend, uint32_t duration_ms)
+esp_err_t voice_service_request_conversation_copy(const protocol_backend_context_t *backend, uint32_t chat_duration_ms,
+                                                  uint32_t followup_timeout_ms)
 {
     ESP_RETURN_ON_FALSE(protocol_backend_context_is_valid(backend), ESP_ERR_INVALID_ARG, TAG, "语音后端上下文无效");
+    ESP_RETURN_ON_FALSE(followup_timeout_ms >= 1000U && followup_timeout_ms <= 10000U,
+                        ESP_ERR_INVALID_ARG,
+                        TAG,
+                        "后续语音等待时长无效");
     VoiceServiceRuntime *runtime = s_runtime;
     ESP_RETURN_ON_FALSE(runtime != nullptr, ESP_ERR_INVALID_STATE, TAG, "Voice Service 尚未初始化");
     portENTER_CRITICAL(&runtime->session_lock);
@@ -715,27 +766,36 @@ esp_err_t voice_service_request_chat(const protocol_backend_context_t *backend, 
     {
         return ESP_ERR_INVALID_STATE;
     }
-    if (duration_ms < 2000U)
+    if (chat_duration_ms < 2000U)
     {
-        duration_ms = 2000U;
+        chat_duration_ms = 2000U;
     }
-    if (duration_ms > 10000)
+    if (chat_duration_ms > 10000U)
     {
-        duration_ms = 10000;
+        chat_duration_ms = 10000U;
+    }
+    if (followup_timeout_ms > chat_duration_ms)
+    {
+        ESP_LOGI(TAG,
+                 "后续等待时长按单轮录音上限收敛: requested=%u effective=%u",
+                 (unsigned) followup_timeout_ms,
+                 (unsigned) chat_duration_ms);
+        followup_timeout_ms = chat_duration_ms;
     }
     if (!session_try_activate())
     {
-        ESP_LOGW(TAG, "语音对话进行中，忽略新请求");
+        ESP_LOGW(TAG, "连续语音会话进行中，忽略新请求");
         return ESP_ERR_INVALID_STATE;
     }
-    runtime->chat_backend     = *backend;
-    runtime->chat_duration_ms = duration_ms;
+    runtime->conversation_backend = *backend;
+    runtime->chat_duration_ms     = chat_duration_ms;
+    runtime->followup_timeout_ms  = followup_timeout_ms;
     xEventGroupClearBits(runtime->session_events, VOICE_SESSION_CANCELLED);
-    const esp_err_t task_error = voice_service_chat_task_start(runtime);
+    const esp_err_t task_error = voice_service_conversation_task_start(runtime);
     if (task_error != ESP_OK)
     {
         ESP_LOGE(TAG,
-                 "创建 voice_chat 任务失败(需栈=%d): 内部堆=%u PSRAM=%u",
+                 "创建连续语音会话 Task 失败(需栈=%d): 内部堆=%u PSRAM=%u",
                  12288,
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -768,10 +828,10 @@ esp_err_t voice_service_get_status_copy(voice_service_status_t *out_status)
     portEXIT_CRITICAL(&runtime->session_lock);
 
     *out_status = {
-        .state            = state,
-        .session_busy     = busy,
-        .chat_task_active = voice_service_chat_task_active(runtime),
-        .last_error       = last_error,
+        .state                    = state,
+        .session_busy             = busy,
+        .conversation_task_active = voice_service_conversation_task_active(runtime),
+        .last_error               = last_error,
     };
     return ESP_OK;
 }
@@ -781,7 +841,7 @@ static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len, voice
     VoiceServiceRuntime *runtime = s_runtime;
     *out_attempt                 = {};
     char        url[256]         = { 0 };
-    const char *base             = runtime->chat_backend.base_url;
+    const char *base             = runtime->conversation_backend.base_url;
     const char *scheme           = strncmp(base, "https://", 8) == 0 ? "wss://" : "ws://";
     const char *host             = strstr(base, "://");
     const int   url_len          = snprintf(url,
@@ -795,8 +855,8 @@ static esp_err_t voice_ws_stream(const uint8_t *upload, size_t upload_len, voice
     char headers[192] = { 0 };
     ESP_RETURN_ON_ERROR(protocol_identity_format_websocket_headers(headers,
                                                                    sizeof(headers),
-                                                                   runtime->chat_backend.token,
-                                                                   runtime->chat_backend.device_id),
+                                                                   runtime->conversation_backend.token,
+                                                                   runtime->conversation_backend.device_id),
                         TAG,
                         "WebSocket 身份头过长");
 
@@ -934,6 +994,6 @@ esp_err_t voice_service_cancel(void)
         return ESP_OK;
     }
     xEventGroupSetBits(runtime->session_events, VOICE_SESSION_CANCELLED);
-    ESP_LOGI(TAG, "已请求取消语音会话");
+    ESP_LOGI(TAG, "已请求取消连续语音会话");
     return ESP_OK;
 }

@@ -40,8 +40,8 @@ PCM 缓冲、MP3 解码和输出转换；`voice_service` 只拥有录音编排�
 设备运行期启动一次，Light-sleep 期间保持 Task 停泊，不跟随 `app_voice` 反复启停。
 
 网络迁移后这条边界不变：`voice_service` 直接使用 Communication 的语音协议和传输能力，
-不依赖 `app_network`；`app_voice` 在 Application 层先申请实时网络租约，再触发语音事务，并在
-终态释放租约。Dashboard 不进入音频 Service 链。
+不依赖 `app_network`；`app_voice` 在 Application 层先申请实时网络租约，再触发连续语音会话，
+租约覆盖其中全部 `chat` 回合并只在会话终态释放。Dashboard 不进入音频 Service 链。
 
 输入与环境链路按以下顺序装配：
 

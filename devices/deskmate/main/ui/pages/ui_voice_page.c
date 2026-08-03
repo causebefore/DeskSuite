@@ -63,7 +63,7 @@ static const char *state_main_text(voice_view_state_t state)
 /**
  * @brief 把语音状态枚举映射成右键操作提示
  *
- * 开始后右键长按取消整个对话，不把录音误表述为“松开结束”。
+ * 开始后右键长按取消整个连续会话，不把录音误表述为“松开结束”。
  *
  * @param state 语音交互状态
  * @return 操作提示字符串字面量
@@ -75,13 +75,13 @@ static const char *state_hint_text(voice_view_state_t state)
         case VOICE_VIEW_STATE_RECORDING:
         case VOICE_VIEW_STATE_THINKING:
         case VOICE_VIEW_STATE_SPEAKING:
-            return "长按右键取消对话";
+            return "长按右键取消连续对话";
         case VOICE_VIEW_STATE_ERROR:
             return "长按右键重新开始";
         case VOICE_VIEW_STATE_NO_SPEECH:
         case VOICE_VIEW_STATE_IDLE:
         default:
-            return "长按右键开始对话";
+            return "长按右键开始连续对话";
     }
 }
 

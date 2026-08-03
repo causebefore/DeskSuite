@@ -1,21 +1,23 @@
 # `voice_service`
 
-> Service 层语音会话所有者，只编排录音、网络协议和 TTS PCM 提交。
+> Service 层连续语音会话所有者，只编排录音、网络协议和 TTS PCM 提交。
 
 ## 1. 定位
 
 - 层级：Service。
 - 触发方：`app_voice` 的按键或唤醒语音流程。
-- 主要输出：语音回合状态事件、服务端文本事实和会话终态。
+- 主要输出：语音回合状态事件、服务端文本事实和连续会话终态。
 
 ## 2. 职责边界
 
 负责：
 
-- 私有 `VoiceServiceRuntime` 独占会话门、取消状态、后端快照、录音缓冲和 `voice_chat` Task。
+- 私有 `VoiceServiceRuntime` 独占会话门、取消状态、后端快照、录音缓冲和
+  `voice_conversation` Task。
 - 通过 `audio_processor_service` 收集 16 kHz 单声道降噪 PCM。
 - 优先执行 WebSocket 会话，按明确事实决定是否回退 HTTP。
 - 收到首个有效 TTS 帧后打开 Audio Service 的 24 kHz 单声道 PCM 流。
+- 回复 PCM 完整排空后自动开始下一轮采集，后续等待超时才正常结束连续会话。
 
 不负责：
 
@@ -26,18 +28,24 @@
 ## 3. 主要流程
 
 ```text
-chat 请求
-    → voice_chat 采集 AFE PCM
-    → VAD 判定
-        ├─ 前导超时：不上传 PCM → NO_SPEECH
-        └─ 检测到有效人声：WebSocket 上传并接收协议帧
+conversation 请求
+    → voice_conversation 采集 AFE PCM
+    → 首轮 VAD 判定
+        ├─ 默认 3 秒前导超时：不上传 PCM → NO_SPEECH
+        └─ 检测到有效人声：执行一个 chat
+             → WebSocket 上传并接收协议帧
              → 首个 TTS PCM 打开 Audio Service PCM 流
              → 正常 END 排空关闭；协议/网络/取消错误丢弃关闭
-             → DONE / CANCELLED / ERROR
+             → 回复排空后再次 RECORDING
+                  ├─ 默认 5 秒内检测到人声：执行下一个 chat
+                  └─ 默认 5 秒无后续人声：DONE
 ```
 
 WebSocket 只有在尚未成功上传任何 PCM 字节且尚未收到任何响应时才允许回退 HTTP；部分上传
-或已经收到响应后失败，不重复提交同一语音回合。
+或已经收到响应后失败，不重复提交同一语音回合。连续会话保持同一个后端上下文和产品网络
+租约，但每个 `chat` 都建立独立的上传事务；当前为半双工，不在 TTS 播放期间采集用户语音。
+首轮保留唤醒词尾音保护窗；后续回合在回复排空后立即重置 VAD 活动事实并开始默认 5 秒等待，避免
+吞掉用户紧接回复说出的开头。
 
 ## 4. 依赖关系
 
@@ -53,36 +61,41 @@ WebSocket 只有在尚未成功上传任何 PCM 字节且尚未收到任何响�
 公共头文件：[`include/voice_service.h`](include/voice_service.h)。公共边界保持 C ABI 与 POD
 类型；`VoiceServiceRuntime` 和 `.hpp` 仅在组件内部可见。
 
-`voice_service_request_chat()` 返回前复制完整 `protocol_backend_context_t`，并把录音时长限制为
-2000～10000 ms。`stop()` 不取消活动会话；`deinit()` 仅从 `STOPPED` 释放自身资源，不释放
-Audio Service 或 Processor。
+`voice_service_request_conversation_copy()` 返回前复制完整 `protocol_backend_context_t`，并把
+单轮录音时长限制为 2000～10000 ms。后续等待范围为 1000～10000 ms；若大于单轮录音时长，
+按单轮录音上限执行。`stop()` 不取消活动会话；`deinit()` 仅从 `STOPPED` 释放自身资源，
+不释放 Audio Service 或 Processor。
 
 ## 6. 状态、生命周期与并发
 
 - Runtime：`UNINITIALIZED → STOPPED ↔ RUNNING → STOPPED → deinit`。
 - 会话：仅在 `RUNNING` 中执行 `IDLE → BUSY → IDLE`。
-- Task：仅有 `voice_chat`，使用 12288 字节 PSRAM 栈；入口、句柄和删除逻辑位于
+- Task：仅有 `voice_conversation`，使用 12288 字节 PSRAM 栈；同一 Task 串行完成全部回合，
+  入口、句柄和删除逻辑位于
   `src/voice_service_task.cpp`。
 - 播放：协议回调只向 Audio Service 复制 PCM，不写硬件、不维护第二套播放状态。
 - 取消：`cancel()` 只发布协作取消事实，由会话 Task 丢弃 PCM、关闭网络并完成资源回收。
-- 终态顺序：收敛采集/网络/PCM → 发布终态 → 释放会话门 → Task 退出。
+- 终态顺序：收敛采集/网络/PCM → 发布一次连续会话终态 → 释放会话门 → Task 退出。
 
 ## 7. 故障与恢复
 
-VAD 前导窗口内没有有效人声属于正常 `NO_SPEECH` 终态：不上传 PCM、`last_error` 保持
-`ESP_OK`，由 Application 释放网络租约。任务创建失败、AFE 采集失败、网络错误、协议错误、
-PCM 写入或关闭错误才收敛为 `ERROR`。
+首轮 VAD 前导窗口内没有有效人声属于正常 `NO_SPEECH` 终态；至少完成一个回合后，后续窗口
+没有有效人声属于正常 `DONE` 终态。两者都不上传空 PCM，`last_error` 保持 `ESP_OK`，并由
+Application 释放覆盖整个连续会话的网络租约。任务创建失败、AFE 采集失败、网络错误、协议
+错误、PCM 写入或关闭错误才收敛为 `ERROR`。
 Audio Service 的同步关闭若超时，会立刻升级为丢弃请求；底层仍保留真实清理状态，不把超时
 伪装成成功。是否展示错误、重试或禁用语音由 Application 决定。
 
 ## 8. 配置与文件
 
-录音时长、VAD、HTTP/WebSocket 超时及队列参数位于 `DeskMate Audio/Voice` Kconfig 菜单；
-PCM 抗抖动容量由通用 `CONFIG_DESKMATE_AUDIO_PCM_STREAM_BYTES` 提供。
+单轮录音时长、首轮 VAD 前导窗口、`CONFIG_DESKMATE_VOICE_FOLLOWUP_TIMEOUT_MS` 后续等待、
+HTTP/WebSocket 超时及队列参数位于 `DeskMate Audio/Voice` Kconfig 菜单；PCM 抗抖动容量由
+通用 `CONFIG_DESKMATE_AUDIO_PCM_STREAM_BYTES` 提供。
 
 ## 9. 验证
 
 - 检查 WebSocket 建连前失败可回退 HTTP，部分上传或收到响应后失败不得重复提交。
+- 检查回复排空后自动回到录音；默认后续 5 秒无声正常结束且只发布一个终态。
 - 连续与交替执行语音、MP3 和抢占场景，确认只有 Audio Service 调用输出硬件。
 - 运行 `tools/tests/check_audio_runtime_contract.ps1` 与
   `tools/tests/check_voice_power_lifecycle.ps1`。

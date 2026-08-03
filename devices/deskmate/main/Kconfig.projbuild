@@ -235,6 +235,13 @@ config DESKMATE_VOICE_VAD_LEAD_TIMEOUT_MS
     help
         语音开始后多久无人声即放弃，单位毫秒。
 
+config DESKMATE_VOICE_FOLLOWUP_TIMEOUT_MS
+    int "Voice follow-up wait timeout (ms)"
+    default 5000
+    range 1000 10000
+    help
+        每轮回复完整播放后，等待下一句有效人声的最长时间；超时后正常结束连续会话。
+
 config DESKMATE_VOICE_VAD_SILENCE_END_MS
     int "Voice VAD trailing silence (ms)"
     default 1200
