@@ -149,6 +149,9 @@ Assert-OnlyFilesContain @('components\services', 'main') `
 Assert-Contains $processorHeader 'bool\s+input_active' 'Processor 状态未暴露真实 input_active'
 Assert-Contains $processorSource 'device_audio_get_sample_rate_hz\s*\(' 'Processor 未读取 Device 硬件采样率'
 Assert-Contains $processorSource 'APS_AFE_SAMPLE_RATE\s+16000' 'Processor 未固定 AFE 16 kHz 契约'
+Assert-Contains $processorSource `
+    '(?s)fetch_with_delay.*?drain_requested\s*=\s*draining.*?capture_state\s*==\s*AUDIO_PROCESSOR_CAPTURE_DRAINING.*?if\s*\(drain_requested\)' `
+    'Processor 未在阻塞 Fetch 返回后重新确认 drain 状态'
 Assert-NotContains $processorSource 'audio_service_' 'Processor 仍依赖 Audio Service 转发输入'
 Assert-Contains 'components\services\audio_processor_service\idf_component.yml' `
     '(?s)espressif/esp_audio_effects:\s*version:\s*"~1\.2\.1"' `

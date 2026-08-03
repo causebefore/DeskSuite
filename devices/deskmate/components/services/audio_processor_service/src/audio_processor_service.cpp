@@ -662,7 +662,16 @@ static bool fetch_task_step(bool draining)
     afe_fetch_result_t *res = s_ctx.afe_iface->fetch_with_delay(s_ctx.afe_data, pdMS_TO_TICKS(APS_FETCH_WAIT_MS));
     if (res == NULL || res->ret_value == ESP_FAIL)
     {
-        if (draining)
+        /* draining 在阻塞 fetch 前采样；停止请求可能在最长 200 ms 的等待期间到达。
+         * 返回空结果后必须重新读取采集状态，否则会再等待一轮并耗尽有界停止预算。 */
+        bool drain_requested = draining;
+        if (!drain_requested)
+        {
+            xSemaphoreTake(s_capture_lock, portMAX_DELAY);
+            drain_requested = s_ctx.capture_state == AUDIO_PROCESSOR_CAPTURE_DRAINING;
+            xSemaphoreGive(s_capture_lock);
+        }
+        if (drain_requested)
         {
             return true;
         }
