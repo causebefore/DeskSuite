@@ -79,13 +79,13 @@ function Assert-SectionNotContains {
 }
 
 $audioHeader = 'components\services\audio_service\include\audio_service.h'
-$audioSource = 'components\services\audio_service\src\audio_service.c'
+$audioSource = 'components\services\audio_service\src\audio_service.cpp'
 $processorHeader = 'components\services\audio_processor_service\include\audio_processor_service.h'
-$processorSource = 'components\services\audio_processor_service\src\audio_processor_service.c'
-$processorTask = 'components\services\audio_processor_service\src\audio_processor_service_task.c'
+$processorSource = 'components\services\audio_processor_service\src\audio_processor_service.cpp'
+$processorTask = 'components\services\audio_processor_service\src\audio_processor_service_task.cpp'
 $voiceHeader = 'components\services\voice_service\include\voice_service.h'
-$voiceSource = 'components\services\voice_service\src\voice_service.c'
-$voiceTask = 'components\services\voice_service\src\voice_service_task.c'
+$voiceSource = 'components\services\voice_service\src\voice_service.cpp'
+$voiceTask = 'components\services\voice_service\src\voice_service_task.cpp'
 $appVoiceHeader = 'main\application\app_voice.h'
 $appVoiceSource = 'main\application\app_voice.c'
 $appMain = 'main\app_main.c'
@@ -95,7 +95,7 @@ $powerTask = 'main\application\app_power_task.c'
 Assert-Contains $audioHeader 'audio_service_state_t'
 Assert-Contains $audioHeader 'audio_service_start\s*\('
 Assert-Contains $audioHeader 'audio_service_get_status_copy\s*\('
-Assert-Contains $audioSource 's_ctx\.state\s*=\s*AUDIO_SERVICE_STATE_STOPPED'
+Assert-Contains $audioSource 'runtime->state\s*=\s*AUDIO_SERVICE_STATE_STOPPED'
 Assert-Contains $audioSource 'AUDIO_SERVICE_STATE_CLEANUP_FAILED'
 
 Assert-Contains $processorHeader 'audio_processor_service_state_t'
@@ -104,6 +104,9 @@ Assert-Contains $processorHeader 'audio_processor_service_start\s*\('
 Assert-Contains $processorHeader 'audio_processor_service_stop\s*\('
 Assert-Contains $processorHeader 'audio_processor_service_get_status_copy\s*\('
 Assert-Contains $processorSource 's_ctx\.state\s*=\s*AUDIO_PROCESSOR_STATE_STOPPED'
+Assert-Contains $processorHeader 'bool\s+input_active'
+Assert-Contains $processorSource 'device_audio_enable_input'
+Assert-Contains $processorSource 'device_audio_get_sample_rate_hz'
 Assert-Contains $processorTask 'xEventGroupWaitBits'
 Assert-Contains $processorTask 'portMAX_DELAY'
 Assert-Contains $processorTask 'APS_TASK_FEED_PARKED'
@@ -117,12 +120,15 @@ Assert-Contains $voiceHeader 'voice_service_state_t'
 Assert-Contains $voiceHeader 'voice_service_start\s*\('
 Assert-Contains $voiceHeader 'voice_service_stop\s*\('
 Assert-Contains $voiceHeader 'voice_service_get_status_copy\s*\('
-Assert-Contains $voiceSource 's_ctx\.state\s*=\s*VOICE_SERVICE_STATE_STOPPED'
-Assert-Contains $voiceTask 'static\s+void\s+voice_service_chat_task'
-Assert-Contains $voiceTask 'static\s+void\s+voice_service_playback_task'
-Assert-NotContains $voiceSource 'static\s+void\s+voice_(chat|playback)_task'
+Assert-Contains $voiceSource 'runtime->state\s*=\s*VOICE_SERVICE_STATE_STOPPED'
+Assert-Contains $voiceTask 'void\s+voice_chat_task'
+Assert-NotContains $voiceTask 'voice_play|playback_task|StreamBuffer'
+Assert-NotContains $voiceSource 'static\s+void\s+voice_(chat|playback)_task|device_audio_'
 Assert-NotContains $voiceSource 'xTaskCreate(WithCaps)?\s*\('
 Assert-NotContains $voiceSource 'vTaskDelete(WithCaps)?\s*\('
+Assert-Contains $voiceSource 'audio_service_open_pcm_stream'
+Assert-Contains $voiceSource 'audio_service_write_pcm_stream_borrow'
+Assert-Contains $voiceSource 'audio_service_close_pcm_stream'
 
 Assert-Contains $appVoiceHeader 'app_voice_state_t'
 Assert-Contains $appVoiceHeader 'app_voice_start\s*\('
@@ -143,9 +149,16 @@ Assert-InOrder $appVoiceSource @(
     'release_network_lease_locked(timeout_ms)'
 )
 Assert-InOrder $appVoiceSource @(
-    'audio_service_start()',
     'audio_processor_service_start()',
     'voice_service_start()'
+)
+Assert-NotContains $appVoiceSource 'audio_service_|input_active|output_active|processor_idle'
+Assert-InOrder $appMain @(
+    'device_audio_init(&device_config)',
+    'audio_service_init()',
+    'audio_service_start()',
+    'audio_processor_service_init()',
+    'voice_service_init()'
 )
 Assert-InOrder $appMain @(
     'ui_runtime_start(APP_UI_START_TIMEOUT_MS)',
@@ -161,12 +174,14 @@ Assert-InOrder $appMain @(
 Assert-Contains $powerHeader 'APP_POWER_STEP_VOICE_STOP'
 Assert-Contains $powerHeader 'APP_POWER_STEP_VOICE_START'
 Assert-Contains $powerHeader 'APP_POWER_BLOCKER_AUDIO_PROCESSOR'
+Assert-Contains $powerHeader 'APP_POWER_BLOCKER_AUDIO_PLAYBACK'
 Assert-Contains $powerTask 'app_voice_get_status_copy'
 Assert-Contains $powerTask 'voice\.session_busy'
-Assert-Contains $powerTask 'voice\.processor_idle'
-Assert-Contains $powerTask 'voice\.input_active'
-Assert-Contains $powerTask 'voice\.output_active'
-Assert-Contains $powerTask 'voice\.network_lease_held'
+Assert-Contains $powerTask 'app_voice\.network_lease_held'
+Assert-Contains $powerTask 'audio_service_get_status_copy'
+Assert-Contains $powerTask 'audio\.playback_state'
+Assert-Contains $powerTask 'audio_processor_service_get_status_copy'
+Assert-Contains $powerTask 'processor\.input_active'
 Assert-InOrder $powerTask @(
     'app_voice_reconcile_network_lease(APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS)',
     'const uint32_t blockers = collect_runtime_blockers();'

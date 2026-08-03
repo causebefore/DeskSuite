@@ -68,7 +68,7 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_pomodoro` | 拥有本地番茄钟状态机、设置版本与异步更新结果、单调 deadline、日期归一化、NVS 计数、前台秒级显示事实和睡眠唤醒补算 |
 | `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页控制台明确停止后清理会话 |
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
-| `app_voice` | Audio → AFE → Voice 的唯一产品生命周期、按键语音入口和网络租约 |
+| `app_voice` | Processor → Voice 的产品生命周期、按键语音入口和网络租约；不转发通用音频状态 |
 | `app_web_console` | SD/在线前置检查、产品 Settings/Status Provider 装配、网页控制台网络租约、Service 启停与安全回滚 |
 | `app_power` | 拥有 30 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、内部 Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
@@ -97,6 +97,11 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 真实存储错误和新版本，同时快照中的 `settings_saved` 为 false。本机 UI 意图的同步接受结果
 返回同一个请求 ID；Application Task 把最新 ID 与结果按值推送给 Presenter，UI 只消费匹配
 ID 的终态，不能把“已入队”当成“已保存”。
+
+阶段完成后，Pomodoro Task 在释放状态锁并发布快照后，以非零 `completion_generation` 向
+Audio Service 提交固定路径 `/sdcard/pomodoro-complete.mp3`。自然 TICK 完成和 Light-sleep
+唤醒补算复用同一提交逻辑；Confirm、Reset 或开始下一阶段时在锁外取消旧代次。播放请求失败
+只记录事实，不回滚 DONE、完成计数、持久化或 10 秒活动窗口。
 
 `app_network` 不直接操作 Wi‑Fi Driver、Portal HTTP/DNS 或底层重连状态机；这些技术能力属于
 Communication 的 `network_manager` 和 `connect`。Network Manager 一轮内部重试结束后，
@@ -142,7 +147,7 @@ Network Manager 离线时，`app_network` 会在统一页面刷新前把四个�
 启动产品标识为 `2` 的远端日志上传，并在停止 Network Manager 前同步停止上传 Task，不额外延长
 在线窗口或增加轻睡眠唤醒就绪事件。远端日志只在网络上线且服务地址有效时才以 8 条队列、4 条批次
 的低内存配置初始化，日志突发可丢弃但不得影响轻睡眠等核心产品 Task。音频采集、处理和语音
-事务仍由 Service 链拥有；`app_voice` 串行编排整条 Service 链的 `start/stop`，只在
+事务仍由 Service 链拥有；`app_voice` 只串行编排 Processor 与 Voice 的 `start/stop`，只在
 `RUNNING` 且当前为语音页面时解释右键长按，并为一次会话申请实时语音租约。当前不启用
 运行时唤醒词设置。
 
@@ -275,8 +280,10 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 成功；语音 Service 仍忙时保留租约并返回 `ESP_ERR_INVALID_STATE`；释放失败时同样保留原代次，
 供下一轮幂等重试。该错误本身不进入 `BLOCKED`，仍存在的租约会作为正常阻止条件按既有退避重试。
 
-其他场景继续执行完整 Light-sleep：睡前先关闭语音新会话入口，确认 AFE Task 停泊且输入输出
-关闭；再关闭 UI 业务入口、停止 LVGL timer、等待显示 DMA 静止，最后使用同一低功耗停网握手。
+其他场景继续执行完整 Light-sleep：睡前先确认没有活动采集或异常音频状态，再关闭语音新会话
+入口并使 AFE Task 停泊、输入关闭；Audio Service 有待播放、播放中、排空中或取消中的输出事务
+时暂缓睡眠，其自身 Task 在空闲时保持常驻停泊。关闭 UI 与网络后会再次读取三个 Service，避免
+提示音恰在首次检查与入睡之间提交。随后停止 LVGL timer、等待显示 DMA 静止并进入睡眠。
 ESP32 内部 Timer 默认每 60 秒唤醒一次，若服务端截止时间更近则缩短本轮间隔以对齐计划整点；
 普通周期保持停网；可信 UTC 到达 Dashboard 返回的 `next_refresh_at_utc` 后，电源 Task 恢复
 网络、同步等待 Dashboard 完成、保存新截止时间并再次停网，随后 UI 从 Presenter 重同步并
@@ -293,7 +300,7 @@ EXT1 左右键掩码 → app_power 按网络 → 语音 → UI 恢复
 Button Service 保持 RUNNING，不增加睡前 `stop()` 或醒后 `start()`；提交失败属于恢复错误
 并进入 BLOCKED。普通按需扫描使用配置的 10 ms 周期；Device 扫描或唤醒后物理状态读取失败时，
 下一次单次扫描固定退避 250 ms，成功后立即恢复正常周期，避免错误状态下持续高频唤醒。
-活动录音、上传、播放、AFE drain、音频输入输出或语音租约是暂时睡眠阻止
+活动录音、上传、播放、AFE drain、异常停机后残留的音频输入输出或语音租约是暂时睡眠阻止
 条件，不会在睡前取消会话；会话结束后按 10 秒配置重试。语音 Runtime 的 Light-sleep
 `stop()` 保留 Codec、AFE、模型、缓冲和已创建 Task，`deinit()` 不进入每轮睡眠路径。
 Dashboard 同步失败是可重试的数据错误；语音、网络或 UI 无法证明已安全停止/恢复才进入

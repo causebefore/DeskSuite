@@ -28,14 +28,16 @@ Service 是可选的执行与事务层。只有同步下层能力需要持续执
 
 ```text
 device_audio
-    → audio_service
-    → audio_processor_service
-    → voice_service
+    ├→ audio_service（唯一输出事务）
+    └→ audio_processor_service（唯一输入与 AFE）
+            → voice_service（采集与网络会话）
 ```
 
-失败或反初始化时严格反向执行。`audio_processor_service` 与 `voice_service` 拥有异步 Task；
-`audio_service` 保留的原因是统一串行音频输入、输出、音量和静音状态，而不是替 Device 管理
-生命周期。
+Composition Root 仍按 `device_audio → audio_service → audio_processor_service → voice_service`
+初始化，失败或反初始化时严格反向执行。`audio_processor_service` 独占麦克风启停、读取、
+硬件采样率到 AFE 16 kHz 的转换及 feed/fetch Task；`audio_service` 独占扬声器、播放 Task、
+PCM 缓冲、MP3 解码和输出转换；`voice_service` 只拥有录音编排与网络会话。Audio Service 在
+设备运行期启动一次，Light-sleep 期间保持 Task 停泊，不跟随 `app_voice` 反复启停。
 
 网络迁移后这条边界不变：`voice_service` 直接使用 Communication 的语音协议和传输能力，
 不依赖 `app_network`；`app_voice` 在 Application 层先申请实时网络租约，再触发语音事务，并在
