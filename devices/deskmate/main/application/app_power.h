@@ -58,7 +58,7 @@ extern "C"
     {
         APP_POWER_BLOCKER_NONE            = 0U,
         APP_POWER_BLOCKER_VOICE           = 1U << 0,
-        APP_POWER_BLOCKER_AUDIO           = 1U << 1,
+        APP_POWER_BLOCKER_AUDIO_PLAYBACK  = 1U << 1,
         APP_POWER_BLOCKER_OTA             = 1U << 2,
         APP_POWER_BLOCKER_NETWORK_LEASE   = 1U << 3,
         APP_POWER_BLOCKER_AUDIO_PROCESSOR = 1U << 4,
@@ -83,8 +83,8 @@ extern "C"
         uint32_t                  activity_generation;           /*!< 已接收用户活动代次 */
         uint32_t                  cycle_id;                      /*!< 睡眠尝试编号 */
         uint32_t                  success_count;                 /*!< 按键唤醒并恢复交互次数 */
-        uint32_t                  timer_refresh_count;     /*!< Timer 唤醒并刷新屏幕次数 */
-        uint32_t                  blockers;                /*!< app_power_blocker_t 位组合 */
+        uint32_t                  timer_refresh_count;           /*!< Timer 唤醒并刷新屏幕次数 */
+        uint32_t                  blockers;                      /*!< app_power_blocker_t 位组合 */
         esp_err_t                 primary_error;                 /*!< 最近主操作错误 */
         esp_err_t                 recovery_error;                /*!< 最近诊断或恢复错误 */
     } app_power_status_t;

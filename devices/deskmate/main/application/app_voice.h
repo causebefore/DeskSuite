@@ -25,9 +25,6 @@ typedef struct
 {
     app_voice_state_t state;              /*!< Application 生命周期状态 */
     bool              session_busy;       /*!< 是否存在活动语音回合 */
-    bool              processor_idle;     /*!< AFE 无采集且 Task 已停泊 */
-    bool              input_active;       /*!< 麦克风输入是否开启 */
-    bool              output_active;      /*!< 扬声器输出是否开启 */
     bool              network_lease_held; /*!< 是否仍持有实时语音网络租约 */
     esp_err_t         primary_error;      /*!< 最近主操作错误 */
     esp_err_t         recovery_error;     /*!< 最近回滚错误 */
@@ -43,9 +40,9 @@ typedef struct
 esp_err_t app_voice_init(void);
 
 /**
- * @brief 按 Audio → AFE → Voice 顺序可逆启动语音 Runtime
+ * @brief 按 Processor → Voice 顺序可逆启动语音 Runtime
  *
- * 返回 ESP_OK 时仅开放按键会话入口，麦克风和扬声器仍保持关闭。
+ * Audio Service 由 Composition Root 常驻管理，不属于本 Application 生命周期。
  *
  * @param[in] timeout_ms 整体启动与失败回滚超时
  * @return ESP_OK 已进入 RUNNING；ESP_ERR_INVALID_ARG 超时为零；
@@ -67,7 +64,7 @@ esp_err_t app_voice_reconcile_network_lease(uint32_t timeout_ms);
 /**
  * @brief 在会话和网络租约空闲时反序停止语音 Runtime
  *
- * 本函数不取消活动语音会话。返回 ESP_OK 时 AFE Task 已停泊，输入输出均已关闭。
+ * 本函数不取消活动语音会话。返回 ESP_OK 时 AFE Task 已停泊；Audio Service 继续常驻。
  *
  * @param[in] timeout_ms 整体停止超时
  * @return ESP_OK 已进入 STOPPED；ESP_ERR_INVALID_ARG 超时为零；
@@ -83,7 +80,7 @@ esp_err_t app_voice_stop(uint32_t timeout_ms);
 esp_err_t app_voice_deinit(void);
 
 /**
- * @brief 复制语音 Application 及下层活动运行摘要
+ * @brief 复制语音 Application、会话与网络租约摘要
  *
  * @param[out] out_status 运行摘要输出
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化

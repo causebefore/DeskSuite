@@ -135,6 +135,10 @@ static web_file_operation_result_t web_file_move_file(web_file_move_workspace_t 
     {
         return WEB_FILE_OPERATION_OK;
     }
+    if (errno == EBUSY)
+    {
+        return WEB_FILE_OPERATION_IN_USE;
+    }
     if (errno == EEXIST)
     {
         return WEB_FILE_OPERATION_ALREADY_EXISTS;
@@ -205,6 +209,10 @@ static web_file_operation_result_t web_file_delete_item(const web_file_path_work
         if (unlink(path->filesystem) == 0)
         {
             return WEB_FILE_OPERATION_OK;
+        }
+        if (errno == EBUSY)
+        {
+            return WEB_FILE_OPERATION_IN_USE;
         }
         return errno == ENOENT ? WEB_FILE_OPERATION_NOT_FOUND : WEB_FILE_OPERATION_IO_ERROR;
     }

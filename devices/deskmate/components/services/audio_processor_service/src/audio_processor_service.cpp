@@ -1,10 +1,12 @@
 #include "audio_processor_service.h"
-#include "audio_processor_service_internal.h"
+#include "audio_processor_service_internal.hpp"
 
+#include <assert.h>
+#include <new>
 #include <stdlib.h>
 #include <string.h>
 
-#include "audio_service.h"
+#include "device_audio.h"
 #include "esp_ae_rate_cvt.h"
 #include "esp_afe_config.h"
 #include "esp_afe_sr_models.h"
@@ -20,11 +22,10 @@ static const char *TAG = "audio_processor";
 
 ESP_EVENT_DEFINE_BASE(AUDIO_PROCESSOR_EVENT);
 
-/* 硬件采样率（ES7210 = 24kHz），AFE 需要 16kHz。
+/* 硬件采样率由 device_audio 配置提供，AFE 固定需要 16kHz。
  * 双麦 2 通道：duplex 下 TX/RX 共享 WS，slot 数必须一致，input 2 slot 才能让
  * TX 保持标准 16-bit stereo，避免 slot_bit 被放大到 32/64 导致播放爆音。 */
 #define APS_HW_CHANNELS          2
-#define APS_HW_SAMPLE_RATE       24000
 #define APS_AFE_SAMPLE_RATE      16000
 /* AFE 输入：双麦（"MM" 格式） */
 #define APS_AFE_MIC_CHANNELS     2
@@ -32,47 +33,32 @@ ESP_EVENT_DEFINE_BASE(AUDIO_PROCESSOR_EVENT);
 #define APS_FETCH_WAIT_MS        200
 /* AFE drain 超时见 Kconfig: DeskMate Audio/Voice */
 
-/* feed_task 每次 audio_service_read 的帧数（双麦，2 通道） */
+/* feed_task 每次 device_audio_read 的帧数（双麦，2 通道） */
 #define APS_READ_FRAMES          256
 #define APS_TASK_STOP_TIMEOUT_MS 1200
 
-typedef struct
+static AudioProcessorRuntime *s_runtime;
+
+#define s_ctx          (*s_runtime)
+#define s_control_lock (s_runtime->control_lock)
+#define s_capture_lock (s_runtime->capture_lock)
+
+AudioProcessorRuntime::~AudioProcessorRuntime() noexcept
 {
-    /* AFE 句柄 */
-    const esp_afe_sr_iface_t *afe_iface;
-    esp_afe_sr_data_t        *afe_data;
-    srmodel_list_t           *models;
-    int                       feed_chunksize; /* 单通道样本数 */
+    assert(afe_data == nullptr);
+    assert(rate_cvt == nullptr);
+    assert(models == nullptr);
+    assert(control_lock == nullptr);
+    assert(capture_lock == nullptr);
+    assert(events == nullptr);
+    assert(feed_task == nullptr);
+    assert(fetch_task == nullptr);
+}
 
-    /* 重采样器（24kHz->16kHz, 2通道） */
-    esp_ae_rate_cvt_handle_t rate_cvt;
-
-    audio_processor_service_state_t state;
-    audio_processor_capture_state_t capture_state;
-    esp_err_t                       last_error;
-
-    /* 输出 */
-    int16_t  *out_buf;
-    size_t    out_cap;
-    size_t    out_written;
-    bool      capture_has_speech;
-    uint32_t  capture_speech_ms;
-    uint32_t  capture_silence_ms;
-    size_t    capture_discard_samples;
-
-    /* feed 侧预分配缓冲 */
-    int16_t *cvt_out;      /* 重采样输出 */
-    int      cvt_out_cap;  /* 样本数 */
-    int16_t *resample_buf; /* 累积重采样后的双麦 16kHz */
-    int      resample_buf_cap;
-    int      resample_fill;
-    int16_t *feed_chunk; /* AFE feed 所需的一块 */
-    int16_t *read_buf;   /* feed_task 的 audio_service_read 缓冲（内部 RAM） */
-} aps_ctx_t;
-
-static aps_ctx_t s_ctx;
-static SemaphoreHandle_t s_control_lock;
-static SemaphoreHandle_t s_capture_lock;
+AudioProcessorRuntime *audio_processor_runtime_get(void)
+{
+    return s_runtime;
+}
 
 static void feed_task_step(void);
 static bool fetch_task_step(bool draining);
@@ -85,20 +71,27 @@ static void release_processing_resources(void)
     if (s_ctx.afe_data != NULL && s_ctx.afe_iface != NULL)
     {
         s_ctx.afe_iface->destroy(s_ctx.afe_data);
+        s_ctx.afe_data = nullptr;
     }
+    s_ctx.afe_iface = nullptr;
     if (s_ctx.rate_cvt != NULL)
     {
         esp_ae_rate_cvt_close(s_ctx.rate_cvt);
+        s_ctx.rate_cvt = nullptr;
     }
     free(s_ctx.read_buf);
+    s_ctx.read_buf = nullptr;
     free(s_ctx.feed_chunk);
+    s_ctx.feed_chunk = nullptr;
     free(s_ctx.resample_buf);
+    s_ctx.resample_buf = nullptr;
     free(s_ctx.cvt_out);
+    s_ctx.cvt_out = nullptr;
     if (s_ctx.models != NULL)
     {
         esp_srmodel_deinit(s_ctx.models);
+        s_ctx.models = nullptr;
     }
-    s_ctx = (aps_ctx_t) { 0 };
 }
 
 /** @brief 回滚尚未发布成功的 AFE 初始化资源。 */
@@ -116,20 +109,34 @@ static void cleanup_init_failure(void)
         vSemaphoreDelete(s_control_lock);
         s_control_lock = NULL;
     }
+    AudioProcessorRuntime *runtime = s_runtime;
+    s_runtime                      = nullptr;
+    delete runtime;
 }
 
 /* ── 初始化 AFE ──────────────────────────────────────── */
 
 esp_err_t audio_processor_service_init(void)
 {
-    if (s_control_lock != NULL)
+    if (s_runtime != nullptr)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    ESP_RETURN_ON_FALSE(audio_service_is_initialized(), ESP_ERR_INVALID_STATE, TAG, "音频 Service 尚未初始化");
+    ESP_RETURN_ON_FALSE(device_audio_get_sample_rate_hz() > 0U,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "Device 音频能力尚未初始化");
 
-    s_control_lock = xSemaphoreCreateMutex();
-    ESP_RETURN_ON_FALSE(s_control_lock != NULL, ESP_ERR_NO_MEM, TAG, "创建 AFE 生命周期互斥锁失败");
+    s_runtime = new (std::nothrow) AudioProcessorRuntime();
+    ESP_RETURN_ON_FALSE(s_runtime != nullptr, ESP_ERR_NO_MEM, TAG, "创建 Audio Processor Runtime 失败");
+    s_ctx.hardware_sample_rate_hz = device_audio_get_sample_rate_hz();
+
+    s_control_lock                = xSemaphoreCreateMutex();
+    if (s_control_lock == NULL)
+    {
+        cleanup_init_failure();
+        return ESP_ERR_NO_MEM;
+    }
     s_capture_lock = xSemaphoreCreateMutex();
     if (s_capture_lock == NULL)
     {
@@ -223,37 +230,47 @@ esp_err_t audio_processor_service_init(void)
         return ESP_FAIL;
     }
 
-    s_ctx.feed_chunksize          = s_ctx.afe_iface->get_feed_chunksize(s_ctx.afe_data);
-    int fetch_cs                  = s_ctx.afe_iface->get_fetch_chunksize(s_ctx.afe_data);
+    s_ctx.feed_chunksize = s_ctx.afe_iface->get_feed_chunksize(s_ctx.afe_data);
+    int fetch_cs         = s_ctx.afe_iface->get_fetch_chunksize(s_ctx.afe_data);
 
-    /* 重采样器：24kHz -> 16kHz, 双麦通道 */
-    esp_ae_rate_cvt_cfg_t cvt_cfg = {
-        .src_rate        = APS_HW_SAMPLE_RATE,
-        .dest_rate       = APS_AFE_SAMPLE_RATE,
-        .channel         = APS_AFE_MIC_CHANNELS,
-        .bits_per_sample = ESP_AE_BIT16,
-        .complexity      = 2,
-        .perf_type       = ESP_AE_RATE_CVT_PERF_TYPE_SPEED,
-    };
-    const esp_ae_err_t rate_error = esp_ae_rate_cvt_open(&cvt_cfg, &s_ctx.rate_cvt);
-    if (rate_error != ESP_AE_ERR_OK)
+    /* 重采样器：硬件采样率 -> 16kHz，采样率相同则热路径直接旁路。 */
+    if (s_ctx.hardware_sample_rate_hz != APS_AFE_SAMPLE_RATE)
     {
-        ESP_LOGE(TAG, "创建重采样器失败: %d", (int) rate_error);
-        cleanup_init_failure();
-        return ESP_FAIL;
+        esp_ae_rate_cvt_cfg_t cvt_cfg = {
+            .src_rate        = (int) s_ctx.hardware_sample_rate_hz,
+            .dest_rate       = APS_AFE_SAMPLE_RATE,
+            .channel         = APS_AFE_MIC_CHANNELS,
+            .bits_per_sample = ESP_AE_BIT16,
+            .complexity      = 2,
+            .perf_type       = ESP_AE_RATE_CVT_PERF_TYPE_SPEED,
+        };
+        const esp_ae_err_t rate_error = esp_ae_rate_cvt_open(&cvt_cfg, &s_ctx.rate_cvt);
+        if (rate_error != ESP_AE_ERR_OK)
+        {
+            ESP_LOGE(TAG,
+                     "创建 %luHz 到 16kHz 重采样器失败: %d",
+                     (unsigned long) s_ctx.hardware_sample_rate_hz,
+                     (int) rate_error);
+            cleanup_init_failure();
+            return ESP_FAIL;
+        }
     }
 
     /* 预分配 feed 侧缓冲（内部 RAM，热路径需低延迟） */
     int need_per_feed      = s_ctx.feed_chunksize * APS_AFE_MIC_CHANNELS;
     /* resample_buf 需能容纳多个 feed 块的累积 */
     s_ctx.resample_buf_cap = need_per_feed * 4;
-    s_ctx.resample_buf     = heap_caps_malloc(s_ctx.resample_buf_cap * sizeof(int16_t), MALLOC_CAP_INTERNAL);
-    s_ctx.feed_chunk       = heap_caps_malloc(need_per_feed * sizeof(int16_t), MALLOC_CAP_INTERNAL);
+    s_ctx.resample_buf     = static_cast<int16_t *>(
+        heap_caps_malloc((size_t) s_ctx.resample_buf_cap * sizeof(int16_t), MALLOC_CAP_INTERNAL));
+    s_ctx.feed_chunk =
+        static_cast<int16_t *>(heap_caps_malloc((size_t) need_per_feed * sizeof(int16_t), MALLOC_CAP_INTERNAL));
     /* 重采样输出缓冲 */
-    s_ctx.cvt_out_cap      = 512 * APS_AFE_MIC_CHANNELS;
-    s_ctx.cvt_out          = heap_caps_malloc(s_ctx.cvt_out_cap * sizeof(int16_t), MALLOC_CAP_INTERNAL);
-    /* feed_task 的 audio_service_read 缓冲（内部 RAM） */
-    s_ctx.read_buf         = heap_caps_malloc(APS_READ_FRAMES * APS_HW_CHANNELS * sizeof(int16_t), MALLOC_CAP_INTERNAL);
+    s_ctx.cvt_out_cap = 512 * APS_AFE_MIC_CHANNELS;
+    s_ctx.cvt_out =
+        static_cast<int16_t *>(heap_caps_malloc((size_t) s_ctx.cvt_out_cap * sizeof(int16_t), MALLOC_CAP_INTERNAL));
+    /* feed_task 的 device_audio_read 缓冲（内部 RAM） */
+    s_ctx.read_buf = static_cast<int16_t *>(
+        heap_caps_malloc(APS_READ_FRAMES * APS_HW_CHANNELS * sizeof(int16_t), MALLOC_CAP_INTERNAL));
 
     if (s_ctx.resample_buf == NULL || s_ctx.feed_chunk == NULL || s_ctx.cvt_out == NULL || s_ctx.read_buf == NULL)
     {
@@ -266,20 +283,21 @@ esp_err_t audio_processor_service_init(void)
     s_ctx.capture_state = AUDIO_PROCESSOR_CAPTURE_IDLE;
     s_ctx.last_error    = ESP_OK;
     ESP_LOGI(TAG,
-              "AFE 初始化完成(SR+双麦SE+WakeNet=%s): feed=%d fetch=%d，Runtime 保持停止",
+             "AFE 初始化完成(输入=%luHz, 双麦SE, WakeNet=%s): feed=%d fetch=%d，Runtime 保持停止",
+             (unsigned long) s_ctx.hardware_sample_rate_hz,
 #if CONFIG_DESKMATE_WAKE_WORD_ENABLE
-              "on",
+             "on",
 #else
-              "off",
+             "off",
 #endif
-              s_ctx.feed_chunksize,
-              fetch_cs);
+             s_ctx.feed_chunksize,
+             fetch_cs);
     return ESP_OK;
 }
 
 esp_err_t audio_processor_service_deinit(void)
 {
-    if (s_control_lock == NULL)
+    if (s_runtime == nullptr || s_control_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -304,19 +322,22 @@ esp_err_t audio_processor_service_deinit(void)
     vSemaphoreDelete(s_capture_lock);
     s_capture_lock = NULL;
     vSemaphoreDelete(s_control_lock);
-    s_control_lock = NULL;
+    s_control_lock                 = NULL;
+    AudioProcessorRuntime *runtime = s_runtime;
+    s_runtime                      = nullptr;
+    delete runtime;
     ESP_LOGI(TAG, "AFE 音频处理 Service 已反初始化");
     return ESP_OK;
 }
 
 bool audio_processor_service_is_initialized(void)
 {
-    return s_control_lock != NULL;
+    return s_runtime != nullptr && s_control_lock != NULL;
 }
 
 esp_err_t audio_processor_service_start(void)
 {
-    if (s_control_lock == NULL)
+    if (s_runtime == nullptr || s_control_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -331,8 +352,6 @@ esp_err_t audio_processor_service_start(void)
         xSemaphoreGive(s_control_lock);
         return ESP_ERR_INVALID_STATE;
     }
-    s_ctx.state      = AUDIO_PROCESSOR_STATE_RUNNING;
-    s_ctx.last_error = ESP_OK;
 #if CONFIG_DESKMATE_WAKE_WORD_ENABLE
     const esp_err_t task_error = audio_processor_task_runtime_ensure_created();
     if (task_error != ESP_OK)
@@ -342,8 +361,20 @@ esp_err_t audio_processor_service_start(void)
         xSemaphoreGive(s_control_lock);
         return task_error;
     }
+    const esp_err_t input_error = device_audio_enable_input(true);
+    if (input_error != ESP_OK)
+    {
+        s_ctx.state      = AUDIO_PROCESSOR_STATE_STOPPED;
+        s_ctx.last_error = input_error;
+        xSemaphoreGive(s_control_lock);
+        ESP_LOGE(TAG, "启动常驻麦克风输入失败: %s", esp_err_to_name(input_error));
+        return input_error;
+    }
+    s_ctx.input_active = true;
     audio_processor_task_runtime_begin_processing();
 #endif
+    s_ctx.state      = AUDIO_PROCESSOR_STATE_RUNNING;
+    s_ctx.last_error = ESP_OK;
     xSemaphoreGive(s_control_lock);
     ESP_LOGI(TAG, "AFE Runtime 已启动，等待采集请求");
     return ESP_OK;
@@ -352,7 +383,7 @@ esp_err_t audio_processor_service_start(void)
 esp_err_t audio_processor_service_stop(uint32_t timeout_ms)
 {
     ESP_RETURN_ON_FALSE(timeout_ms > 0, ESP_ERR_INVALID_ARG, TAG, "AFE Runtime 停止超时无效");
-    if (s_control_lock == NULL)
+    if (s_runtime == nullptr || s_control_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -362,8 +393,7 @@ esp_err_t audio_processor_service_stop(uint32_t timeout_ms)
         xSemaphoreGive(s_control_lock);
         return ESP_OK;
     }
-    if (s_ctx.state != AUDIO_PROCESSOR_STATE_RUNNING
-        && s_ctx.state != AUDIO_PROCESSOR_STATE_CLEANUP_FAILED)
+    if (s_ctx.state != AUDIO_PROCESSOR_STATE_RUNNING && s_ctx.state != AUDIO_PROCESSOR_STATE_CLEANUP_FAILED)
     {
         xSemaphoreGive(s_control_lock);
         return ESP_ERR_INVALID_STATE;
@@ -377,8 +407,16 @@ esp_err_t audio_processor_service_stop(uint32_t timeout_ms)
         return ESP_ERR_INVALID_STATE;
     }
 
-    s_ctx.state = AUDIO_PROCESSOR_STATE_STOPPING;
-    const esp_err_t error = audio_processor_task_runtime_park(timeout_ms);
+    s_ctx.state     = AUDIO_PROCESSOR_STATE_STOPPING;
+    esp_err_t error = audio_processor_task_runtime_park(timeout_ms);
+    if (error == ESP_OK && s_ctx.input_active)
+    {
+        error = device_audio_enable_input(false);
+        if (error == ESP_OK)
+        {
+            s_ctx.input_active = false;
+        }
+    }
     if (error == ESP_OK)
     {
         s_ctx.state      = AUDIO_PROCESSOR_STATE_STOPPED;
@@ -404,7 +442,7 @@ esp_err_t audio_processor_service_stop(uint32_t timeout_ms)
 esp_err_t audio_processor_service_get_status_copy(audio_processor_service_status_t *out_status)
 {
     ESP_RETURN_ON_FALSE(out_status != NULL, ESP_ERR_INVALID_ARG, TAG, "AFE 状态输出为空");
-    if (s_control_lock == NULL)
+    if (s_runtime == nullptr || s_control_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -418,6 +456,7 @@ esp_err_t audio_processor_service_get_status_copy(audio_processor_service_status
         .tasks_created = task_status.tasks_created,
         .feed_parked   = task_status.feed_parked,
         .fetch_parked  = task_status.fetch_parked,
+        .input_active  = s_ctx.input_active,
         .last_error    = s_ctx.last_error,
     };
     xSemaphoreGive(s_capture_lock);
@@ -429,7 +468,7 @@ esp_err_t audio_processor_service_get_status_copy(audio_processor_service_status
 
 esp_err_t audio_processor_service_capture_start(int16_t *out_buf, size_t out_cap)
 {
-    if (s_control_lock == NULL)
+    if (s_runtime == nullptr || s_control_lock == NULL)
     {
         ESP_LOGE(TAG, "AFE 未初始化");
         return ESP_ERR_INVALID_STATE;
@@ -452,6 +491,17 @@ esp_err_t audio_processor_service_capture_start(int16_t *out_buf, size_t out_cap
         xSemaphoreGive(s_control_lock);
         return ESP_ERR_INVALID_STATE;
     }
+#if !CONFIG_DESKMATE_WAKE_WORD_ENABLE
+    const esp_err_t input_error = device_audio_enable_input(true);
+    if (input_error != ESP_OK)
+    {
+        xSemaphoreGive(s_capture_lock);
+        xSemaphoreGive(s_control_lock);
+        ESP_LOGE(TAG, "启动采集输入失败: %s", esp_err_to_name(input_error));
+        return input_error;
+    }
+    s_ctx.input_active = true;
+#endif
     s_ctx.out_buf                 = out_buf;
     s_ctx.out_cap                 = out_cap;
     s_ctx.out_written             = 0;
@@ -485,6 +535,17 @@ esp_err_t audio_processor_service_capture_start(int16_t *out_buf, size_t out_cap
         s_ctx.out_buf       = NULL;
         s_ctx.out_cap       = 0U;
         xSemaphoreGive(s_capture_lock);
+#if !CONFIG_DESKMATE_WAKE_WORD_ENABLE
+        const esp_err_t rollback_error = device_audio_enable_input(false);
+        if (rollback_error == ESP_OK)
+        {
+            s_ctx.input_active = false;
+        }
+        else
+        {
+            ESP_LOGE(TAG, "采集 Task 创建失败且输入回滚失败: %s", esp_err_to_name(rollback_error));
+        }
+#endif
         s_ctx.last_error = task_error;
         xSemaphoreGive(s_control_lock);
         return task_error;
@@ -497,12 +558,12 @@ esp_err_t audio_processor_service_capture_start(int16_t *out_buf, size_t out_cap
     return ESP_OK;
 }
 
-/* ── 内部：双麦 24kHz -> 重采样 16kHz -> 喂 AFE（feed_task 与原外部 feed 共用）── */
+/* ── 内部：双麦硬件采样率 -> 16kHz -> 喂 AFE ── */
 
 static void process_mic_chunk(int16_t *data, int num_samples)
 {
-    _Static_assert(APS_HW_CHANNELS == APS_AFE_MIC_CHANNELS,
-                   "dual-mic deinterleave removed: requires equal HW/AFE channel count");
+    static_assert(APS_HW_CHANNELS == APS_AFE_MIC_CHANNELS,
+                  "dual-mic deinterleave removed: requires equal HW/AFE channel count");
     if (s_ctx.afe_data == NULL || data == NULL || num_samples <= 0)
     {
         return;
@@ -513,18 +574,38 @@ static void process_mic_chunk(int16_t *data, int num_samples)
         return;
     }
 
-    /* HW 与 AFE 通道数相等（见上方 _Static_assert），data 已是双通道交错布局，
+    /* HW 与 AFE 通道数相等（见上方 static_assert），data 已是双通道交错布局，
      * 直接喂给重采样器，无需去交错拷贝。 */
-    uint32_t in_samples = frames;
-    uint32_t max_out    = 0;
-    esp_ae_rate_cvt_get_max_out_sample_num(s_ctx.rate_cvt, in_samples, &max_out);
-    if (max_out * APS_AFE_MIC_CHANNELS > (uint32_t) s_ctx.cvt_out_cap)
+    uint32_t actual_out = (uint32_t) frames;
+    if (s_ctx.rate_cvt == nullptr)
     {
-        ESP_LOGW(TAG, "重采样输出超限: %lu", (unsigned long) max_out);
-        return;
+        const int total_samples = frames * APS_AFE_MIC_CHANNELS;
+        if (total_samples > s_ctx.cvt_out_cap)
+        {
+            ESP_LOGW(TAG, "直通采样输出超限: %d", total_samples);
+            return;
+        }
+        memcpy(s_ctx.cvt_out, data, (size_t) total_samples * sizeof(int16_t));
     }
-    uint32_t actual_out = max_out;
-    esp_ae_rate_cvt_process(s_ctx.rate_cvt, data, in_samples, s_ctx.cvt_out, &actual_out);
+    else
+    {
+        uint32_t           max_out = 0;
+        const esp_ae_err_t size_error =
+            esp_ae_rate_cvt_get_max_out_sample_num(s_ctx.rate_cvt, (uint32_t) frames, &max_out);
+        if (size_error != ESP_AE_ERR_OK || max_out * APS_AFE_MIC_CHANNELS > (uint32_t) s_ctx.cvt_out_cap)
+        {
+            ESP_LOGW(TAG, "重采样输出超限: error=%d samples=%lu", (int) size_error, (unsigned long) max_out);
+            return;
+        }
+        actual_out = max_out;
+        const esp_ae_err_t cvt_error =
+            esp_ae_rate_cvt_process(s_ctx.rate_cvt, data, (uint32_t) frames, s_ctx.cvt_out, &actual_out);
+        if (cvt_error != ESP_AE_ERR_OK)
+        {
+            ESP_LOGW(TAG, "麦克风重采样失败: %d", (int) cvt_error);
+            return;
+        }
+    }
     int cvt_total     = (int) actual_out * APS_AFE_MIC_CHANNELS;
 
     int need_per_feed = s_ctx.feed_chunksize * APS_AFE_MIC_CHANNELS;
@@ -554,9 +635,9 @@ static void process_mic_chunk(int16_t *data, int num_samples)
 /** @brief feed Task 单步读取麦克风并送入重采样和 AFE。 */
 static void feed_task_step(void)
 {
-    const int read_samples = APS_READ_FRAMES * APS_HW_CHANNELS;
-    size_t    got          = 0U;
-    const esp_err_t read_error = audio_service_read(s_ctx.read_buf, (size_t) read_samples, &got);
+    const int       read_samples = APS_READ_FRAMES * APS_HW_CHANNELS;
+    size_t          got          = 0U;
+    const esp_err_t read_error   = device_audio_read(s_ctx.read_buf, (size_t) read_samples, &got);
     if (read_error == ESP_OK && got > 0U)
     {
         process_mic_chunk(s_ctx.read_buf, (int) got);
@@ -577,9 +658,8 @@ static void feed_task_step(void)
  */
 static bool fetch_task_step(bool draining)
 {
-    static TickType_t last_failure_log;
-    afe_fetch_result_t *res =
-        s_ctx.afe_iface->fetch_with_delay(s_ctx.afe_data, pdMS_TO_TICKS(APS_FETCH_WAIT_MS));
+    static TickType_t   last_failure_log;
+    afe_fetch_result_t *res = s_ctx.afe_iface->fetch_with_delay(s_ctx.afe_data, pdMS_TO_TICKS(APS_FETCH_WAIT_MS));
     if (res == NULL || res->ret_value == ESP_FAIL)
     {
         if (draining)
@@ -601,8 +681,7 @@ static bool fetch_task_step(bool draining)
     if (s_ctx.capture_state == AUDIO_PROCESSOR_CAPTURE_CAPTURING
         || s_ctx.capture_state == AUDIO_PROCESSOR_CAPTURE_DRAINING)
     {
-        const uint32_t frame_ms =
-            (uint32_t) (res->data_size * 1000 / sizeof(int16_t) / APS_AFE_SAMPLE_RATE);
+        const uint32_t frame_ms = (uint32_t) (res->data_size * 1000 / sizeof(int16_t) / APS_AFE_SAMPLE_RATE);
         if (res->vad_state == VAD_SPEECH)
         {
             if (!s_ctx.capture_has_speech)
@@ -635,8 +714,7 @@ static bool fetch_task_step(bool draining)
     else if (!draining && res->wakeup_state == WAKENET_DETECTED)
     {
         ESP_LOGI(TAG, "唤醒词命中 (model_index=%d)", res->wakenet_model_index);
-        const esp_err_t event_error =
-            esp_event_post(AUDIO_PROCESSOR_EVENT, AUDIO_PROCESSOR_EVENT_WAKE, NULL, 0, 0);
+        const esp_err_t event_error = esp_event_post(AUDIO_PROCESSOR_EVENT, AUDIO_PROCESSOR_EVENT_WAKE, NULL, 0, 0);
         if (event_error != ESP_OK)
         {
             ESP_LOGW(TAG, "投递唤醒事件失败: %s", esp_err_to_name(event_error));
@@ -658,7 +736,7 @@ esp_err_t audio_processor_service_capture_stop(size_t *out_sample_count)
 {
     ESP_RETURN_ON_FALSE(out_sample_count != NULL, ESP_ERR_INVALID_ARG, TAG, "降噪样本数输出指针为空");
     *out_sample_count = 0U;
-    if (s_control_lock == NULL)
+    if (s_runtime == nullptr || s_control_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }
@@ -689,9 +767,7 @@ esp_err_t audio_processor_service_capture_stop(size_t *out_sample_count)
         audio_processor_task_runtime_wait_drain_and_park(CONFIG_DESKMATE_AUDIO_DRAIN_MAX_WAIT_MS);
     if (drain_error != ESP_OK)
     {
-        ESP_LOGW(TAG,
-                 "AFE drain 或 Task 停泊超时: %u ms",
-                 (unsigned) CONFIG_DESKMATE_AUDIO_DRAIN_MAX_WAIT_MS);
+        ESP_LOGW(TAG, "AFE drain 或 Task 停泊超时: %u ms", (unsigned) CONFIG_DESKMATE_AUDIO_DRAIN_MAX_WAIT_MS);
     }
 
     /* fetch 每次写输出都持有同一把锁；取得锁后可以安全撤销调用方缓冲借用。 */
@@ -713,39 +789,53 @@ esp_err_t audio_processor_service_capture_stop(size_t *out_sample_count)
              "降噪收集结束: 输出 %u 样本 (%.1f 秒)",
              (unsigned) s_ctx.out_written,
              (float) s_ctx.out_written / APS_AFE_SAMPLE_RATE);
-    *out_sample_count      = s_ctx.out_written;
-    s_ctx.capture_state    = AUDIO_PROCESSOR_CAPTURE_IDLE;
-    s_ctx.out_buf          = NULL;
-    s_ctx.out_cap          = 0U;
+    *out_sample_count   = s_ctx.out_written;
+    s_ctx.capture_state = AUDIO_PROCESSOR_CAPTURE_IDLE;
+    s_ctx.out_buf       = NULL;
+    s_ctx.out_cap       = 0U;
     xSemaphoreGive(s_capture_lock);
 
+    esp_err_t input_error = ESP_OK;
 #if CONFIG_DESKMATE_WAKE_WORD_ENABLE
     if (drain_error == ESP_OK)
     {
         audio_processor_task_runtime_begin_processing();
     }
+#else
+    if (s_ctx.input_active)
+    {
+        input_error = device_audio_enable_input(false);
+        if (input_error == ESP_OK)
+        {
+            s_ctx.input_active = false;
+        }
+        else
+        {
+            ESP_LOGE(TAG, "关闭采集输入失败: %s", esp_err_to_name(input_error));
+        }
+    }
 #endif
-    s_ctx.last_error = drain_error;
+    const esp_err_t result = drain_error != ESP_OK ? drain_error : input_error;
+    s_ctx.last_error       = result;
     xSemaphoreGive(s_control_lock);
-    return drain_error;
+    return result;
 }
 
 bool audio_processor_service_capture_has_speech(void)
 {
-    if (s_capture_lock == NULL)
+    if (s_runtime == nullptr || s_capture_lock == NULL)
     {
         return false;
     }
     xSemaphoreTake(s_capture_lock, portMAX_DELAY);
-    const bool has_speech =
-        s_ctx.capture_has_speech && s_ctx.capture_speech_ms >= CONFIG_DESKMATE_AUDIO_SPEECH_MIN_MS;
+    const bool has_speech = s_ctx.capture_has_speech && s_ctx.capture_speech_ms >= CONFIG_DESKMATE_AUDIO_SPEECH_MIN_MS;
     xSemaphoreGive(s_capture_lock);
     return has_speech;
 }
 
 uint32_t audio_processor_service_capture_silence_ms(void)
 {
-    if (s_capture_lock == NULL)
+    if (s_runtime == nullptr || s_capture_lock == NULL)
     {
         return 0U;
     }
@@ -757,7 +847,7 @@ uint32_t audio_processor_service_capture_silence_ms(void)
 
 esp_err_t audio_processor_service_capture_reset_activity(void)
 {
-    if (s_capture_lock == NULL)
+    if (s_runtime == nullptr || s_capture_lock == NULL)
     {
         return ESP_ERR_INVALID_STATE;
     }

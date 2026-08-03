@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "src/voice_service.c" "src/voice_service_task.c"
+    SRCS "src/voice_service.cpp" "src/voice_service_task.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         esp_common
@@ -13,5 +13,4 @@ idf_component_register(
         heap
         log
         transport
-        utils
 )

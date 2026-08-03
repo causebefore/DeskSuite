@@ -49,15 +49,14 @@
 #define APP_ENVIRONMENT_STOP_TIMEOUT_MS 1000
 #define APP_POWER_STOP_TIMEOUT_MS       1000
 #define APP_VOICE_LIFECYCLE_TIMEOUT_MS  3000
+#define APP_AUDIO_STOP_TIMEOUT_MS       3000
 #define APP_POMODORO_STOP_TIMEOUT_MS    1000
 
 static const char *TAG = "app_main";
 
 /** @brief 把 UI Task 上报的窄意图转交给对应 Application，并返回异步请求接受结果 */
-static esp_err_t app_main_ui_user_intent_callback(
-    const ui_user_intent_t *intent,
-    ui_user_intent_result_t *out_result,
-    void *context)
+static esp_err_t app_main_ui_user_intent_callback(const ui_user_intent_t *intent, ui_user_intent_result_t *out_result,
+                                                  void *context)
 {
     (void) context;
     if (intent == NULL)
@@ -97,8 +96,8 @@ static esp_err_t app_main_ui_user_intent_callback(
                 },
                 .expected_version = intent->pomodoro_settings.expected_version,
             };
-            uint64_t request_id = 0U;
-            const esp_err_t error = app_pomodoro_request_update_settings_copy(&update, &request_id);
+            uint64_t        request_id = 0U;
+            const esp_err_t error      = app_pomodoro_request_update_settings_copy(&update, &request_id);
             if (error == ESP_OK)
             {
                 out_result->request_id = request_id;
@@ -160,13 +159,27 @@ static void rollback_ui_runtime(void)
     }
 }
 
-/** @brief 启动失败时尽力把语音 Runtime 收敛回 STOPPED。 */
-static void rollback_voice_runtime(void)
+/**
+ * @brief 启动失败时停止并反初始化语音 Application
+ *
+ * @return true Application 已释放，可以继续释放底层音频依赖；false 必须保留依赖
+ */
+static bool rollback_voice_application(void)
 {
-    app_voice_status_t status = { 0 };
-    if (app_voice_get_status_copy(&status) != ESP_OK)
+    app_voice_status_t status       = { 0 };
+    const esp_err_t    status_error = app_voice_get_status_copy(&status);
+    if (status_error != ESP_OK)
     {
-        return;
+        const esp_err_t deinit_error = app_voice_deinit();
+        if (deinit_error == ESP_OK)
+        {
+            return true;
+        }
+        ESP_LOGE(TAG,
+                 "读取语音 Application 回滚状态失败且无法直接反初始化，保留音频依赖: status=%s deinit=%s",
+                 esp_err_to_name(status_error),
+                 esp_err_to_name(deinit_error));
+        return false;
     }
     if (status.state == APP_VOICE_STATE_RUNNING)
     {
@@ -174,8 +187,49 @@ static void rollback_voice_runtime(void)
         if (error != ESP_OK)
         {
             ESP_LOGE(TAG, "回滚停止语音 Runtime 失败: %s", esp_err_to_name(error));
+            return false;
         }
     }
+
+    if (app_voice_get_status_copy(&status) != ESP_OK || status.state != APP_VOICE_STATE_STOPPED)
+    {
+        ESP_LOGE(TAG, "语音 Application 未到达安全回滚态，保留音频依赖");
+        return false;
+    }
+
+    const esp_err_t error = app_voice_deinit();
+    if (error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "回滚反初始化语音 Application 失败，保留音频依赖: %s", esp_err_to_name(error));
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief 启动失败时停止并反初始化 Power Application
+ *
+ * @param[in] started 本次失败前是否已成功启动
+ * @return true Power Task 不再引用下层运行时；false 必须保留其依赖
+ */
+static bool rollback_power_application(bool started)
+{
+    if (started)
+    {
+        const esp_err_t stop_error = app_power_stop(APP_POWER_STOP_TIMEOUT_MS);
+        if (stop_error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "回滚停止轻睡眠 Application 失败，保留其依赖: %s", esp_err_to_name(stop_error));
+            return false;
+        }
+    }
+    const esp_err_t deinit_error = app_power_deinit();
+    if (deinit_error != ESP_OK)
+    {
+        ESP_LOGE(TAG, "回滚反初始化轻睡眠 Application 失败，保留其依赖: %s", esp_err_to_name(deinit_error));
+        return false;
+    }
+    return true;
 }
 
 /** @brief 启动失败时尽力把番茄钟 Task 收敛回停止态 */
@@ -203,6 +257,7 @@ static esp_err_t init_audio_runtime(void)
     };
     bool      device_initialized    = false;
     bool      audio_initialized     = false;
+    bool      audio_started         = false;
     bool      processor_initialized = false;
     bool      voice_initialized     = false;
     esp_err_t ret                   = device_audio_init(&device_config);
@@ -221,7 +276,15 @@ static esp_err_t init_audio_runtime(void)
     }
     audio_initialized = true;
 
-    ret               = audio_processor_service_init();
+    ret               = audio_service_start();
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "启动音频输出 Service 失败: %s", esp_err_to_name(ret));
+        goto cleanup;
+    }
+    audio_started = true;
+
+    ret           = audio_processor_service_init();
     if (ret != ESP_OK)
     {
         ESP_LOGE(TAG, "初始化音频处理 Service 失败: %s", esp_err_to_name(ret));
@@ -258,6 +321,15 @@ cleanup:
             return ret;
         }
     }
+    if (audio_started)
+    {
+        const esp_err_t cleanup_error = audio_service_stop(APP_AUDIO_STOP_TIMEOUT_MS);
+        if (cleanup_error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "回滚停止音频输出 Service 失败，保留其资源: %s", esp_err_to_name(cleanup_error));
+            return ret;
+        }
+    }
     if (audio_initialized)
     {
         const esp_err_t cleanup_error = audio_service_deinit();
@@ -276,6 +348,85 @@ cleanup:
         }
     }
     return ret;
+}
+
+/** @brief 顶层启动失败时按 Voice → Processor → Audio → Device 顺序释放音频运行时。 */
+static void rollback_audio_runtime(void)
+{
+    voice_service_status_t voice_status;
+    esp_err_t              status_error = voice_service_get_status_copy(&voice_status);
+    if (status_error == ESP_OK)
+    {
+        if (voice_status.state == VOICE_SERVICE_STATE_RUNNING && !voice_status.session_busy)
+        {
+            (void) voice_service_stop();
+        }
+        status_error = voice_service_get_status_copy(&voice_status);
+        if (status_error != ESP_OK || voice_status.state != VOICE_SERVICE_STATE_STOPPED)
+        {
+            ESP_LOGE(TAG, "语音 Service 未到达安全回滚态，保留音频依赖");
+            return;
+        }
+        const esp_err_t error = voice_service_deinit();
+        if (error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "回滚语音 Service 失败: %s", esp_err_to_name(error));
+            return;
+        }
+    }
+
+    audio_processor_service_status_t processor_status;
+    status_error = audio_processor_service_get_status_copy(&processor_status);
+    if (status_error == ESP_OK)
+    {
+        if ((processor_status.state == AUDIO_PROCESSOR_STATE_RUNNING
+             || processor_status.state == AUDIO_PROCESSOR_STATE_CLEANUP_FAILED)
+            && processor_status.capture_state == AUDIO_PROCESSOR_CAPTURE_IDLE)
+        {
+            (void) audio_processor_service_stop(APP_VOICE_LIFECYCLE_TIMEOUT_MS);
+        }
+        status_error = audio_processor_service_get_status_copy(&processor_status);
+        if (status_error != ESP_OK || processor_status.state != AUDIO_PROCESSOR_STATE_STOPPED)
+        {
+            ESP_LOGE(TAG, "音频处理 Service 未到达安全回滚态，保留底层依赖");
+            return;
+        }
+        const esp_err_t error = audio_processor_service_deinit();
+        if (error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "回滚音频处理 Service 失败: %s", esp_err_to_name(error));
+            return;
+        }
+    }
+
+    audio_service_status_t audio_status;
+    status_error = audio_service_get_status_copy(&audio_status);
+    if (status_error == ESP_OK)
+    {
+        if (audio_status.state == AUDIO_SERVICE_STATE_RUNNING
+            || audio_status.state == AUDIO_SERVICE_STATE_CLEANUP_FAILED)
+        {
+            (void) audio_service_stop(APP_AUDIO_STOP_TIMEOUT_MS);
+        }
+        status_error = audio_service_get_status_copy(&audio_status);
+        if (status_error != ESP_OK || audio_status.state != AUDIO_SERVICE_STATE_STOPPED)
+        {
+            ESP_LOGE(TAG, "音频输出 Service 未到达安全回滚态，保留 Device");
+            return;
+        }
+        const esp_err_t error = audio_service_deinit();
+        if (error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "回滚音频输出 Service 失败: %s", esp_err_to_name(error));
+            return;
+        }
+    }
+
+    const esp_err_t device_error = device_audio_deinit();
+    if (device_error != ESP_OK && device_error != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGE(TAG, "回滚 Device 音频能力失败: %s", esp_err_to_name(device_error));
+    }
 }
 
 /**
@@ -378,7 +529,7 @@ static esp_err_t init_runtime_capabilities(void)
 static void rollback_web_console_service_init(void)
 {
     web_console_service_status_t status;
-    const esp_err_t           status_error = web_console_service_get_status_copy(&status);
+    const esp_err_t              status_error = web_console_service_get_status_copy(&status);
     if (status_error != ESP_OK)
     {
         ESP_LOGE(TAG, "读取网页控制台 Service 回滚状态失败: %s", esp_err_to_name(status_error));
@@ -427,9 +578,22 @@ static esp_err_t init_presenters(void)
  */
 static esp_err_t init_applications(void)
 {
-    ESP_RETURN_ON_ERROR(app_voice_init(), TAG, "语音 Application 初始化失败");
-    ESP_RETURN_ON_ERROR(app_ota_init(), TAG, "OTA Application 初始化失败");
-    ESP_RETURN_ON_ERROR(app_key_init(), TAG, "按键策略初始化失败");
+    esp_err_t error = app_voice_init();
+    ESP_RETURN_ON_ERROR(error, TAG, "语音 Application 初始化失败");
+    error = app_ota_init();
+    if (error != ESP_OK)
+    {
+        (void) rollback_voice_application();
+        ESP_LOGE(TAG, "OTA Application 初始化失败: %s", esp_err_to_name(error));
+        return error;
+    }
+    error = app_key_init();
+    if (error != ESP_OK)
+    {
+        (void) rollback_voice_application();
+        ESP_LOGE(TAG, "按键策略初始化失败: %s", esp_err_to_name(error));
+        return error;
+    }
     return ESP_OK;
 }
 
@@ -441,6 +605,7 @@ esp_err_t app_main_init(void)
     bool environment_initialized = false;
     bool ui_initialized          = false;
     bool pomodoro_initialized    = false;
+    bool voice_app_initialized   = false;
 
     esp_err_t error              = app_network_init();
     if (error != ESP_OK)
@@ -460,7 +625,8 @@ esp_err_t app_main_init(void)
         ESP_LOGE(TAG, "初始化 Application 失败: %s", esp_err_to_name(error));
         goto cleanup;
     }
-    error = app_pomodoro_init();
+    voice_app_initialized = true;
+    error                 = app_pomodoro_init();
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "番茄钟 Application 初始化失败: %s", esp_err_to_name(error));
@@ -540,6 +706,10 @@ cleanup:
             ESP_LOGE(TAG, "回滚番茄钟 Application 失败: %s", esp_err_to_name(cleanup_error));
         }
     }
+    if (voice_app_initialized)
+    {
+        (void) rollback_voice_application();
+    }
     return error;
 }
 
@@ -554,7 +724,10 @@ esp_err_t app_main_start(void)
     {
         ESP_LOGE(TAG, "UI Task 启动失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
-        (void) app_power_deinit();
+        if (rollback_power_application(false))
+        {
+            (void) rollback_voice_application();
+        }
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }
@@ -564,7 +737,10 @@ esp_err_t app_main_start(void)
     {
         ESP_LOGE(TAG, "派发首屏 UI 失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
-        (void) app_power_deinit();
+        if (rollback_power_application(false))
+        {
+            (void) rollback_voice_application();
+        }
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }
@@ -575,7 +751,10 @@ esp_err_t app_main_start(void)
     {
         ESP_LOGE(TAG, "启动 RTC Service 失败: %s", esp_err_to_name(error));
         rollback_ui_runtime();
-        (void) app_power_deinit();
+        if (rollback_power_application(false))
+        {
+            (void) rollback_voice_application();
+        }
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }
@@ -587,7 +766,10 @@ esp_err_t app_main_start(void)
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         rollback_ui_runtime();
-        (void) app_power_deinit();
+        if (rollback_power_application(false))
+        {
+            (void) rollback_voice_application();
+        }
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }
@@ -599,7 +781,10 @@ esp_err_t app_main_start(void)
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         rollback_ui_runtime();
-        (void) app_power_deinit();
+        if (rollback_power_application(false))
+        {
+            (void) rollback_voice_application();
+        }
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }
@@ -608,10 +793,14 @@ esp_err_t app_main_start(void)
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "启动语音 Runtime 失败: %s", esp_err_to_name(error));
+        const bool power_released = rollback_power_application(false);
+        if (power_released && rollback_voice_application())
+        {
+            rollback_audio_runtime();
+        }
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         rollback_ui_runtime();
-        (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }
@@ -620,11 +809,14 @@ esp_err_t app_main_start(void)
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "启动轻睡眠 Application 失败: %s", esp_err_to_name(error));
-        rollback_voice_runtime();
+        const bool power_released = rollback_power_application(false);
+        if (power_released && rollback_voice_application())
+        {
+            rollback_audio_runtime();
+        }
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         rollback_ui_runtime();
-        (void) app_power_deinit();
         (void) app_environment_deinit(APP_ENVIRONMENT_STOP_TIMEOUT_MS);
         return error;
     }
@@ -633,9 +825,11 @@ esp_err_t app_main_start(void)
     if (error != ESP_OK)
     {
         ESP_LOGE(TAG, "启动按键 Service 失败: %s", esp_err_to_name(error));
-        (void) app_power_stop(APP_POWER_STOP_TIMEOUT_MS);
-        (void) app_power_deinit();
-        rollback_voice_runtime();
+        const bool power_released = rollback_power_application(true);
+        if (power_released && rollback_voice_application())
+        {
+            rollback_audio_runtime();
+        }
         rollback_pomodoro_runtime();
         (void) rtc_service_stop(APP_POWER_STOP_TIMEOUT_MS);
         rollback_ui_runtime();

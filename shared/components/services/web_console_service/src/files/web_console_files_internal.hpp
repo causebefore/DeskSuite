@@ -122,8 +122,8 @@ esp_err_t web_file_upload_validate_length(size_t content_length);
 web_file_recovery_action_t web_file_transaction_decide_recovery(web_file_transaction_phase_t phase, bool target_exists,
                                                                 bool backup_exists, bool part_exists,
                                                                 bool target_matches_expected_length);
-esp_err_t web_file_transaction_commit(const web_file_transaction_t *transaction);
+esp_err_t web_file_transaction_commit(const web_file_transaction_t *transaction, bool *out_target_busy);
 esp_err_t web_file_transaction_prepare_upload(void);
 esp_err_t web_file_transaction_abort_upload(void);
-esp_err_t web_file_transaction_commit_new(const web_file_transaction_t *transaction);
+esp_err_t web_file_transaction_commit_new(const web_file_transaction_t *transaction, bool *out_target_busy);
 esp_err_t web_file_transaction_recover(void);

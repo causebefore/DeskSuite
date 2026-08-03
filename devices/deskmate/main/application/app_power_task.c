@@ -10,6 +10,8 @@
 #include "app_network.h"
 #include "app_pomodoro.h"
 #include "app_voice.h"
+#include "audio_processor_service.h"
+#include "audio_service.h"
 #include "button_service.h"
 #include "device_power.h"
 #include "esp_log.h"
@@ -20,20 +22,21 @@
 #include "freertos/task.h"
 #include "system_clock.h"
 #include "ui_runtime.h"
+#include "voice_service.h"
 
-#define APP_POWER_TASK_STACK_SIZE               6144U
-#define APP_POWER_TASK_PRIORITY                 3U
-#define APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS    3000U
-#define APP_POWER_UI_LIFECYCLE_TIMEOUT_MS       5000U
-#define APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS  5000U
-#define APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS 5000U
-#define APP_POWER_POMODORO_RECONCILE_TIMEOUT_MS 1000U
+#define APP_POWER_TASK_STACK_SIZE                6144U
+#define APP_POWER_TASK_PRIORITY                  3U
+#define APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS     3000U
+#define APP_POWER_UI_LIFECYCLE_TIMEOUT_MS        5000U
+#define APP_POWER_NETWORK_LIFECYCLE_TIMEOUT_MS   5000U
+#define APP_POWER_NETWORK_SYNC_CLAIM_TIMEOUT_MS  5000U
+#define APP_POWER_POMODORO_RECONCILE_TIMEOUT_MS  1000U
 
 /** @brief 番茄钟前台离线显示期间的 LVGL 刷新周期，单位毫秒 */
 #define APP_POWER_OFFLINE_DISPLAY_LVGL_PERIOD_MS 100U
 
 /** @brief 默认 LVGL 刷新周期，由 ui_platform_lvgl_get_refresh_period() 返回 */
-#define APP_POWER_DEFAULT_LVGL_PERIOD_MS 45U
+#define APP_POWER_DEFAULT_LVGL_PERIOD_MS         45U
 
 static const char *TAG                  = "app_power";
 
@@ -160,23 +163,42 @@ static bool wakeup_is_button(app_power_wakeup_source_t source)
 /** @brief 读取不会改变其他组件状态的产品睡眠阻止条件 */
 static uint32_t collect_runtime_blockers(void)
 {
-    uint32_t           blockers = APP_POWER_BLOCKER_NONE;
-    app_voice_status_t voice    = { 0 };
-    if (app_voice_get_status_copy(&voice) != ESP_OK || voice.state == APP_VOICE_STATE_FAILED || voice.session_busy)
+    uint32_t           blockers        = APP_POWER_BLOCKER_NONE;
+    app_voice_status_t app_voice       = { 0 };
+    const esp_err_t    app_voice_error = app_voice_get_status_copy(&app_voice);
+    if (app_voice_error != ESP_OK || app_voice.state == APP_VOICE_STATE_FAILED || app_voice.session_busy)
     {
         blockers |= APP_POWER_BLOCKER_VOICE;
     }
-    if (voice.input_active || voice.output_active)
-    {
-        blockers |= APP_POWER_BLOCKER_AUDIO;
-    }
-    if (!voice.processor_idle)
-    {
-        blockers |= APP_POWER_BLOCKER_AUDIO_PROCESSOR;
-    }
-    if (voice.network_lease_held)
+    if (app_voice_error != ESP_OK || app_voice.network_lease_held)
     {
         blockers |= APP_POWER_BLOCKER_NETWORK_LEASE;
+    }
+
+    voice_service_status_t voice = { 0 };
+    if (voice_service_get_status_copy(&voice) != ESP_OK || voice.state == VOICE_SERVICE_STATE_CLEANUP_FAILED
+        || voice.session_busy || voice.chat_task_active)
+    {
+        blockers |= APP_POWER_BLOCKER_VOICE;
+    }
+
+    audio_service_status_t audio = { 0 };
+    if (audio_service_get_status_copy(&audio) != ESP_OK || audio.state == AUDIO_SERVICE_STATE_STOPPING
+        || audio.state == AUDIO_SERVICE_STATE_CLEANUP_FAILED
+        || audio.playback_state != AUDIO_SERVICE_PLAYBACK_STATE_IDLE || audio.output_active
+        || audio.active_request_id != 0U || audio.pending_request_id != 0U || audio.active_stream_id != 0U)
+    {
+        blockers |= APP_POWER_BLOCKER_AUDIO_PLAYBACK;
+    }
+
+    audio_processor_service_status_t processor = { 0 };
+    if (audio_processor_service_get_status_copy(&processor) != ESP_OK
+        || processor.state == AUDIO_PROCESSOR_STATE_STOPPING || processor.state == AUDIO_PROCESSOR_STATE_CLEANUP_FAILED
+        || processor.capture_state != AUDIO_PROCESSOR_CAPTURE_IDLE
+        || (processor.state != AUDIO_PROCESSOR_STATE_RUNNING
+            && (processor.input_active || !processor.feed_parked || !processor.fetch_parked)))
+    {
+        blockers |= APP_POWER_BLOCKER_AUDIO_PROCESSOR;
     }
     if (app_network_is_ota_busy())
     {
@@ -287,7 +309,7 @@ static void enter_blocked(esp_err_t primary_error, esp_err_t recovery_error)
 /**
  * @brief 在活动代次未变化时停止语音 Runtime
  *
- * 活动会话、AFE drain、音频输入输出或未释放租约会由 app_voice 拒绝停止；本函数不取消会话。
+ * 活动会话、AFE drain 或未释放租约会由 app_voice 拒绝停止；本函数不取消会话。
  *
  * @param[in] expected_generation 计划入睡时锁存的活动代次
  * @return ESP_OK 语音链已静默；ESP_ERR_INVALID_STATE 本轮准备被取消或语音仍忙；
@@ -728,8 +750,17 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             goto restore_awake;
         }
 
+        set_state_step(APP_POWER_STATE_PREPARING, APP_POWER_STEP_CHECK_BLOCKERS);
+        const uint32_t blockers = collect_runtime_blockers();
+        set_blockers(blockers);
+        if (blockers != APP_POWER_BLOCKER_NONE || preparation_was_interrupted(expected_generation))
+        {
+            result = ESP_ERR_INVALID_STATE;
+            goto restore_awake;
+        }
+
         set_state_step(APP_POWER_STATE_SLEEPING, APP_POWER_STEP_DEVICE_SLEEP);
-        device_power_wakeup_result_t wakeup = { 0 };
+        device_power_wakeup_result_t wakeup             = { 0 };
         app_power_timer_reason_t     timer_reason       = APP_POWER_TIMER_REASON_SCREEN;
         const uint32_t               wakeup_interval_ms = next_power_save_interval_ms(&timer_reason);
         log_next_wakeup(wakeup_interval_ms, timer_reason);
@@ -848,8 +879,8 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
 
         taskENTER_CRITICAL(&s_lock);
         s_timer_refresh_count++;
-        s_primary_error  = ESP_OK;
-        s_recovery_error = ESP_OK;
+        s_primary_error              = ESP_OK;
+        s_recovery_error             = ESP_OK;
         const uint32_t refresh_count = s_timer_refresh_count;
         taskEXIT_CRITICAL(&s_lock);
         ESP_LOGD(TAG, "内部 Timer 唤醒已刷新屏幕，累计=%lu", (unsigned long) refresh_count);
@@ -1001,28 +1032,29 @@ esp_err_t app_power_init(const app_power_config_t *config)
         return ESP_ERR_NO_MEM;
     }
 
-    const esp_err_t pm_lock_error = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "offline_disp", &s_offline_display_pm_lock);
+    const esp_err_t pm_lock_error =
+        esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "offline_disp", &s_offline_display_pm_lock);
     if (pm_lock_error != ESP_OK)
     {
         ESP_LOGW(TAG, "创建离线显示 PM 锁失败: %s，离线显示仍会继续运行", esp_err_to_name(pm_lock_error));
         s_offline_display_pm_lock = NULL;
     }
 
-    s_config                  = *config;
-    s_state                   = APP_POWER_STATE_STOPPED;
-    s_step                    = APP_POWER_STEP_NONE;
-    s_wakeup_source           = APP_POWER_WAKEUP_NONE;
-    s_last_activity_us        = 0;
-    s_activity_generation     = 0U;
-    s_cycle_id                = 0U;
-    s_success_count           = 0U;
-    s_timer_refresh_count     = 0U;
-    s_blockers                = APP_POWER_BLOCKER_NONE;
-    s_primary_error           = ESP_OK;
-    s_recovery_error          = ESP_OK;
-    s_initialized             = true;
-    s_started                 = false;
-    s_stop_requested          = false;
+    s_config              = *config;
+    s_state               = APP_POWER_STATE_STOPPED;
+    s_step                = APP_POWER_STEP_NONE;
+    s_wakeup_source       = APP_POWER_WAKEUP_NONE;
+    s_last_activity_us    = 0;
+    s_activity_generation = 0U;
+    s_cycle_id            = 0U;
+    s_success_count       = 0U;
+    s_timer_refresh_count = 0U;
+    s_blockers            = APP_POWER_BLOCKER_NONE;
+    s_primary_error       = ESP_OK;
+    s_recovery_error      = ESP_OK;
+    s_initialized         = true;
+    s_started             = false;
+    s_stop_requested      = false;
     return ESP_OK;
 }
 
@@ -1145,24 +1177,24 @@ esp_err_t app_power_deinit(void)
     }
 
     vSemaphoreDelete(s_stopped_signal);
-    s_stopped_signal          = NULL;
+    s_stopped_signal = NULL;
     if (s_offline_display_pm_lock != NULL)
     {
         (void) esp_pm_lock_delete(s_offline_display_pm_lock);
         s_offline_display_pm_lock = NULL;
     }
-    s_config                  = (app_power_config_t) { 0 };
-    s_state                   = APP_POWER_STATE_STOPPED;
-    s_step                    = APP_POWER_STEP_NONE;
-    s_wakeup_source           = APP_POWER_WAKEUP_NONE;
-    s_last_activity_us        = 0;
-    s_activity_generation     = 0U;
-    s_cycle_id                = 0U;
-    s_success_count           = 0U;
-    s_timer_refresh_count     = 0U;
-    s_blockers                = APP_POWER_BLOCKER_NONE;
-    s_primary_error           = ESP_OK;
-    s_recovery_error          = ESP_OK;
-    s_initialized             = false;
+    s_config              = (app_power_config_t) { 0 };
+    s_state               = APP_POWER_STATE_STOPPED;
+    s_step                = APP_POWER_STEP_NONE;
+    s_wakeup_source       = APP_POWER_WAKEUP_NONE;
+    s_last_activity_us    = 0;
+    s_activity_generation = 0U;
+    s_cycle_id            = 0U;
+    s_success_count       = 0U;
+    s_timer_refresh_count = 0U;
+    s_blockers            = APP_POWER_BLOCKER_NONE;
+    s_primary_error       = ESP_OK;
+    s_recovery_error      = ESP_OK;
+    s_initialized         = false;
     return ESP_OK;
 }

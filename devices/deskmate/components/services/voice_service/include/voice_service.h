@@ -1,12 +1,12 @@
 /*
- * 文件职责：封装双麦降噪录音 + 流式播放的语音交互闭环。
+ * 文件职责：封装双麦降噪录音、网络会话与 TTS PCM 提交的语音交互闭环。
  * 主要依赖：audio_service、audio_processor_service、transport、voice_protocol、protocols。
  * 调用方：App 业务流程（按键或唤醒词触发）。
  *
  * 数据流：
  *   录音：(MIC) → ES7210 双通道 → 双麦 AFE 降噪/VAD → 单声道 16kHz PCM
  *   上行：WebSocket 优先，HTTP 流式接口作为连接失败回退
- *   播放：server 流式帧响应 → 逐帧解析 → TTS_PCM 帧 → 边收边播
+ *   播放：server 流式帧响应 → 逐帧解析 → Audio Service 唯一 PCM 输出事务
  */
 #pragma once
 
@@ -49,11 +49,10 @@ extern "C"
     /** @brief 语音 Service 的有界运行摘要。 */
     typedef struct
     {
-        voice_service_state_t state;                /*!< 生命周期状态 */
-        bool                  session_busy;         /*!< 是否存在活动语音回合 */
-        bool                  chat_task_active;     /*!< 会话 Task 是否仍存在 */
-        bool                  playback_task_active; /*!< 播放 Task 是否仍存在 */
-        esp_err_t             last_error;           /*!< 最近生命周期错误 */
+        voice_service_state_t state;            /*!< 生命周期状态 */
+        bool                  session_busy;     /*!< 是否存在活动语音回合 */
+        bool                  chat_task_active; /*!< 会话 Task 是否仍存在 */
+        esp_err_t             last_error;       /*!< 最近生命周期错误 */
     } voice_service_status_t;
 
     /**
@@ -107,13 +106,19 @@ extern "C"
      * Transport 错误会由后台任务收敛为 VOICE_SERVICE_EVENT_ERROR。
      *
      * @param[in] backend 本轮完整后端上下文，函数返回前按值复制
-     * @param[in] duration_ms 录音时长（毫秒），范围 1000~10000
+     * @param[in] duration_ms 录音时长（毫秒），范围 2000～10000
      * @return ESP_OK 请求已接受；ESP_ERR_INVALID_ARG 参数无效；
      *         ESP_ERR_INVALID_STATE Service 未运行或已有会话；或资源创建错误码
      */
     esp_err_t voice_service_request_chat(const protocol_backend_context_t *backend, uint32_t duration_ms);
 
-    /** @brief 取消正在进行的语音回合。幂等；由后台任务完成资源回收。 */
+    /**
+     * @brief 取消正在进行的语音回合
+     *
+     * 幂等；由后台任务完成资源回收。
+     *
+     * @return ESP_OK 已记录或当前空闲；ESP_ERR_INVALID_STATE 尚未初始化
+     */
     esp_err_t voice_service_cancel(void);
 
     /**

@@ -703,13 +703,14 @@ static bool web_file_transaction_is_cancelled(void)
     return cancelled;
 }
 
-esp_err_t web_file_transaction_commit_new(const web_file_transaction_t *transaction)
+esp_err_t web_file_transaction_commit_new(const web_file_transaction_t *transaction, bool *out_target_busy)
 {
-    if (transaction == NULL || transaction->phase != WEB_FILE_TRANSACTION_PREPARED
+    if (transaction == NULL || out_target_busy == NULL || transaction->phase != WEB_FILE_TRANSACTION_PREPARED
         || transaction->expected_length > s_files_context.upload_max_bytes)
     {
         return ESP_ERR_INVALID_ARG;
     }
+    *out_target_busy = false;
 
     char target_filesystem[WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE];
     if (web_file_path_map_logical(transaction->target_path, target_filesystem, sizeof(target_filesystem)) != ESP_OK
@@ -744,8 +745,14 @@ esp_err_t web_file_transaction_commit_new(const web_file_transaction_t *transact
 
     if (rename(WEB_FILE_TRANSACTION_PART, target_filesystem) != 0)
     {
+        const int       rename_errno  = errno;
         const esp_err_t cleanup_error = web_file_transaction_abort_upload();
-        return cleanup_error == ESP_OK ? ESP_FAIL : cleanup_error;
+        if (cleanup_error != ESP_OK)
+        {
+            return cleanup_error;
+        }
+        *out_target_busy = rename_errno == EBUSY;
+        return ESP_FAIL;
     }
 
     bool      committed_exists;
@@ -830,8 +837,14 @@ static esp_err_t
     return ESP_OK;
 }
 
-esp_err_t web_file_transaction_commit(const web_file_transaction_t *transaction)
+esp_err_t web_file_transaction_commit(const web_file_transaction_t *transaction, bool *out_target_busy)
 {
+    if (out_target_busy == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_target_busy = false;
+
     char      target_filesystem[WEB_FILE_FILESYSTEM_PATH_BUFFER_SIZE];
     esp_err_t error = web_file_transaction_validate_commit_input(transaction, target_filesystem);
     if (error != ESP_OK)
@@ -856,7 +869,15 @@ esp_err_t web_file_transaction_commit(const web_file_transaction_t *transaction)
 
     if (rename(target_filesystem, WEB_FILE_TRANSACTION_BACKUP) != 0)
     {
-        return web_file_transaction_recover_failure(ESP_FAIL);
+        const int       rename_errno   = errno;
+        const esp_err_t recovery_error = web_file_transaction_recover();
+        if (recovery_error != ESP_OK)
+        {
+            ESP_LOGE(TAG, "上传提交失败且未能立即恢复，已保留事务产物");
+            return recovery_error;
+        }
+        *out_target_busy = rename_errno == EBUSY;
+        return ESP_FAIL;
     }
     durable.phase = WEB_FILE_TRANSACTION_BACKUP_MOVED;
     error         = web_file_transaction_write_journal(&durable);

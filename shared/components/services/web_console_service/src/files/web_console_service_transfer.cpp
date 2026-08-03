@@ -656,6 +656,10 @@ esp_err_t web_file_send_operation_error(httpd_req_t *request, web_file_operation
             return web_file_send_json_error(request,
                                             "500 Internal Server Error",
                                             "{\"error\":\"out_of_memory\",\"message\":\"传输内存分配失败\"}");
+        case WEB_FILE_OPERATION_IN_USE:
+            return web_file_send_json_error(request,
+                                            "409 Conflict",
+                                            "{\"error\":\"file_in_use\",\"message\":\"文件正在使用\"}");
         case WEB_FILE_OPERATION_IO_ERROR:
             return web_file_send_json_error(request,
                                             "500 Internal Server Error",
@@ -768,18 +772,23 @@ esp_err_t web_file_handle_file_put(httpd_req_t *request)
         transaction.expected_length = upload.expected_length;
         memcpy(transaction.target_path, workspace->logical, strlen(workspace->logical) + 1U);
 
-        const esp_err_t commit_error = upload.target_exists ? web_file_transaction_commit(&transaction)
-                                                            : web_file_transaction_commit_new(&transaction);
+        bool            target_busy  = false;
+        const esp_err_t commit_error = upload.target_exists
+                                           ? web_file_transaction_commit(&transaction, &target_busy)
+                                           : web_file_transaction_commit_new(&transaction, &target_busy);
         if (commit_error != ESP_OK)
         {
             /*
              * 提交内核若尚未创建 journal，这里会删除普通 `.part`；已经进入 durable 阶段时
              * abort 会拒绝改动，保留提交内核的可恢复现场。
              */
-            (void) web_file_transaction_abort_upload();
-            result = commit_error == ESP_ERR_INVALID_STATE && web_file_transfer_is_cancelled()
-                         ? WEB_FILE_OPERATION_CANCELLED
-                         : WEB_FILE_OPERATION_IO_ERROR;
+            const esp_err_t cleanup_error = web_file_transaction_abort_upload();
+            result = cleanup_error != ESP_OK
+                         ? WEB_FILE_OPERATION_IO_ERROR
+                         : (target_busy ? WEB_FILE_OPERATION_IN_USE
+                                        : (commit_error == ESP_ERR_INVALID_STATE && web_file_transfer_is_cancelled()
+                                               ? WEB_FILE_OPERATION_CANCELLED
+                                               : WEB_FILE_OPERATION_IO_ERROR));
         }
     }
 

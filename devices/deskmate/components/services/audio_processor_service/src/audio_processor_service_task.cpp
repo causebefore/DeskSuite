@@ -1,4 +1,4 @@
-#include "audio_processor_service_internal.h"
+#include "audio_processor_service_internal.hpp"
 
 #include "esp_check.h"
 #include "esp_log.h"
@@ -23,12 +23,12 @@ static const char *TAG = "audio_processor_task";
 #define APS_TASK_FEED_EXITED   BIT7
 #define APS_TASK_FETCH_EXITED  BIT8
 
-static EventGroupHandle_t           s_events;
-static TaskHandle_t                 s_feed_task;
-static TaskHandle_t                 s_fetch_task;
-static portMUX_TYPE                 s_task_lock = portMUX_INITIALIZER_UNLOCKED;
-static audio_processor_feed_step_t  s_feed_step;
-static audio_processor_fetch_step_t s_fetch_step;
+#define s_events               (audio_processor_runtime_get()->events)
+#define s_feed_task            (audio_processor_runtime_get()->feed_task)
+#define s_fetch_task           (audio_processor_runtime_get()->fetch_task)
+#define s_task_lock            (audio_processor_runtime_get()->task_lock)
+#define s_feed_step            (audio_processor_runtime_get()->feed_step)
+#define s_fetch_step           (audio_processor_runtime_get()->fetch_step)
 
 static TickType_t timeout_ticks(uint32_t timeout_ms)
 {
@@ -57,7 +57,12 @@ static EventBits_t created_parked_mask(void)
  */
 static void audio_processor_feed_task(void *arg)
 {
-    (void) arg;
+    AudioProcessorRuntime *runtime = static_cast<AudioProcessorRuntime *>(arg);
+    if (runtime == nullptr || runtime != audio_processor_runtime_get())
+    {
+        vTaskDelete(nullptr);
+        return;
+    }
     xEventGroupSetBits(s_events, APS_TASK_FEED_PARKED);
     for (;;)
     {
@@ -76,10 +81,10 @@ static void audio_processor_feed_task(void *arg)
         xEventGroupSetBits(s_events, APS_TASK_FEED_PARKED);
     }
 
-    xEventGroupSetBits(s_events, APS_TASK_FEED_PARKED | APS_TASK_FEED_EXITED);
     taskENTER_CRITICAL(&s_task_lock);
     s_feed_task = NULL;
     taskEXIT_CRITICAL(&s_task_lock);
+    xEventGroupSetBits(s_events, APS_TASK_FEED_PARKED | APS_TASK_FEED_EXITED);
     vTaskDelete(NULL);
 }
 
@@ -88,7 +93,12 @@ static void audio_processor_feed_task(void *arg)
  */
 static void audio_processor_fetch_task(void *arg)
 {
-    (void) arg;
+    AudioProcessorRuntime *runtime = static_cast<AudioProcessorRuntime *>(arg);
+    if (runtime == nullptr || runtime != audio_processor_runtime_get())
+    {
+        vTaskDelete(nullptr);
+        return;
+    }
     xEventGroupSetBits(s_events, APS_TASK_FETCH_PARKED);
     for (;;)
     {
@@ -113,10 +123,10 @@ static void audio_processor_fetch_task(void *arg)
         xEventGroupSetBits(s_events, APS_TASK_FETCH_PARKED);
     }
 
-    xEventGroupSetBits(s_events, APS_TASK_FETCH_PARKED | APS_TASK_FETCH_EXITED);
     taskENTER_CRITICAL(&s_task_lock);
     s_fetch_task = NULL;
     taskEXIT_CRITICAL(&s_task_lock);
+    xEventGroupSetBits(s_events, APS_TASK_FETCH_PARKED | APS_TASK_FETCH_EXITED);
     vTaskDelete(NULL);
 }
 
@@ -124,6 +134,10 @@ esp_err_t audio_processor_task_runtime_init(audio_processor_feed_step_t  feed_st
                                             audio_processor_fetch_step_t fetch_step)
 {
     ESP_RETURN_ON_FALSE(feed_step != NULL && fetch_step != NULL, ESP_ERR_INVALID_ARG, TAG, "AFE Task 回调为空");
+    ESP_RETURN_ON_FALSE(audio_processor_runtime_get() != nullptr,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "Audio Processor Runtime 尚未创建");
     if (s_events != NULL)
     {
         return ESP_ERR_INVALID_STATE;
@@ -137,6 +151,10 @@ esp_err_t audio_processor_task_runtime_init(audio_processor_feed_step_t  feed_st
 
 esp_err_t audio_processor_task_runtime_ensure_created(void)
 {
+    ESP_RETURN_ON_FALSE(audio_processor_runtime_get() != nullptr,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "Audio Processor Runtime 尚未创建");
     ESP_RETURN_ON_FALSE(s_events != NULL, ESP_ERR_INVALID_STATE, TAG, "AFE Task Runtime 尚未初始化");
     taskENTER_CRITICAL(&s_task_lock);
     const bool complete = s_feed_task != NULL && s_fetch_task != NULL;
@@ -154,7 +172,7 @@ esp_err_t audio_processor_task_runtime_ensure_created(void)
     if (xTaskCreate(audio_processor_fetch_task,
                     "aps_fetch",
                     APS_FETCH_TASK_STACK,
-                    NULL,
+                    audio_processor_runtime_get(),
                     APS_FETCH_TASK_PRIO,
                     &s_fetch_task)
         != pdPASS)
@@ -162,7 +180,12 @@ esp_err_t audio_processor_task_runtime_ensure_created(void)
         s_fetch_task = NULL;
         return ESP_ERR_NO_MEM;
     }
-    if (xTaskCreate(audio_processor_feed_task, "aps_feed", APS_FEED_TASK_STACK, NULL, APS_FEED_TASK_PRIO, &s_feed_task)
+    if (xTaskCreate(audio_processor_feed_task,
+                    "aps_feed",
+                    APS_FEED_TASK_STACK,
+                    audio_processor_runtime_get(),
+                    APS_FEED_TASK_PRIO,
+                    &s_feed_task)
         != pdPASS)
     {
         s_feed_task = NULL;
@@ -189,6 +212,10 @@ void audio_processor_task_runtime_begin_drain(void)
 esp_err_t audio_processor_task_runtime_park(uint32_t timeout_ms)
 {
     ESP_RETURN_ON_FALSE(timeout_ms > 0, ESP_ERR_INVALID_ARG, TAG, "AFE Task 停泊超时无效");
+    ESP_RETURN_ON_FALSE(audio_processor_runtime_get() != nullptr,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "Audio Processor Runtime 尚未创建");
     const EventBits_t parked_mask = created_parked_mask();
     if (parked_mask == 0)
     {
@@ -202,6 +229,10 @@ esp_err_t audio_processor_task_runtime_park(uint32_t timeout_ms)
 esp_err_t audio_processor_task_runtime_wait_drain_and_park(uint32_t timeout_ms)
 {
     ESP_RETURN_ON_FALSE(timeout_ms > 0, ESP_ERR_INVALID_ARG, TAG, "AFE drain 超时无效");
+    ESP_RETURN_ON_FALSE(audio_processor_runtime_get() != nullptr && s_events != nullptr,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "AFE Task Runtime 尚未初始化");
     const TickType_t  start_tick = xTaskGetTickCount();
     const TickType_t  total      = timeout_ticks(timeout_ms);
     const EventBits_t drain_bits =
@@ -222,6 +253,10 @@ esp_err_t audio_processor_task_runtime_wait_drain_and_park(uint32_t timeout_ms)
 esp_err_t audio_processor_task_runtime_deinit(uint32_t timeout_ms)
 {
     ESP_RETURN_ON_FALSE(timeout_ms > 0, ESP_ERR_INVALID_ARG, TAG, "AFE Task 退出超时无效");
+    ESP_RETURN_ON_FALSE(audio_processor_runtime_get() != nullptr,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "Audio Processor Runtime 尚未创建");
     if (s_events == NULL)
     {
         return ESP_OK;
@@ -260,7 +295,7 @@ void audio_processor_task_runtime_get_status(audio_processor_task_status_t *out_
     {
         return;
     }
-    if (s_events == NULL)
+    if (audio_processor_runtime_get() == nullptr || s_events == NULL)
     {
         *out_status = (audio_processor_task_status_t) { 0 };
         return;

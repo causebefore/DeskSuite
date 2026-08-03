@@ -6,7 +6,6 @@
 #include "app_network.h"
 #include "app_page.h"
 #include "audio_processor_service.h"
-#include "audio_service.h"
 #include "esp_check.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -255,26 +254,12 @@ esp_err_t app_voice_start(uint32_t timeout_ms)
 
     set_state(APP_VOICE_STATE_STARTING, ESP_OK, ESP_OK);
     const int64_t deadline_us       = esp_timer_get_time() + (int64_t) timeout_ms * 1000LL;
-    bool          audio_started     = false;
     bool          processor_started = false;
-    bool          voice_started     = false;
-    esp_err_t     primary_error     = audio_service_start();
-    if (primary_error == ESP_OK)
-    {
-        audio_started = true;
-        primary_error = audio_processor_service_start();
-    }
+    esp_err_t     primary_error     = audio_processor_service_start();
     if (primary_error == ESP_OK)
     {
         processor_started = true;
         primary_error     = voice_service_start();
-    }
-    if (primary_error == ESP_OK)
-    {
-        voice_started = true;
-#if CONFIG_DESKMATE_WAKE_WORD_ENABLE
-        primary_error = audio_service_enable_input(true);
-#endif
     }
     if (primary_error == ESP_OK)
     {
@@ -285,21 +270,9 @@ esp_err_t app_voice_start(uint32_t timeout_ms)
     }
 
     esp_err_t recovery_error = ESP_OK;
-    if (voice_started)
-    {
-        recovery_error = voice_service_stop();
-    }
     if (processor_started)
     {
         const esp_err_t error = audio_processor_service_stop(remaining_ms(deadline_us));
-        if (recovery_error == ESP_OK)
-        {
-            recovery_error = error;
-        }
-    }
-    if (audio_started)
-    {
-        const esp_err_t error = audio_service_stop();
         if (recovery_error == ESP_OK)
         {
             recovery_error = error;
@@ -393,25 +366,6 @@ esp_err_t app_voice_stop(uint32_t timeout_ms)
         return primary_error;
     }
 
-    primary_error = audio_service_stop();
-    if (primary_error != ESP_OK)
-    {
-        esp_err_t recovery_error = audio_service_start();
-        if (recovery_error == ESP_OK)
-        {
-            recovery_error = audio_processor_service_start();
-        }
-        if (recovery_error == ESP_OK)
-        {
-            recovery_error = voice_service_start();
-        }
-        set_state(recovery_error == ESP_OK ? APP_VOICE_STATE_RUNNING : APP_VOICE_STATE_FAILED,
-                  primary_error,
-                  recovery_error);
-        xSemaphoreGive(s_control_lock);
-        return primary_error;
-    }
-
     set_state(APP_VOICE_STATE_STOPPED, ESP_OK, ESP_OK);
     xSemaphoreGive(s_control_lock);
     ESP_LOGI(TAG, "语音 Runtime 已停止");
@@ -481,25 +435,17 @@ esp_err_t app_voice_get_status_copy(app_voice_status_t *out_status)
     const esp_err_t         recovery_error = s_recovery_error;
     taskEXIT_CRITICAL(&s_state_lock);
 
-    voice_service_status_t           voice_status     = { 0 };
-    audio_processor_service_status_t processor_status = { 0 };
-    audio_service_status_t           audio_status     = { 0 };
-    const esp_err_t                  voice_error      = voice_service_get_status_copy(&voice_status);
-    const esp_err_t                  processor_error  = audio_processor_service_get_status_copy(&processor_status);
-    const esp_err_t                  audio_error      = audio_service_get_status_copy(&audio_status);
-    if (voice_error != ESP_OK || processor_error != ESP_OK || audio_error != ESP_OK)
+    voice_service_status_t voice_status = { 0 };
+    const esp_err_t        voice_error  = voice_service_get_status_copy(&voice_status);
+    if (voice_error != ESP_OK)
     {
         xSemaphoreGive(s_control_lock);
-        return voice_error != ESP_OK ? voice_error : (processor_error != ESP_OK ? processor_error : audio_error);
+        return voice_error;
     }
 
     *out_status = (app_voice_status_t) {
-        .state          = state,
-        .session_busy   = voice_status.session_busy,
-        .processor_idle = processor_status.capture_state == AUDIO_PROCESSOR_CAPTURE_IDLE && processor_status.feed_parked
-                          && processor_status.fetch_parked,
-        .input_active   = audio_status.input_active,
-        .output_active  = audio_status.output_active,
+        .state              = state,
+        .session_busy       = voice_status.session_busy,
         .network_lease_held = s_network_lease_generation != 0,
         .primary_error      = primary_error,
         .recovery_error     = recovery_error,

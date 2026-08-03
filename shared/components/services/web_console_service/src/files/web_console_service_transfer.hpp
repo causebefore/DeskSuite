@@ -45,6 +45,7 @@ enum web_file_operation_result_t
     WEB_FILE_OPERATION_ROOT_FORBIDDEN,        /**< 操作被保留的根目录拒绝 */
     WEB_FILE_OPERATION_INSUFFICIENT_STORAGE,  /**< 文件系统剩余空间不足 */
     WEB_FILE_OPERATION_NO_MEMORY,             /**< 内存分配失败 */
+    WEB_FILE_OPERATION_IN_USE,                /**< 目标文件正被其他组件打开 */
     WEB_FILE_OPERATION_IO_ERROR,              /**< 底层文件系统 I/O 错误 */
     WEB_FILE_OPERATION_CANCELLED,             /**< 操作被停止流程取消 */
 };

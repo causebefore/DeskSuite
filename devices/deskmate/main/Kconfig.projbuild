@@ -249,13 +249,6 @@ config DESKMATE_VOICE_VAD_WAKE_GUARD_MS
     help
         唤醒词尾音保护窗，避免尾音被截断，单位毫秒。
 
-config DESKMATE_VOICE_PLAYBACK_STOP_TIMEOUT_MS
-    int "Voice playback stop base timeout (ms)"
-    default 3000
-    range 500 30000
-    help
-        播放停止的基础超时，单位毫秒。
-
 config DESKMATE_VOICE_WS_CONNECT_TIMEOUT_MS
     int "Voice WebSocket connect timeout (ms)"
     default 5000
@@ -291,17 +284,17 @@ config DESKMATE_VOICE_WS_UPLOAD_CHUNK_BYTES
     help
         WebSocket 上传分片字节数。
 
-config DESKMATE_VOICE_PLAY_STREAM_BYTES
-    int "Voice TTS playback ring buffer (bytes)"
+config DESKMATE_AUDIO_PCM_STREAM_BYTES
+    int "Audio PCM stream buffer (bytes)"
     default 262144
     range 65536 524288
     help
-        TTS 播放环形缓冲大小（PSRAM），默认 256*1024。
+        Audio Service 唯一 PCM 播放 StreamBuffer 大小（PSRAM），默认 256*1024。
 
 config DESKMATE_VOICE_CHAT_DURATION_MS
     int "Voice single chat duration (ms)"
     default 8000
-    range 2000 60000
+    range 2000 10000
     help
         单次语音对话时长上限，单位毫秒。
 
