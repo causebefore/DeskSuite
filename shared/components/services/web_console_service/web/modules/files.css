@@ -107,6 +107,66 @@ tr.selected { background: #eff6fb; }
   color: var(--device-blue);
   background: transparent;
 }
+.file-field { display: grid; gap: 7px; }
+.file-field-value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.file-field-value input[readonly] { color: var(--ink); background: #f8fafc; }
+.file-field-status, .file-picker-message, .file-picker-empty {
+  margin: 0;
+  color: var(--muted-ink);
+  font-size: .84rem;
+}
+.file-field-status[data-state="available"] { color: var(--success); }
+.file-field-status[data-state="missing"],
+.file-picker-message[data-state="error"] { color: var(--danger); }
+.file-picker {
+  padding: 11px;
+  background: var(--workbench);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.file-picker-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 7px;
+  align-items: center;
+  margin-bottom: 9px;
+}
+.file-picker-toolbar button { padding: 7px 9px; }
+.file-picker-path {
+  overflow: hidden;
+  color: var(--muted-ink);
+  font-size: .84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-picker-message { min-height: 1.2em; margin-bottom: 7px; }
+.file-picker-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+}
+.file-picker-entry {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: transparent;
+  border-bottom: 1px solid var(--soft-line);
+  border-radius: 0;
+  text-align: left;
+}
+.file-picker-entry:last-child { border-bottom: 0; }
+.file-picker-entry:hover:not(:disabled) { color: var(--device-blue); background: #edf3f9; }
+.file-picker-entry span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.file-picker-entry span:last-child { flex: 0 0 auto; color: var(--muted-ink); font-size: .82rem; }
+.file-picker-empty { padding: 18px 10px; text-align: center; }
 .empty-row { padding: 26px; color: var(--muted-ink); text-align: center; }
 .progress {
   height: 10px;
@@ -137,4 +197,7 @@ tr.selected { background: #eff6fb; }
   .manager-actions { grid-column: auto; }
   .files-toolbar > button { flex: 1 1 auto; }
   .storage-copy { display: block; }
+  .file-field-value { grid-template-columns: 1fr; }
+  .file-picker-toolbar { grid-template-columns: auto 1fr auto; }
+  .file-picker-toolbar .file-picker-path { grid-column: 1 / -1; grid-row: 2; }
 }

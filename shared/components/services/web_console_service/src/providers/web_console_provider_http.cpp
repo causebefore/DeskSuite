@@ -297,6 +297,12 @@ static cJSON *web_console_provider_create_field_info_json(const web_console_fiel
                 cJSON_Delete(object);
                 return NULL;
             }
+            if (field->file_suffix != NULL
+                && cJSON_AddStringToObject(object, "fileSuffix", field->file_suffix) == NULL)
+            {
+                cJSON_Delete(object);
+                return NULL;
+            }
             break;
 
         case WEB_CONSOLE_FIELD_TYPE_ENUM:

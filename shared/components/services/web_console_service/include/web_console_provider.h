@@ -39,6 +39,9 @@ extern "C"
 /** 字符串字段值最大 UTF-8 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH 95U
 
+/** 文件选择型字符串字段的扩展名后缀最大 ASCII 字节数，不含结尾 NUL。 */
+#define WEB_CONSOLE_PROVIDER_FILE_SUFFIX_MAX_LENGTH 15U
+
     /**
      * @brief 网页控制台字段类型
      */
@@ -89,8 +92,9 @@ extern "C"
      * @brief 一个管理字段的稳定元数据
      *
      * `minimum`、`maximum` 与 `step` 只用于整数字段；`max_length_bytes` 只用于字符串；
-     * `enum_values` 与 `enum_value_count` 只用于枚举。所有字符串、枚举表和描述符数组只在
-     * `web_console_service_init_borrow()` 调用期间读取并复制。
+     * `file_suffix` 可让普通可读写字符串通过已启用的 Files 模块选择文件，并限制为一个
+     * 小写 ASCII 扩展名；`enum_values` 与 `enum_value_count` 只用于枚举。所有字符串、枚举表
+     * 和描述符数组只在 `web_console_service_init_borrow()` 调用期间读取并复制。
      */
     typedef struct
     {
@@ -103,6 +107,7 @@ extern "C"
         int64_t                        maximum;          /**< 整数最大值 */
         uint32_t                       step;             /**< 整数步长，必须非零 */
         uint32_t                       max_length_bytes; /**< 字符串 UTF-8 字节上限 */
+        const char                    *file_suffix;      /**< 可选文件后缀，如 `.mp3`；初始化期间复制 */
         const web_console_field_enum_value_t *enum_values; /**< 枚举值表 */
         size_t                         enum_value_count; /**< 枚举值数量 */
     } web_console_field_info_t;

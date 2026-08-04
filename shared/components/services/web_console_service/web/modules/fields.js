@@ -5,6 +5,7 @@
     int32: { min: -2147483648, max: 2147483647 },
     uint32: { min: 0, max: 4294967295 },
   };
+  const consoleApi = window.webConsole;
   const hasOwn = (object, key) =>
     object !== null && object !== undefined &&
     Object.prototype.hasOwnProperty.call(object, key);
@@ -170,11 +171,28 @@
         badge.textContent = entry && entry.configured === true ? "已配置" : "未配置";
         control.append(badge);
       } else if (editable && field.writable === true) {
-        const input = createInput(field, entry);
+        let editor;
+        if (field.type === "string" && typeof field.fileSuffix === "string") {
+          if (!consoleApi.files || typeof consoleApi.files.createFieldPicker !== "function") {
+            throw new Error("文件选择字段要求启用文件模块。");
+          }
+          editor = consoleApi.files.createFieldPicker(field, entry);
+        } else {
+          const regularInput = createInput(field, entry);
+          editor = {
+            root: regularInput,
+            input: regularInput,
+            setDisabled(disabled) {
+              regularInput.disabled = disabled;
+            },
+          };
+        }
+        const input = editor.input;
         input.setAttribute("aria-label", typeof field.label === "string" ? field.label : field.id);
-        control.append(input);
+        control.append(editor.root);
         const state = {
           field,
+          editor,
           input,
           error,
           touched: false,
@@ -230,7 +248,7 @@
         }
       },
       setDisabled(disabled) {
-        for (const state of controls.values()) state.input.disabled = disabled;
+        for (const state of controls.values()) state.editor.setDisabled(disabled);
       },
     };
   }

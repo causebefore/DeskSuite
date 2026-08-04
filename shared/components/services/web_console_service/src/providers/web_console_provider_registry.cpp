@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "sdkconfig.h"
+
 struct web_console_settings_provider_storage_t
 {
     web_console_settings_provider_t provider;
@@ -137,6 +139,29 @@ static bool web_console_id_is_valid(const char *id, size_t maximum)
     return true;
 }
 
+/** @brief 校验文件选择字段使用点号开头的小写 ASCII 扩展名。 */
+#if CONFIG_WEB_CONSOLE_FILES
+static bool web_console_file_suffix_is_valid(const char *suffix)
+{
+    size_t length = 0U;
+    if (!web_console_get_bounded_string_length(
+            suffix, WEB_CONSOLE_PROVIDER_FILE_SUFFIX_MAX_LENGTH, &length)
+        || length < 2U || suffix[0] != '.')
+    {
+        return false;
+    }
+    for (size_t index = 1U; index < length; ++index)
+    {
+        const char value = suffix[index];
+        if (!((value >= 'a' && value <= 'z') || (value >= '0' && value <= '9')))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
+
 /** @brief 校验一个字段访问属性及类型专属约束。 */
 static bool web_console_field_info_is_valid(const web_console_field_info_t *field, bool status_field)
 {
@@ -183,25 +208,37 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
     {
         return false;
     }
+    if (field->file_suffix != NULL)
+    {
+#if !CONFIG_WEB_CONSOLE_FILES
+        return false;
+#else
+        if (status_field || field->type != WEB_CONSOLE_FIELD_TYPE_STRING || field->access != 0U
+            || !web_console_file_suffix_is_valid(field->file_suffix))
+        {
+            return false;
+        }
+#endif
+    }
 
     switch (field->type)
     {
         case WEB_CONSOLE_FIELD_TYPE_BOOL:
             return field->minimum == 0 && field->maximum == 0 && field->step == 0U
                    && field->max_length_bytes == 0U && field->enum_values == NULL
-                   && field->enum_value_count == 0U;
+                   && field->enum_value_count == 0U && field->file_suffix == NULL;
 
         case WEB_CONSOLE_FIELD_TYPE_INT32:
             return field->minimum >= INT32_MIN && field->maximum <= INT32_MAX
                    && field->minimum <= field->maximum && field->step > 0U
                    && field->max_length_bytes == 0U && field->enum_values == NULL
-                   && field->enum_value_count == 0U;
+                   && field->enum_value_count == 0U && field->file_suffix == NULL;
 
         case WEB_CONSOLE_FIELD_TYPE_UINT32:
             return field->minimum >= 0 && field->maximum <= UINT32_MAX
                    && field->minimum <= field->maximum && field->step > 0U
                    && field->max_length_bytes == 0U && field->enum_values == NULL
-                   && field->enum_value_count == 0U;
+                   && field->enum_value_count == 0U && field->file_suffix == NULL;
 
         case WEB_CONSOLE_FIELD_TYPE_STRING:
             return field->minimum == 0 && field->maximum == 0 && field->step == 0U
@@ -213,7 +250,8 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
             if (field->minimum != 0 || field->maximum != 0 || field->step != 0U
                 || field->max_length_bytes != 0U || field->enum_values == NULL
                 || field->enum_value_count == 0U
-                || field->enum_value_count > WEB_CONSOLE_PROVIDER_MAX_ENUM_VALUES)
+                || field->enum_value_count > WEB_CONSOLE_PROVIDER_MAX_ENUM_VALUES
+                || field->file_suffix != NULL)
             {
                 return false;
             }
@@ -279,6 +317,7 @@ static void web_console_free_field(web_console_field_info_t *field)
     }
     free(const_cast<char *>(field->id));
     free(const_cast<char *>(field->label));
+    free(const_cast<char *>(field->file_suffix));
     memset(field, 0, sizeof(*field));
 }
 
@@ -303,6 +342,7 @@ static esp_err_t web_console_copy_field(web_console_field_info_t *destination,
     *destination             = *source;
     destination->id          = NULL;
     destination->label       = NULL;
+    destination->file_suffix = NULL;
     destination->enum_values = NULL;
 
     char     *id_copy = NULL;
@@ -313,6 +353,12 @@ static esp_err_t web_console_copy_field(web_console_field_info_t *destination,
         char *label_copy = NULL;
         error            = web_console_copy_string(source->label, &label_copy);
         destination->label = label_copy;
+    }
+    if (error == ESP_OK && source->file_suffix != NULL)
+    {
+        char *file_suffix_copy = NULL;
+        error = web_console_copy_string(source->file_suffix, &file_suffix_copy);
+        destination->file_suffix = file_suffix_copy;
     }
     if (error == ESP_OK && source->enum_value_count > 0U)
     {

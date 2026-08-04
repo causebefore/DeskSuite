@@ -199,6 +199,19 @@ class BuildHtmlTests(unittest.TestCase):
         self.assertIn("jsonValue: option.value", fields_source)
         self.assertIn("return selected.jsonValue;", fields_source)
 
+    def test_file_picker_is_composed_only_with_files_module(self):
+        settings_only = build_html.assemble_html(INDEX_TEMPLATE, ("settings",))
+        files_and_settings = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("files", "settings"),
+        )
+        self.assertNotIn("function createFileFieldPicker", settings_only)
+        self.assertIn("function createFileFieldPicker", files_and_settings)
+        self.assertIn("createFieldPicker: createFileFieldPicker", files_and_settings)
+        self.assertIn("input.readOnly = true", files_and_settings)
+        self.assertIn("item.name.toLocaleLowerCase().endsWith(suffix)", files_and_settings)
+        self.assertIn("当前文件在 SD 卡中不存在", files_and_settings)
+
 
 if __name__ == "__main__":
     unittest.main()

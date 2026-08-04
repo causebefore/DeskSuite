@@ -100,6 +100,29 @@
     return entry.type === "directory" || entry.isDirectory === true;
   }
 
+  function entryIsRegularFile(entry) {
+    return entry.type === "file" || entry.isDirectory === false;
+  }
+
+  async function browseDirectory(path) {
+    const response = await consoleApi.apiFetch(
+      `${API.files}?path=${encodeURIComponent(path)}`,
+    );
+    if (!response.ok) {
+      throw new Error(await consoleApi.readApiError(response, "无法读取目录"));
+    }
+    const payload = await response.json();
+    const resolvedPath = Array.isArray(payload) ? path : ((payload && payload.path) || path);
+    const entries = Array.isArray(payload) ? payload : ((payload && payload.entries) || []);
+    if (typeof resolvedPath !== "string" || !resolvedPath.startsWith("/") ||
+        !Array.isArray(entries)) {
+      throw new Error("设备返回的目录内容无效。");
+    }
+    return Array.isArray(payload)
+      ? { path: resolvedPath, entries }
+      : { ...payload, path: resolvedPath, entries };
+  }
+
   function entryPath(entry) {
     return pathFor(entry.name);
   }
@@ -307,16 +330,10 @@
   async function requestDirectory(path, requestGeneration) {
     setMessage("", "info");
     try {
-      const response = await consoleApi.apiFetch(
-        `${API.files}?path=${encodeURIComponent(path)}`,
-      );
-      if (!response.ok) {
-        throw new Error(await consoleApi.readApiError(response, "无法读取目录"));
-      }
-      const payload = await response.json();
+      const payload = await browseDirectory(path);
       if (!moduleActive || requestGeneration !== moduleGeneration) return false;
-      currentPath = Array.isArray(payload) ? path : (payload.path || path);
-      currentEntries = Array.isArray(payload) ? payload : (payload.entries || []);
+      currentPath = payload.path;
+      currentEntries = payload.entries;
       selectedPaths.clear();
       hideEditors();
       renderBreadcrumbs();
@@ -343,6 +360,223 @@
         setOperationActive(false);
       }
     }
+  }
+
+  function createFileFieldPicker(field, entry) {
+    const suffix = String(field.fileSuffix || "").toLocaleLowerCase();
+    const maxBytes = Number.isInteger(field.maxBytes) ? field.maxBytes : 0;
+    const root = document.createElement("div");
+    root.className = "file-field";
+
+    const valueRow = document.createElement("div");
+    valueRow.className = "file-field-value";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.readOnly = true;
+    if (maxBytes > 0) input.maxLength = maxBytes;
+    if (entry && Object.prototype.hasOwnProperty.call(entry, "value")) {
+      input.value = String(entry.value);
+    }
+    const chooseButton = document.createElement("button");
+    chooseButton.type = "button";
+    chooseButton.className = "secondary";
+    chooseButton.textContent = "选择文件";
+    chooseButton.setAttribute("aria-expanded", "false");
+    valueRow.append(input, chooseButton);
+
+    const status = document.createElement("p");
+    status.className = "file-field-status";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+
+    const panel = document.createElement("div");
+    panel.className = "file-picker hidden";
+    panel.id = `filePicker-${field.id}`;
+    chooseButton.setAttribute("aria-controls", panel.id);
+    const toolbar = document.createElement("div");
+    toolbar.className = "file-picker-toolbar";
+    const upButton = document.createElement("button");
+    upButton.type = "button";
+    upButton.className = "secondary";
+    upButton.textContent = "上一级";
+    const directoryLabel = document.createElement("span");
+    directoryLabel.className = "file-picker-path";
+    const refreshButton = document.createElement("button");
+    refreshButton.type = "button";
+    refreshButton.className = "secondary";
+    refreshButton.textContent = "刷新";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "secondary";
+    closeButton.textContent = "关闭";
+    toolbar.append(upButton, directoryLabel, refreshButton, closeButton);
+
+    const pickerMessage = document.createElement("p");
+    pickerMessage.className = "file-picker-message";
+    pickerMessage.setAttribute("role", "status");
+    const list = document.createElement("div");
+    list.className = "file-picker-list";
+    panel.append(toolbar, pickerMessage, list);
+    root.append(valueRow, status, panel);
+
+    let disabled = false;
+    let loading = false;
+    let pickerPath = "/";
+    let cachedDirectory = null;
+
+    function pathIsUsable(path) {
+      return typeof path === "string" && path.startsWith("/") &&
+        path.length > 1 && !path.includes("\\") && !path.includes("//");
+    }
+
+    function setStatus(text, state = "unknown") {
+      status.textContent = text;
+      status.dataset.state = state;
+    }
+
+    function setPickerMessage(text, state = "info") {
+      pickerMessage.textContent = text;
+      pickerMessage.dataset.state = state;
+    }
+
+    function updateDisabledState() {
+      input.disabled = disabled;
+      chooseButton.disabled = disabled || loading;
+      upButton.disabled = disabled || loading || pickerPath === "/";
+      refreshButton.disabled = disabled || loading;
+      closeButton.disabled = disabled || loading;
+      list.querySelectorAll("button").forEach((button) => {
+        button.disabled = disabled || loading || button.dataset.pathTooLong === "true";
+      });
+    }
+
+    function setLoading(nextLoading) {
+      loading = nextLoading;
+      updateDisabledState();
+    }
+
+    function pickerEntries(payload) {
+      return payload.entries.filter((item) => item && typeof item.name === "string" &&
+        item.name && !/[\/\\]/.test(item.name) &&
+        (entryIsDirectory(item) ||
+          (entryIsRegularFile(item) && item.name.toLocaleLowerCase().endsWith(suffix))));
+    }
+
+    function renderPickerDirectory(payload) {
+      pickerPath = payload.path;
+      directoryLabel.textContent = `目录：${pickerPath}`;
+      directoryLabel.title = pickerPath;
+      list.replaceChildren();
+      const entries = pickerEntries(payload).sort((left, right) => {
+        const typeOrder = Number(entryIsDirectory(right)) - Number(entryIsDirectory(left));
+        return typeOrder || left.name.localeCompare(right.name, "zh-CN", { numeric: true });
+      });
+      if (entries.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "file-picker-empty";
+        empty.textContent = `当前目录没有子目录或 ${suffix} 文件。`;
+        list.append(empty);
+      }
+      for (const item of entries) {
+        const itemPath = joinPath(pickerPath, item.name);
+        const directory = entryIsDirectory(item);
+        const pathTooLong = !directory && maxBytes > 0 &&
+          new TextEncoder().encode(itemPath).length > maxBytes;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "file-picker-entry";
+        button.dataset.pathTooLong = pathTooLong ? "true" : "false";
+        const name = document.createElement("span");
+        name.textContent = item.name;
+        const detail = document.createElement("span");
+        detail.textContent = directory
+          ? "目录"
+          : (pathTooLong ? "路径过长" : formatBytes(Number(item.sizeBytes)));
+        button.append(name, detail);
+        button.addEventListener("click", () => {
+          if (directory) {
+            loadPickerDirectory(itemPath, true);
+            return;
+          }
+          input.value = itemPath;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          setStatus("当前文件存在于 SD 卡。", "available");
+          panel.classList.add("hidden");
+          chooseButton.setAttribute("aria-expanded", "false");
+        });
+        list.append(button);
+      }
+      setPickerMessage(`仅显示 ${suffix} 文件。`, "info");
+      updateDisabledState();
+    }
+
+    async function loadPickerDirectory(path, force = false) {
+      if (disabled || loading) return;
+      setLoading(true);
+      setPickerMessage("正在读取目录…", "info");
+      try {
+        const payload = !force && cachedDirectory && cachedDirectory.path === path
+          ? cachedDirectory
+          : await browseDirectory(path);
+        cachedDirectory = payload;
+        renderPickerDirectory(payload);
+      } catch (error) {
+        setPickerMessage(error.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function verifySelectedFile() {
+      if (!pathIsUsable(input.value)) {
+        setStatus("当前路径无效，请重新选择文件。", "missing");
+        return;
+      }
+      const directory = parentPath(input.value);
+      const selectedName = baseName(input.value);
+      setLoading(true);
+      setStatus("正在确认当前文件…", "unknown");
+      try {
+        const payload = await browseDirectory(directory);
+        cachedDirectory = payload;
+        const exists = payload.entries.some((item) => item && item.name === selectedName &&
+          entryIsRegularFile(item));
+        setStatus(
+          exists ? "当前文件存在于 SD 卡。" : "当前文件在 SD 卡中不存在，请重新选择。",
+          exists ? "available" : "missing",
+        );
+      } catch (error) {
+        setStatus(`暂时无法确认当前文件：${error.message}`, "unknown");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    chooseButton.addEventListener("click", () => {
+      const opening = panel.classList.contains("hidden");
+      panel.classList.toggle("hidden", !opening);
+      chooseButton.setAttribute("aria-expanded", opening ? "true" : "false");
+      if (opening) {
+        const initialDirectory = pathIsUsable(input.value) ? parentPath(input.value) : "/";
+        loadPickerDirectory(initialDirectory);
+      }
+    });
+    upButton.addEventListener("click", () => loadPickerDirectory(parentPath(pickerPath), true));
+    refreshButton.addEventListener("click", () => loadPickerDirectory(pickerPath, true));
+    closeButton.addEventListener("click", () => {
+      panel.classList.add("hidden");
+      chooseButton.setAttribute("aria-expanded", "false");
+    });
+
+    verifySelectedFile();
+    return {
+      root,
+      input,
+      setDisabled(nextDisabled) {
+        disabled = nextDisabled;
+        updateDisabledState();
+      },
+    };
   }
 
   async function downloadFile(name) {
@@ -632,6 +866,9 @@
   );
 
   updateUploadControls();
+  consoleApi.files = Object.freeze({
+    createFieldPicker: createFileFieldPicker,
+  });
   consoleApi.registerModule({
     id: "files",
     rootId: "filesView",
