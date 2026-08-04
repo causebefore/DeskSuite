@@ -400,7 +400,7 @@ extern "C"
     } bsp_audio_config_t;
 
     /**
-     * @brief 初始化 I2S、ES8311 和 ES7210 音频资源
+     * @brief 初始化 I2S、ES8311 和 ES7210 音频资源，并执行一次最大音量扬声器直驱自检
      * @param[in] config 板级音频参数，仅在调用期间借用
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数非法；ESP_ERR_INVALID_STATE 已初始化；
      *         或底层资源创建错误

@@ -251,6 +251,14 @@ Assert-Contains $audioTask 'esp_ae_rate_cvt_process' 'MP3/PCM 输出未执行采
 Assert-Contains $audioTask 'AUDIO_SERVICE_EVENT_FILE_PLAYBACK_FINISHED' '文件请求未发布唯一终态事件'
 Assert-Contains $bspAudio 'i2s_channel_write\s*\(' 'BSP 未直接校验 I2S TX 写入结果'
 Assert-Contains $bspAudio 'written_bytes\s*!=\s*requested_bytes' 'BSP 未拒绝 I2S TX 短写'
+Assert-Contains $bspAudio 'BSP_AUDIO_OUTPUT_SELF_TEST_VOLUME\s+100' 'BSP 开机直驱自检未使用最大硬件音量'
+Assert-Contains $bspAudio 'BSP_AUDIO_OUTPUT_SELF_TEST_FREQUENCY_HZ\s+1000U' 'BSP 开机直驱自检未固定 1 kHz 音调'
+Assert-Contains $bspAudio `
+    '(?s)bsp_audio_init\s*\(.*?s_ready\s*=\s*true;.*?run_output_self_test\s*\(\s*\)' `
+    'BSP 音频初始化未执行扬声器直驱自检'
+Assert-Contains $bspAudio `
+    '(?s)run_output_self_test\s*\(.*?bsp_audio_enable_output\s*\(\s*true\s*\).*?bsp_audio_write\s*\(' `
+    'BSP 扬声器直驱自检未绕过上层直接写入板级输出'
 
 Assert-Contains $pomodoroStoreHeader `
     'POMODORO_STORE_DEFAULT_COMPLETION_AUDIO_PATH\s+"/pomodoro-complete\.mp3"' `
