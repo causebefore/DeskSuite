@@ -23,7 +23,6 @@ typedef struct
 {
     lv_obj_t *city;
     lv_obj_t *warn;
-    lv_obj_t *status;
     lv_obj_t *hero_icon;
     lv_obj_t *temp;
     lv_obj_t *cond;
@@ -43,28 +42,6 @@ typedef struct
 } weather_widgets_t;
 
 static weather_widgets_t s_widgets;
-
-/**
- * @brief 把数据状态枚举映射成电报式状态带的中文文案
- *
- * @param status 应用数据状态
- * @return 状态文案字符串字面量（在线/离线/等待/不可用），调用方无需释放
- */
-static const char *weather_status_text(presentation_data_status_t status)
-{
-    switch (status)
-    {
-        case PRESENTATION_DATA_OK:
-            return "在线";
-        case PRESENTATION_DATA_STALE:
-            return "离线";
-        case PRESENTATION_DATA_EMPTY:
-            return "等待";
-        case PRESENTATION_DATA_ERROR:
-        default:
-            return "不可用";
-    }
-}
 
 /**
  * @brief 把 UTC 日期时间分量换算成 epoch 秒
@@ -181,16 +158,12 @@ static void ui_weather_page_create(lv_obj_t *body)
     s_widgets.city = ui_common_new_text24_regular(body);
     ui_common_set_label(s_widgets.city, "--", 6, 0, 54, 26, LV_TEXT_ALIGN_LEFT);
 
-    /* 预警槽：居中于城市和状态之间，宽 272px 足以两行放下大多数预警文本。
+    /* 预警槽：占满城市右侧空间，宽 332px 足以两行放下大多数预警文本。
      * 用 WRAP 自动换行 + CLIP 裁切超长部分，不再滚动——MIP 面板滚动占帧率且抖动。 */
     s_widgets.warn = ui_common_new_inverse_text16_semibold(body);
-    ui_common_set_label(s_widgets.warn, "", 64, 0, 272, 28, LV_TEXT_ALIGN_CENTER);
+    ui_common_set_label(s_widgets.warn, "", 64, 0, 332, 28, LV_TEXT_ALIGN_CENTER);
     lv_label_set_long_mode(s_widgets.warn, LV_LABEL_LONG_WRAP);
     lv_obj_add_flag(s_widgets.warn, LV_OBJ_FLAG_HIDDEN);
-
-    /* 状态（始终反白，update 时按状态切换正/反白） */
-    s_widgets.status = ui_common_new_inverse_text16_semibold(body);
-    ui_common_set_label(s_widgets.status, "--", 340, 4, 56, 20, LV_TEXT_ALIGN_RIGHT);
 
     draw_bar(body, 0, 28, UI_WIDTH, 2);
 
@@ -274,19 +247,6 @@ static void ui_weather_page_populate(const weather_view_model_t *w)
     else
     {
         lv_obj_add_flag(s_widgets.warn, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    /* OK 时状态用正常黑字白底，非 OK 用反白强调 */
-    lv_label_set_text(s_widgets.status, weather_status_text(w->status));
-    if (w->status == PRESENTATION_DATA_OK)
-    {
-        lv_obj_set_style_bg_opa(s_widgets.status, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_text_color(s_widgets.status, lv_color_black(), 0);
-    }
-    else
-    {
-        lv_obj_set_style_bg_opa(s_widgets.status, LV_OPA_COVER, 0);
-        lv_obj_set_style_text_color(s_widgets.status, lv_color_white(), 0);
     }
 
     /* ---- 左 hero ---- */
