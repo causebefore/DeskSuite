@@ -94,6 +94,8 @@ $voicePresenter = 'main\presentation\voice_presenter.c'
 $voiceViewModel = 'main\presentation\presentation_view_model.h'
 $voicePage = 'main\ui\pages\ui_voice_page.c'
 $pomodoroStoreHeader = 'components\data\pomodoro_store\include\pomodoro_store.h'
+$pomodoroHeader = 'main\application\app_pomodoro.h'
+$pomodoroInternal = 'main\application\app_pomodoro_internal.h'
 $pomodoroTask = 'main\application\app_pomodoro_task.c'
 $powerTask = 'main\application\app_power_task.c'
 $appVoice = 'main\application\app_voice.c'
@@ -251,9 +253,20 @@ Assert-Contains $pomodoroStoreHeader `
 Assert-Contains $pomodoroTask 'SYSTEM_FILESYSTEM_MOUNT_POINT[\s\S]{0,220}logical_path' `
     'Pomodoro 未在播放边界把逻辑路径映射到 SD 卡挂载点'
 Assert-Contains $pomodoroTask `
-    'audio_service_request_play_mp3_file_copy\s*\(\s*absolute_path\s*,\s*completion_generation\s*\)' `
+    'audio_service_request_play_mp3_file_copy\s*\(\s*absolute_path\s*,\s*request_id\s*\)' `
     'Pomodoro 未以完成代次提交选择后的 MP3 绝对路径'
 Assert-Contains $pomodoroTask 'audio_service_request_cancel_file_playback' 'Pomodoro 未取消旧完成代次'
+Assert-Contains $pomodoroHeader `
+    'app_pomodoro_request_play_completion_audio\s*\(\s*void\s*\)' `
+    'Pomodoro 未提供完成音乐自检请求入口'
+Assert-Contains $pomodoroInternal 'APP_POMODORO_COMMAND_PLAY_COMPLETION_AUDIO' `
+    'Pomodoro 私有命令缺少完成音乐自检'
+Assert-Contains $pomodoroTask `
+    '(?s)case\s+APP_POMODORO_COMMAND_PLAY_COMPLETION_AUDIO:.*?run_state\s*==\s*APP_POMODORO_RUN_STATE_IDLE.*?completion_to_play\s*=\s*snapshot->generation.*?settings\.completion_audio_path' `
+    'Pomodoro 完成音乐自检未在 IDLE 复用当前路径和代次'
+Assert-Contains $appMain `
+    '(?s)app_voice_start\s*\(.*?app_pomodoro_request_play_completion_audio\s*\(\s*\).*?app_power_start\s*\(' `
+    'Composition Root 未在语音 Runtime 就绪后、Power 启动前提交开机闹铃自检'
 Assert-OnlyFilesContain @('main\application') `
     'audio_service_request_play_mp3_file_copy\b' `
     @($pomodoroTask) `

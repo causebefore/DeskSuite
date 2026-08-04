@@ -31,9 +31,9 @@ static uint64_t                              s_last_dispatched_settings_request_
 static app_pomodoro_settings_update_result_t s_last_dispatched_settings_result;
 
 /** @brief 在状态锁和 Presenter 发布之外提交一次幂等的完成提示音请求。 */
-static void request_completion_audio(uint64_t completion_generation, const char *logical_path)
+static void request_completion_audio(uint64_t request_id, const char *logical_path)
 {
-    if (completion_generation == 0U || logical_path == NULL)
+    if (request_id == 0U || logical_path == NULL)
     {
         return;
     }
@@ -49,14 +49,21 @@ static void request_completion_audio(uint64_t completion_generation, const char 
         ESP_LOGW(TAG, "番茄钟完成音乐路径超出运行时上限");
         return;
     }
-    const esp_err_t error =
-        audio_service_request_play_mp3_file_copy(absolute_path, completion_generation);
+    const esp_err_t error = audio_service_request_play_mp3_file_copy(absolute_path, request_id);
     if (error != ESP_OK)
     {
         ESP_LOGW(TAG,
-                 "提交番茄钟完成提示音失败: generation=%llu error=%s",
-                 (unsigned long long) completion_generation,
+                 "提交番茄钟完成音乐失败: request=%llu path=%s error=%s",
+                 (unsigned long long) request_id,
+                 absolute_path,
                  esp_err_to_name(error));
+    }
+    else
+    {
+        ESP_LOGI(TAG,
+                 "已提交番茄钟完成音乐: request=%llu path=%s",
+                 (unsigned long long) request_id,
+                 absolute_path);
     }
 }
 
@@ -773,6 +780,21 @@ static bool handle_command(const app_pomodoro_command_t *command)
             else
             {
                 g_app_pomodoro_runtime.runtime_data.snapshot.last_error = ESP_ERR_INVALID_STATE;
+            }
+            break;
+        case APP_POMODORO_COMMAND_PLAY_COMPLETION_AUDIO:
+            if (snapshot->run_state == APP_POMODORO_RUN_STATE_IDLE)
+            {
+                completion_to_play = snapshot->generation;
+                memcpy(completion_audio_path,
+                       snapshot->settings.completion_audio_path,
+                       sizeof(completion_audio_path));
+                ESP_LOGI(TAG, "执行番茄钟完成音乐自检");
+            }
+            else
+            {
+                g_app_pomodoro_runtime.runtime_data.snapshot.last_error = ESP_ERR_INVALID_STATE;
+                ESP_LOGW(TAG, "番茄钟非空闲，忽略完成音乐自检");
             }
             break;
         case APP_POMODORO_COMMAND_UPDATE_SETTINGS:

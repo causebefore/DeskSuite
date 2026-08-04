@@ -415,6 +415,7 @@ DEFINE_SIMPLE_REQUEST(app_pomodoro_request_toggle_pause, APP_POMODORO_COMMAND_TO
 DEFINE_SIMPLE_REQUEST(app_pomodoro_request_skip, APP_POMODORO_COMMAND_SKIP)
 DEFINE_SIMPLE_REQUEST(app_pomodoro_request_confirm, APP_POMODORO_COMMAND_CONFIRM)
 DEFINE_SIMPLE_REQUEST(app_pomodoro_request_reset, APP_POMODORO_COMMAND_RESET)
+DEFINE_SIMPLE_REQUEST(app_pomodoro_request_play_completion_audio, APP_POMODORO_COMMAND_PLAY_COMPLETION_AUDIO)
 
 /**
  * @brief 在状态锁内校验版本、运行状态、IDLE、单 pending 和版本/请求 ID 容量

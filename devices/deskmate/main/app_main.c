@@ -810,6 +810,12 @@ esp_err_t app_main_start(void)
         return error;
     }
 
+    const esp_err_t startup_audio_error = app_pomodoro_request_play_completion_audio();
+    if (startup_audio_error != ESP_OK)
+    {
+        ESP_LOGW(TAG, "提交开机闹铃自检失败: %s", esp_err_to_name(startup_audio_error));
+    }
+
     error = app_power_start();
     if (error != ESP_OK)
     {

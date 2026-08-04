@@ -155,6 +155,16 @@ extern "C"
     esp_err_t app_pomodoro_request_reset(void);
 
     /**
+     * @brief 异步请求播放当前完成音乐一次
+     *
+     * 仅供番茄钟处于 IDLE 时执行音频自检。返回成功只表示命令已入队；实际播放结果由
+     * Audio Service 日志与事件报告。
+     *
+     * @return ESP_OK 已入队；ESP_ERR_INVALID_STATE 未运行或正在停止；ESP_ERR_TIMEOUT 队列已满
+     */
+    esp_err_t app_pomodoro_request_play_completion_audio(void);
+
+    /**
      * @brief 同步校验一个完整番茄钟设置更新
      *
      * 本函数只执行有界参数、当前设置版本、IDLE 状态和单 pending 检查，不修改状态或访问 NVS。
