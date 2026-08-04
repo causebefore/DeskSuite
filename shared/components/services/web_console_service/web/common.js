@@ -6,7 +6,7 @@
   const TOKEN_KEY = "webConsoleSessionToken";
   const TOKEN_PATTERN = /^[0-9a-fA-F]{32}$/;
   const modules = new Map();
-  let activeModule = null;
+  let activeNavigation = null;
 
   const element = (id) => document.getElementById(id);
 
@@ -23,8 +23,14 @@
 
   function registerModule(controller) {
     if (!controller || typeof controller.id !== "string" ||
+        typeof controller.rootId !== "string" ||
         typeof controller.mount !== "function" || typeof controller.unmount !== "function") {
       throw new Error("网页控制台模块契约无效。");
+    }
+    if (controller.navigation !== undefined &&
+        (!controller.navigation || typeof controller.navigation.id !== "string" ||
+          typeof controller.navigation.label !== "string")) {
+      throw new Error("网页控制台模块导航描述无效。");
     }
     if (modules.has(controller.id)) {
       throw new Error(`网页控制台模块重复注册：${controller.id}`);
@@ -32,15 +38,17 @@
     modules.set(controller.id, controller);
   }
 
-  function deactivateModule() {
-    if (!activeModule) return;
-    activeModule.controller.unmount();
-    activeModule.root.classList.add("hidden");
-    activeModule = null;
+  function deactivateNavigation() {
+    if (!activeNavigation) return;
+    for (const module of activeNavigation.modules) {
+      module.controller.unmount();
+      module.root.classList.add("hidden");
+    }
+    activeNavigation = null;
   }
 
   function showLogin(message = "") {
-    deactivateModule();
+    deactivateNavigation();
     sessionStorage.removeItem(TOKEN_KEY);
     element("consoleView").classList.add("hidden");
     element("loginView").classList.remove("hidden");
@@ -92,17 +100,19 @@
     return payload.modules;
   }
 
-  async function activateModule(entry, button) {
-    if (activeModule && activeModule.capability.id === entry.capability.id) return;
-    deactivateModule();
+  async function activateNavigation(navigation, button) {
+    if (activeNavigation && activeNavigation.id === navigation.id) return;
+    deactivateNavigation();
     document.querySelectorAll("#moduleNavigation button").forEach((item) => {
       item.classList.toggle("active", item === button);
       item.setAttribute("aria-current", item === button ? "page" : "false");
     });
-    entry.root.classList.remove("hidden");
-    activeModule = entry;
+    for (const module of navigation.modules) module.root.classList.remove("hidden");
+    activeNavigation = navigation;
     try {
-      await entry.controller.mount(entry.capability);
+      await Promise.all(
+        navigation.modules.map((module) => module.controller.mount(module.capability)),
+      );
     } catch (error) {
       if (token()) setNotice(element("consoleMessage"), error.message);
     }
@@ -115,25 +125,42 @@
     const capabilities = validateCapabilities(await response.json());
     const navigation = element("moduleNavigation");
     navigation.replaceChildren();
-    const entries = [];
+    const navigationEntries = new Map();
 
     for (const capability of capabilities) {
       const controller = modules.get(capability.id);
       if (!controller) continue;
       const root = element(controller.rootId);
       if (!root) throw new Error(`模块页面不存在：${controller.id}`);
-      const entry = { capability, controller, root };
+      const descriptor = controller.navigation || {
+        id: capability.id,
+        label: capability.label,
+      };
+      let entry = navigationEntries.get(descriptor.id);
+      if (!entry) {
+        entry = { id: descriptor.id, label: descriptor.label, modules: [] };
+        navigationEntries.set(descriptor.id, entry);
+      } else if (entry.label !== descriptor.label) {
+        throw new Error(`共享导航标签不一致：${descriptor.id}`);
+      }
+      entry.modules.push({ capability, controller, root });
+    }
+
+    const entries = [];
+    for (const entry of navigationEntries.values()) {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = capability.label;
-      button.addEventListener("click", () => activateModule(entry, button));
+      button.textContent = entry.label;
+      button.addEventListener("click", () => activateNavigation(entry, button));
       navigation.append(button);
       entries.push({ entry, button });
     }
 
     setNotice(element("consoleMessage"), "");
     element("emptyModuleView").classList.toggle("hidden", entries.length !== 0);
-    if (entries.length !== 0) await activateModule(entries[0].entry, entries[0].button);
+    if (entries.length !== 0) {
+      await activateNavigation(entries[0].entry, entries[0].button);
+    }
   }
 
   async function enterConsole() {

@@ -91,6 +91,10 @@ Core 不编译文件 handler、事务恢复和文件传输源码，也不保留�
 Settings/Status 模块只负责认证后的 HTTP 映射、字段元数据编码、Provider 发现和结果分发。
 领域 Provider 继续拥有数据、校验、持久化、运行时应用和失败策略。
 
+浏览器导航把两类能力合并为同一个“设备管理”页面，按“状态在前、设置在后”同时呈现；这只是
+页面组合，Capabilities、HTTP 路由、只读/可写语义和 Provider 生命周期仍各自独立。只启用
+Settings 或 Status 时，设备管理页面只装配对应区块，不携带另一模块的网页代码。
+
 Provider 集合只通过 `web_console_service_init_borrow()` 的初始化配置一次性装配，运行中不得
 动态增加、替换或注销。Console 复制回调集合并长期借用 `ctx`，借用期在 `deinit` 完成时
 结束。Provider 回调不得接收或保存 `httpd_req_t`，不得绕过 Core 的认证、handler 记账和

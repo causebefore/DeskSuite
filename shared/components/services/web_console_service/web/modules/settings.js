@@ -24,24 +24,8 @@
     consoleApi.setNotice(message, text, state);
   }
 
-  function validateSections(moduleCapability) {
-    if (!moduleCapability || !Array.isArray(moduleCapability.sections)) {
-      throw new Error("设置模块缺少配置分区描述。");
-    }
-    const seen = new Set();
-    for (const section of moduleCapability.sections) {
-      if (!section || typeof section.id !== "string" ||
-          typeof section.label !== "string" || !Array.isArray(section.fields) ||
-          seen.has(section.id)) {
-        throw new Error("设置模块的配置分区描述无效。");
-      }
-      seen.add(section.id);
-    }
-    return moduleCapability.sections;
-  }
-
   function currentSection() {
-    return capability.sections.find((section) => section.id === sectionSelect.value);
+    return consoleApi.fields.selectedSection(capability, sectionSelect);
   }
 
   function cancelPolling() {
@@ -60,20 +44,6 @@
   function setBusy(nextBusy) {
     busy = nextBusy;
     updateControls();
-  }
-
-  function renderSectionOptions(sections) {
-    const previous = sectionSelect.value;
-    sectionSelect.replaceChildren();
-    for (const section of sections) {
-      const option = document.createElement("option");
-      option.value = section.id;
-      option.textContent = section.label;
-      sectionSelect.append(option);
-    }
-    if (sections.some((section) => section.id === previous)) {
-      sectionSelect.value = previous;
-    }
   }
 
   function validateSnapshot(payload, section) {
@@ -272,10 +242,14 @@
   consoleApi.registerModule({
     id: "settings",
     rootId: "settingsView",
+    navigation: { id: "management", label: "设备管理" },
     async mount(moduleCapability) {
       active = true;
-      capability = { ...moduleCapability, sections: validateSections(moduleCapability) };
-      renderSectionOptions(capability.sections);
+      capability = {
+        ...moduleCapability,
+        sections: consoleApi.fields.normalizeSections(moduleCapability, "设置"),
+      };
+      consoleApi.fields.renderSectionOptions(sectionSelect, capability.sections);
       if (capability.sections.length === 0) {
         fieldsContainer.replaceChildren();
         setMessage("设备未公开可配置的分区。", "info");

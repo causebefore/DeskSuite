@@ -61,8 +61,8 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
   Communication 的 `network_manager` 只拥有 Wi‑Fi/Portal 技术状态机，协议与传输不决定产品时机。
 - 网页控制台：设备设置页选择“网页控制台”后，Application 申请专用网络租约并启动本地
   认证管理 Service；产品显式组合 Files、番茄钟 Settings、系统 Status 与可选网络 Status，
-  番茄钟完成音乐通过 Files 支持的 `.mp3` 路径选择字段配置；页面返回必须等待 Service 完整
-  停止后才释放租约。
+  浏览器把 Settings 与 Status 合并到一个“设备管理”页面，番茄钟完成音乐通过 Files 支持的
+  `.mp3` 路径选择字段配置；页面返回必须等待 Service 完整停止后才释放租约。
 - 呈现：Service、Communication 或 Application 报告事实，Presenter 更新 View Model 并发布呈现事件，
   UI Runtime 在唯一 LVGL 上下文读取并渲染。
 - 番茄钟：`app_pomodoro_task` 使用单调 deadline 串行推进专注、短休和长休；设置以独立版本

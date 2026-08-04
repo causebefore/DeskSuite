@@ -178,6 +178,7 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → Files handler 串行浏览、下载、事务上传或执行单项目录/文件变更
+  → 浏览器在同一个“设备管理”页面先呈现 Status，再呈现 Settings
   → Settings handler 经 app_web_console_provider 提交版本化番茄钟更新并查询结果
   → Status handler 经 app_web_console_provider 读取单份系统快照
   → Status handler 经 web_console_network_provider 读取单份 Network Manager 诊断快照

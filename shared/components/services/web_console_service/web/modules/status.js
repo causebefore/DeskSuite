@@ -17,38 +17,8 @@
     consoleApi.setNotice(message, text, state);
   }
 
-  function validateSections(moduleCapability) {
-    if (!moduleCapability || !Array.isArray(moduleCapability.sections)) {
-      throw new Error("状态模块缺少状态分区描述。");
-    }
-    const seen = new Set();
-    for (const section of moduleCapability.sections) {
-      if (!section || typeof section.id !== "string" ||
-          typeof section.label !== "string" || !Array.isArray(section.fields) ||
-          seen.has(section.id)) {
-        throw new Error("状态模块的状态分区描述无效。");
-      }
-      seen.add(section.id);
-    }
-    return moduleCapability.sections;
-  }
-
   function currentSection() {
-    return capability.sections.find((section) => section.id === sectionSelect.value);
-  }
-
-  function renderSectionOptions(sections) {
-    const previous = sectionSelect.value;
-    sectionSelect.replaceChildren();
-    for (const section of sections) {
-      const option = document.createElement("option");
-      option.value = section.id;
-      option.textContent = section.label;
-      sectionSelect.append(option);
-    }
-    if (sections.some((section) => section.id === previous)) {
-      sectionSelect.value = previous;
-    }
+    return consoleApi.fields.selectedSection(capability, sectionSelect);
   }
 
   function validateSnapshot(payload, section) {
@@ -98,10 +68,14 @@
   consoleApi.registerModule({
     id: "status",
     rootId: "statusView",
+    navigation: { id: "management", label: "设备管理" },
     async mount(moduleCapability) {
       active = true;
-      capability = { ...moduleCapability, sections: validateSections(moduleCapability) };
-      renderSectionOptions(capability.sections);
+      capability = {
+        ...moduleCapability,
+        sections: consoleApi.fields.normalizeSections(moduleCapability, "状态"),
+      };
+      consoleApi.fields.renderSectionOptions(sectionSelect, capability.sections);
       if (capability.sections.length === 0) {
         fieldsContainer.replaceChildren();
         updatedAt.textContent = "";

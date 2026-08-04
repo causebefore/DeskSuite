@@ -10,6 +10,40 @@
     object !== null && object !== undefined &&
     Object.prototype.hasOwnProperty.call(object, key);
 
+  function normalizeSections(moduleCapability, moduleLabel) {
+    if (!moduleCapability || !Array.isArray(moduleCapability.sections)) {
+      throw new Error(`${moduleLabel}模块缺少分区描述。`);
+    }
+    const seen = new Set();
+    for (const section of moduleCapability.sections) {
+      if (!section || typeof section.id !== "string" ||
+          typeof section.label !== "string" || !Array.isArray(section.fields) ||
+          seen.has(section.id)) {
+        throw new Error(`${moduleLabel}模块的分区描述无效。`);
+      }
+      seen.add(section.id);
+    }
+    return moduleCapability.sections;
+  }
+
+  function renderSectionOptions(select, sections) {
+    const previous = select.value;
+    select.replaceChildren();
+    for (const section of sections) {
+      const option = document.createElement("option");
+      option.value = section.id;
+      option.textContent = section.label;
+      select.append(option);
+    }
+    if (sections.some((section) => section.id === previous)) {
+      select.value = previous;
+    }
+  }
+
+  function selectedSection(capability, select) {
+    return capability.sections.find((section) => section.id === select.value);
+  }
+
   function valueEntries(values) {
     const result = new Map();
     if (!Array.isArray(values)) return result;
@@ -253,5 +287,10 @@
     };
   }
 
-  window.webConsole.fields = { render: renderFields };
+  window.webConsole.fields = Object.freeze({
+    normalizeSections,
+    render: renderFields,
+    renderSectionOptions,
+    selectedSection,
+  });
 })();

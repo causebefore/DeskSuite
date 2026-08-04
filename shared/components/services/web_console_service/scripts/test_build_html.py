@@ -61,7 +61,7 @@ class BuildHtmlTests(unittest.TestCase):
             for marker in markers:
                 self.assertNotIn(marker, html)
         self.assertNotIn("Crosslink", html)
-        self.assertNotIn("项目设置", html)
+        self.assertNotIn("设备设置", html)
         self.assertNotIn("设备状态", html)
         self.assertNotIn("文件管理", html)
 
@@ -81,6 +81,28 @@ class BuildHtmlTests(unittest.TestCase):
             for module in build_html.MODULE_ORDER
         ]
         self.assertEqual(endpoint_positions, sorted(endpoint_positions))
+
+    def test_settings_and_status_share_one_management_navigation(self):
+        combined = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("settings", "status"),
+        )
+        self.assertEqual(
+            combined.count('navigation: { id: "management", label: "设备管理" }'),
+            2,
+        )
+        self.assertIn("navigation.modules.map", combined)
+        self.assertIn("await Promise.all", combined)
+        self.assertLess(combined.index("设备状态"), combined.index("设备设置"))
+        self.assertEqual(combined.count("function normalizeSections"), 1)
+
+        for enabled in (("settings",), ("status",)):
+            with self.subTest(enabled=enabled):
+                html = build_html.assemble_html(INDEX_TEMPLATE, enabled)
+                self.assertEqual(
+                    html.count('navigation: { id: "management", label: "设备管理" }'),
+                    1,
+                )
 
     def test_assembled_page_has_unique_ids_and_no_placeholders(self):
         html = build_html.assemble_html(

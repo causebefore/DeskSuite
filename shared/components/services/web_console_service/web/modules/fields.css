@@ -1,3 +1,15 @@
+.management-section:not(.hidden) + .management-section:not(.hidden) {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--soft-line);
+}
+#settingsView.pending #settingsFields { opacity: .62; }
+.status-updated {
+  min-height: 1.2em;
+  margin: -6px 0 12px;
+  color: var(--muted-ink);
+  font-size: .86rem;
+}
 .field-list { display: grid; gap: 12px; margin: 0 0 16px; }
 .field-row {
   display: grid;

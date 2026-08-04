@@ -59,7 +59,6 @@ if(CONFIG_WEB_CONSOLE_SETTINGS)
     list(APPEND web_console_web_modules --module settings)
     list(APPEND web_console_web_dependencies
         "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/settings.html"
-        "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/settings.css"
         "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/settings.js"
     )
 endif()
@@ -68,7 +67,6 @@ if(CONFIG_WEB_CONSOLE_STATUS)
     list(APPEND web_console_web_modules --module status)
     list(APPEND web_console_web_dependencies
         "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/status.html"
-        "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/status.css"
         "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/status.js"
     )
 endif()

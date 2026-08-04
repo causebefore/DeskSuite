@@ -8,7 +8,8 @@ from collections.abc import Iterable, Sequence
 
 
 PRESERVE_TAGS = ("pre", "code", "textarea", "script", "style")
-MODULE_ORDER = ("files", "settings", "status")
+MODULE_ORDER = ("files", "status", "settings")
+MODULE_STYLES = {"files": "modules/files.css"}
 FIELDS_MODULE_USERS = frozenset(("settings", "status"))
 STYLE_PLACEHOLDER = "<!-- WEB_CONSOLE_STYLES -->"
 MODULE_PLACEHOLDER = "<!-- WEB_CONSOLE_MODULES -->"
@@ -54,7 +55,8 @@ def assemble_html(input_path: pathlib.Path, modules: Iterable[str]) -> str:
     scripts = [read_fragment(web_root, "common.js")]
 
     for module in enabled_modules:
-        styles.append(read_fragment(web_root, f"modules/{module}.css"))
+        if style_path := MODULE_STYLES.get(module):
+            styles.append(read_fragment(web_root, style_path))
         module_markup.append(read_fragment(web_root, f"modules/{module}.html"))
 
     if FIELDS_MODULE_USERS.intersection(enabled_modules):

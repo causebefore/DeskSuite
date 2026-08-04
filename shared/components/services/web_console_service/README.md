@@ -28,6 +28,8 @@
 - 内部 Settings/Status HTTP 映射负责通用 JSON 编解码、字段类型/范围/访问属性校验、版本化
   异步更新协议和 Provider 输出契约校验；领域所有者继续负责语义校验、排队、持久化、生效和
   最终结果。
+- 浏览器把 Settings 与 Status 聚合到同一个“设备管理”入口，先呈现只读状态，再呈现可写设置；
+  两类能力仍按各自构建开关裁剪，并分别调用原有 HTTP/Provider 契约。
 - 普通可读写字符串可声明一个文件后缀；Files 同时启用时，浏览器使用现有认证目录接口提供
   只读路径选择器和文件存在状态，不允许自由输入路径，也不把目录 I/O 放进 Provider 回调。
 
@@ -148,6 +150,10 @@ context 生命周期内不得复用；最终结果至少保留到下一请求被
 Provider 回调运行在 HTTPD 普通 Task、Core 锁外，只能做有界内存读取、短时所有者加锁或快速
 排队；不得执行网络、文件、NVS 等长 I/O，不得长期等待，也不得回调 Console。Console 不创建
 轮询 Task，异步状态查询由已登录浏览器发起。
+
+Settings 与 Status 同时存在时，公共页面为它们创建一个“设备管理”导航项并并行装载两个区块；
+只启用其中之一时仍使用同一入口。这个聚合只属于浏览器导航，不改变 Capabilities 中的模块 ID、
+路由数量、只读/可写属性或 Provider 所有权。
 
 字段描述符的可选 `file_suffix` 只允许用于普通可读写字符串，并要求同一构建启用 Files。
 Capabilities 将其编码为 `fileSuffix`；浏览器按后缀大小写不敏感地筛选常规文件，保留目录导航，
@@ -359,7 +365,8 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - recv/send timeout：各 5 秒；LRU purge 关闭；不注册 WebSocket。
 - 构建配置：`CONFIG_WEB_CONSOLE_FILES` 默认开启；`CONFIG_WEB_CONSOLE_SETTINGS` 与
   `CONFIG_WEB_CONSOLE_STATUS` 默认关闭。构建始终使用 `web/index.html` 唯一公共壳，只把
-  已开启模块的 `web/modules/` 片段组装到 gzip 资源中。
+  已开启模块的 `web/modules/` 片段组装到 gzip 资源中；Settings/Status 复用一份字段样式和
+  分区选择逻辑，并在浏览器导航层聚合为设备管理页。
 - [`src/core/web_console_service.cpp`](src/core/web_console_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
 - [`src/core/web_console_service_http.cpp`](src/core/web_console_service_http.cpp)：首页、认证会话、静态
   路由槽、统一 dispatcher 与入口关闭。
@@ -402,8 +409,8 @@ README 不记录某次任务的构建结果、固件大小或尚未执行的临�
   模块网页组合、Provider 元数据/输出/JSON 边界和 C/C++ ABI。
 - 固件：仅在用户明确要求时，从 DeskSuite 根目录执行统一命令
   `& .\ds.ps1 build deskmate`；不得绕过脚本调用下层构建工具。
-- 实机：覆盖登录/退出/重新登录、Capabilities 裁剪、文件选择字段的目录导航/后缀过滤/缺失状态、
-  设置版本冲突和异步终态、状态读取、
+- 实机：覆盖登录/退出/重新登录、Capabilities 裁剪、设备管理单入口及状态/设置联合呈现、文件
+  选择字段的目录导航/后缀过滤/缺失状态、设置版本冲突和异步终态、状态读取、
   中英文和特殊名称、下载/上传完整性与边界大小、空间不足、覆盖恢复、创建/移动/删除约束、
   断网/掉电、安全停止和 STA 重连。
 - 资源：长传输期间记录内部堆与 PSRAM 的当前/历史最低空闲量；离开页面后确认 HTTPD Task、
