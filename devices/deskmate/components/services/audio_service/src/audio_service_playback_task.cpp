@@ -18,6 +18,7 @@ constexpr size_t      kEncodedBufferBytes      = 4096U;
 constexpr size_t      kInitialDecodedBytes     = 8192U;
 constexpr size_t      kMaximumDecodedBytes     = 65536U;
 constexpr size_t      kPcmInputCapacitySamples = 2048U;
+constexpr size_t      kOutputWriteChunkSamples = 480U;
 constexpr uint32_t    kPlaybackMaximumSeconds  = 30U;
 constexpr uint32_t    kPlaybackTaskStackBytes  = 20U * 1024U;
 constexpr UBaseType_t kPlaybackTaskPriority    = 3U;
@@ -29,6 +30,50 @@ struct FilePlaybackOutcome
     audio_service_file_playback_result_state_t state{ AUDIO_SERVICE_FILE_PLAYBACK_RESULT_FAILED };
     esp_err_t                                  error{ ESP_FAIL };
 };
+
+struct PcmSignalStatistics
+{
+    uint64_t total_samples{};
+    uint64_t nonzero_samples{};
+    uint64_t magnitude_sum{};
+    uint32_t peak_sample{};
+};
+
+void update_pcm_signal_statistics(PcmSignalStatistics *statistics, const int16_t *samples, size_t sample_count)
+{
+    for (size_t index = 0U; index < sample_count; ++index)
+    {
+        const int32_t  value     = samples[index];
+        const uint32_t magnitude = value < 0 ? static_cast<uint32_t>(-value) : static_cast<uint32_t>(value);
+        statistics->total_samples++;
+        statistics->magnitude_sum += magnitude;
+        if (samples[index] != 0)
+        {
+            statistics->nonzero_samples++;
+        }
+        if (magnitude > statistics->peak_sample)
+        {
+            statistics->peak_sample = magnitude;
+        }
+    }
+}
+
+void log_pcm_signal_statistics(const char *source, uint64_t transaction_id, const PcmSignalStatistics &statistics)
+{
+    const uint64_t mean_abs = statistics.total_samples == 0U ? 0U : statistics.magnitude_sum / statistics.total_samples;
+    ESP_LOGI(TAG,
+             "%s PCM 汇总: id=%llu samples=%llu nonzero=%llu peak=%u mean_abs=%llu",
+             source,
+             static_cast<unsigned long long>(transaction_id),
+             static_cast<unsigned long long>(statistics.total_samples),
+             static_cast<unsigned long long>(statistics.nonzero_samples),
+             (unsigned) statistics.peak_sample,
+             static_cast<unsigned long long>(mean_abs));
+    if (statistics.total_samples > 0U && statistics.nonzero_samples == 0U)
+    {
+        ESP_LOGW(TAG, "%s PCM 全为零: id=%llu", source, static_cast<unsigned long long>(transaction_id));
+    }
+}
 
 void set_last_error(AudioServiceRuntime *runtime, esp_err_t error)
 {
@@ -203,28 +248,32 @@ esp_err_t open_converters(AudioServiceRuntime *runtime, uint32_t sample_rate_hz,
     return ESP_OK;
 }
 
-esp_err_t write_all_samples(const int16_t *samples, size_t sample_count)
+/** @brief 按硬件 20 ms 帧分块写出，并只统计驱动确认完整接收的 PCM。 */
+esp_err_t write_all_samples(const int16_t *samples, size_t sample_count, PcmSignalStatistics *statistics)
 {
     size_t offset = 0U;
     while (offset < sample_count)
     {
-        size_t          written = 0U;
-        const esp_err_t error   = device_audio_write(samples + offset, sample_count - offset, &written);
+        const size_t    remaining   = sample_count - offset;
+        const size_t    chunk_count = remaining < kOutputWriteChunkSamples ? remaining : kOutputWriteChunkSamples;
+        size_t          written     = 0U;
+        const esp_err_t error       = device_audio_write(samples + offset, chunk_count, &written);
         if (error != ESP_OK)
         {
             return error;
         }
-        if (written == 0U || written > sample_count - offset)
+        if (written == 0U || written > chunk_count)
         {
             return ESP_FAIL;
         }
+        update_pcm_signal_statistics(statistics, samples + offset, written);
         offset += written;
     }
     return ESP_OK;
 }
 
 esp_err_t convert_and_write(AudioServiceRuntime *runtime, const int16_t *samples, size_t sample_count,
-                            uint8_t channel_count)
+                            uint8_t channel_count, PcmSignalStatistics *statistics)
 {
     if (samples == nullptr || sample_count == 0U || sample_count % channel_count != 0U)
     {
@@ -295,7 +344,7 @@ esp_err_t convert_and_write(AudioServiceRuntime *runtime, const int16_t *samples
     {
         return error;
     }
-    return write_all_samples(output_samples, output_count);
+    return write_all_samples(output_samples, output_count, statistics);
 }
 
 void publish_file_result(AudioServiceRuntime *runtime, uint64_t request_id,
@@ -384,16 +433,17 @@ FilePlaybackOutcome play_mp3_file(AudioServiceRuntime *runtime, const char *path
         return outcome;
     }
 
-    bool           eof                    = false;
-    bool           produced_audio         = false;
-    bool           format_ready           = false;
-    size_t         encoded_size           = 0U;
-    uint64_t       file_bytes_read        = 0U;
-    const uint64_t file_size_bytes        = static_cast<uint64_t>(file_info.st_size);
-    uint8_t        channel_count          = 0U;
-    uint64_t       decoded_frame_count    = 0U;
-    uint64_t       maximum_decoded_frames = 0U;
-    outcome.error                         = ESP_OK;
+    bool                eof                    = false;
+    bool                produced_audio         = false;
+    bool                format_ready           = false;
+    size_t              encoded_size           = 0U;
+    uint64_t            file_bytes_read        = 0U;
+    const uint64_t      file_size_bytes        = static_cast<uint64_t>(file_info.st_size);
+    uint8_t             channel_count          = 0U;
+    uint64_t            decoded_frame_count    = 0U;
+    uint64_t            maximum_decoded_frames = 0U;
+    PcmSignalStatistics signal_statistics{};
+    outcome.error = ESP_OK;
 
     for (;;)
     {
@@ -520,7 +570,8 @@ FilePlaybackOutcome play_mp3_file(AudioServiceRuntime *runtime, const char *path
                 error = convert_and_write(runtime,
                                           reinterpret_cast<const int16_t *>(decoded.buffer),
                                           static_cast<size_t>(frames_to_play) * channel_count,
-                                          channel_count);
+                                          channel_count,
+                                          &signal_statistics);
                 if (error != ESP_OK)
                 {
                     outcome.error = error;
@@ -557,6 +608,7 @@ FilePlaybackOutcome play_mp3_file(AudioServiceRuntime *runtime, const char *path
     close_decoder(runtime);
     close_converters(runtime);
     fclose(file);
+    log_pcm_signal_statistics("MP3", request_id, signal_statistics);
     const esp_err_t disable_error = set_output_enabled(runtime, false);
     if (disable_error != ESP_OK)
     {
@@ -652,7 +704,8 @@ void run_pcm_stream(AudioServiceRuntime *runtime)
     xSemaphoreGive(runtime->lock);
     xEventGroupSetBits(runtime->task_events, AUDIO_SERVICE_TASK_CONTROL_DONE);
 
-    esp_err_t transaction_error = ESP_OK;
+    esp_err_t           transaction_error = ESP_OK;
+    PcmSignalStatistics signal_statistics{};
     for (;;)
     {
         const uint64_t cancelled_request_id = take_cancelled_pending_request(runtime);
@@ -704,6 +757,7 @@ void run_pcm_stream(AudioServiceRuntime *runtime)
             }
 
             close_converters(runtime);
+            log_pcm_signal_statistics("PCM 流", stream_id, signal_statistics);
             xSemaphoreTake(runtime->lock, portMAX_DELAY);
             runtime->active_stream_id          = 0U;
             runtime->active_pcm_config         = {};
@@ -737,7 +791,8 @@ void run_pcm_stream(AudioServiceRuntime *runtime)
             error = convert_and_write(runtime,
                                       runtime->pcm_input_buffer,
                                       received_bytes / sizeof(int16_t),
-                                      config.channel_count);
+                                      config.channel_count,
+                                      &signal_statistics);
         }
         if (error != ESP_OK)
         {

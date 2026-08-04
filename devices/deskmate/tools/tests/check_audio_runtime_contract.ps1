@@ -82,6 +82,7 @@ $audioHeader = 'components\services\audio_service\include\audio_service.h'
 $audioSource = 'components\services\audio_service\src\audio_service.cpp'
 $audioTask = 'components\services\audio_service\src\audio_service_playback_task.cpp'
 $audioInternal = 'components\services\audio_service\src\audio_service_internal.hpp'
+$bspAudio = 'components\bsp\src\bsp_audio.c'
 $processorHeader = 'components\services\audio_processor_service\include\audio_processor_service.h'
 $processorSource = 'components\services\audio_processor_service\src\audio_processor_service.cpp'
 $processorTask = 'components\services\audio_processor_service\src\audio_processor_service_task.cpp'
@@ -242,10 +243,14 @@ Assert-Contains $audioTask 'kEncodedBufferBytes\s*=\s*4096U' 'MP3 未使用 4 Ki
 Assert-Contains $audioTask 'kMaximumDecodedBytes\s*=\s*65536U' 'MP3 解码扩容缺少有界上限'
 Assert-Contains $audioTask 'kPlaybackMaximumSeconds\s*=\s*30U' 'MP3 播放未限制为 30 秒'
 Assert-Contains $audioTask 'kPlaybackTaskStackBytes\s*=\s*20U\s*\*\s*1024U' '播放 Task 未使用首轮 20 KiB 栈'
+Assert-Contains $audioTask 'kOutputWriteChunkSamples\s*=\s*480U' '统一输出未按 20 ms PCM 帧分块'
+Assert-Contains $audioTask '(?s)nonzero_samples.*?peak_sample.*?mean_abs' '统一输出缺少 PCM 信号汇总'
 Assert-Contains $audioTask 'ESP_AUDIO_ERR_BUFF_NOT_ENOUGH' 'MP3 解码未处理输出扩容请求'
 Assert-Contains $audioTask 'esp_ae_ch_cvt_process' 'MP3/PCM 输出未执行声道转换'
 Assert-Contains $audioTask 'esp_ae_rate_cvt_process' 'MP3/PCM 输出未执行采样率转换'
 Assert-Contains $audioTask 'AUDIO_SERVICE_EVENT_FILE_PLAYBACK_FINISHED' '文件请求未发布唯一终态事件'
+Assert-Contains $bspAudio 'i2s_channel_write\s*\(' 'BSP 未直接校验 I2S TX 写入结果'
+Assert-Contains $bspAudio 'written_bytes\s*!=\s*requested_bytes' 'BSP 未拒绝 I2S TX 短写'
 
 Assert-Contains $pomodoroStoreHeader `
     'POMODORO_STORE_DEFAULT_COMPLETION_AUDIO_PATH\s+"/pomodoro-complete\.mp3"' `

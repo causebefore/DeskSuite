@@ -18,6 +18,7 @@ static const char *TAG = "bsp_audio";
 /* DMA 描述符/帧数，沿用小智 AudioCodec 默认值 */
 #define BSP_AUDIO_DMA_DESC_NUM          6
 #define BSP_AUDIO_DMA_FRAME_NUM         240
+#define BSP_AUDIO_WRITE_TIMEOUT_MS      1000U
 #define BSP_AUDIO_ES8311_DAC_MUTE_REG   0x31
 #define BSP_AUDIO_ES8311_DAC_VOLUME_REG 0x32
 #define BSP_AUDIO_ES8311_DAC_MUTE_MASK  0x60
@@ -556,14 +557,24 @@ esp_err_t bsp_audio_write(const int16_t *data, size_t sample_count, size_t *out_
                         TAG,
                         "播放写入参数非法");
     ESP_RETURN_ON_FALSE(s_ready && s_output_enabled, ESP_ERR_INVALID_STATE, TAG, "音频输出未启用");
-    *out_written        = 0U;
-    const esp_err_t err = esp_codec_dev_write(s_output_dev, (void *) data, sample_count * sizeof(int16_t));
-    if (err != ESP_OK)
+    *out_written                 = 0U;
+    const size_t requested_bytes = sample_count * sizeof(int16_t);
+    size_t       written_bytes   = 0U;
+
+    /* Codec 的启停、格式和硬件音量仍由 esp_codec_dev 管理；PCM 数据直接提交给 BSP
+     * 拥有的 TX 句柄，才能校验驱动实际接收的字节数，避免上层包装成功但未写入数据。 */
+    const esp_err_t err =
+        i2s_channel_write(s_tx_handle, data, requested_bytes, &written_bytes, BSP_AUDIO_WRITE_TIMEOUT_MS);
+    *out_written = written_bytes / sizeof(int16_t);
+    if (err != ESP_OK || written_bytes != requested_bytes)
     {
-        ESP_LOGW(TAG, "播放写入失败: samples=%u err=%s", (unsigned) sample_count, esp_err_to_name(err));
-        return err;
+        ESP_LOGW(TAG,
+                 "I2S 播放写入不完整: requested=%u actual=%u err=%s",
+                 (unsigned) requested_bytes,
+                 (unsigned) written_bytes,
+                 esp_err_to_name(err));
+        return err != ESP_OK ? err : ESP_FAIL;
     }
-    *out_written = sample_count;
     return ESP_OK;
 }
 
