@@ -14,7 +14,7 @@
 
 - 私有 `AudioServiceRuntime` 独占播放 Task、输出启停、PCM StreamBuffer、MP3 解码器、
   声道转换与输出重采样。
-- 输出 PCM 按 480 样本有界分块提交，并为每个文件或 PCM 流记录非零样本、峰值与平均绝对值。
+- 输出 PCM 按 480 样本有界分块提交。
 - 串行化一个 PCM 流和一个文件请求槽；PCM 流始终高于文件播放。
 - 把每个已接受文件请求收敛为唯一 `COMPLETED`、`CANCELLED` 或 `FAILED` 终态事件。
 
@@ -81,8 +81,7 @@ Audio Service 在设备运行期只启动一次。Light-sleep 期间播放 Task 
 格式不支持或转换失败都发布 `FAILED`，不改变上层产品状态。MP3 播放按解码样本时长在 30 秒
 结束，不支持 Seek，抢占后不续播。
 
-BSP 必须校验 I2S TX 实际接收的字节数；短写或驱动错误作为输出失败返回。事务结束日志中的
-`samples`、`nonzero`、`peak` 与 `mean_abs` 用于区分上游静音数据和下游硬件输出故障。
+BSP 必须校验 I2S TX 实际接收的字节数；短写或驱动错误作为输出失败返回。
 
 `stop()` 请求 Task 协作取消并有界等待；输出不能关闭或 Task 未退出时进入
 `CLEANUP_FAILED`，保留资源供再次 `stop()` 收敛，禁止伪装为已停止。

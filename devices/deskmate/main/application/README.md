@@ -104,9 +104,9 @@ ID 的终态，不能把“已入队”当成“已保存”。
 唤醒补算复用同一提交逻辑；Confirm、Reset 或开始下一阶段时在锁外取消旧代次。播放请求失败
 只记录事实，不回滚 DONE、完成计数、持久化或 10 秒活动窗口。
 
-Composition Root 在 Audio、Processor 与 Voice 都进入运行态后，向 Pomodoro Task 提交一次开机
-完成音乐自检。Task 仅在 `IDLE` 接受，并复用相同的逻辑路径映射与 Audio Service 播放入口；
-提交失败只记录日志，不阻断其余启动流程。
+Composition Root 在 Audio、Processor 与 Voice 都进入运行态后，向 Pomodoro Task 提交一次
+开机提示音。Task 仅在 `IDLE` 接受，并复用相同的逻辑路径映射与 Audio Service 播放入口；
+Audio Service 使用 50% 默认输出音量，提交失败只记录日志，不阻断其余启动流程。
 
 `app_network` 不直接操作 Wi‑Fi Driver、Portal HTTP/DNS 或底层重连状态机；这些技术能力属于
 Communication 的 `network_manager` 和 `connect`。Network Manager 一轮内部重试结束后，

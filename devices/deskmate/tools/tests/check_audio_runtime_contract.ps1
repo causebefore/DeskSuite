@@ -244,21 +244,13 @@ Assert-Contains $audioTask 'kMaximumDecodedBytes\s*=\s*65536U' 'MP3 解码扩容
 Assert-Contains $audioTask 'kPlaybackMaximumSeconds\s*=\s*30U' 'MP3 播放未限制为 30 秒'
 Assert-Contains $audioTask 'kPlaybackTaskStackBytes\s*=\s*20U\s*\*\s*1024U' '播放 Task 未使用首轮 20 KiB 栈'
 Assert-Contains $audioTask 'kOutputWriteChunkSamples\s*=\s*480U' '统一输出未按 20 ms PCM 帧分块'
-Assert-Contains $audioTask '(?s)nonzero_samples.*?peak_sample.*?mean_abs' '统一输出缺少 PCM 信号汇总'
 Assert-Contains $audioTask 'ESP_AUDIO_ERR_BUFF_NOT_ENOUGH' 'MP3 解码未处理输出扩容请求'
 Assert-Contains $audioTask 'esp_ae_ch_cvt_process' 'MP3/PCM 输出未执行声道转换'
 Assert-Contains $audioTask 'esp_ae_rate_cvt_process' 'MP3/PCM 输出未执行采样率转换'
 Assert-Contains $audioTask 'AUDIO_SERVICE_EVENT_FILE_PLAYBACK_FINISHED' '文件请求未发布唯一终态事件'
 Assert-Contains $bspAudio 'i2s_channel_write\s*\(' 'BSP 未直接校验 I2S TX 写入结果'
 Assert-Contains $bspAudio 'written_bytes\s*!=\s*requested_bytes' 'BSP 未拒绝 I2S TX 短写'
-Assert-Contains $bspAudio 'BSP_AUDIO_OUTPUT_SELF_TEST_VOLUME\s+100' 'BSP 开机直驱自检未使用最大硬件音量'
-Assert-Contains $bspAudio 'BSP_AUDIO_OUTPUT_SELF_TEST_FREQUENCY_HZ\s+1000U' 'BSP 开机直驱自检未固定 1 kHz 音调'
-Assert-Contains $bspAudio `
-    '(?s)bsp_audio_init\s*\(.*?s_ready\s*=\s*true;.*?run_output_self_test\s*\(\s*\)' `
-    'BSP 音频初始化未执行扬声器直驱自检'
-Assert-Contains $bspAudio `
-    '(?s)run_output_self_test\s*\(.*?bsp_audio_enable_output\s*\(\s*true\s*\).*?bsp_audio_write\s*\(' `
-    'BSP 扬声器直驱自检未绕过上层直接写入板级输出'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_AUDIO_DEFAULT_VOLUME=50' '默认输出音量未保持为 50%'
 
 Assert-Contains $pomodoroStoreHeader `
     'POMODORO_STORE_DEFAULT_COMPLETION_AUDIO_PATH\s+"/pomodoro-complete\.mp3"' `
@@ -271,15 +263,15 @@ Assert-Contains $pomodoroTask `
 Assert-Contains $pomodoroTask 'audio_service_request_cancel_file_playback' 'Pomodoro 未取消旧完成代次'
 Assert-Contains $pomodoroHeader `
     'app_pomodoro_request_play_completion_audio\s*\(\s*void\s*\)' `
-    'Pomodoro 未提供完成音乐自检请求入口'
+    'Pomodoro 未提供开机提示音请求入口'
 Assert-Contains $pomodoroInternal 'APP_POMODORO_COMMAND_PLAY_COMPLETION_AUDIO' `
-    'Pomodoro 私有命令缺少完成音乐自检'
+    'Pomodoro 私有命令缺少开机提示音'
 Assert-Contains $pomodoroTask `
     '(?s)case\s+APP_POMODORO_COMMAND_PLAY_COMPLETION_AUDIO:.*?run_state\s*==\s*APP_POMODORO_RUN_STATE_IDLE.*?completion_to_play\s*=\s*snapshot->generation.*?settings\.completion_audio_path' `
-    'Pomodoro 完成音乐自检未在 IDLE 复用当前路径和代次'
+    'Pomodoro 开机提示音未在 IDLE 复用当前路径和代次'
 Assert-Contains $appMain `
     '(?s)app_voice_start\s*\(.*?app_pomodoro_request_play_completion_audio\s*\(\s*\).*?app_power_start\s*\(' `
-    'Composition Root 未在语音 Runtime 就绪后、Power 启动前提交开机闹铃自检'
+    'Composition Root 未在语音 Runtime 就绪后、Power 启动前提交开机提示音'
 Assert-OnlyFilesContain @('main\application') `
     'audio_service_request_play_mp3_file_copy\b' `
     @($pomodoroTask) `

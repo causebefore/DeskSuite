@@ -789,12 +789,12 @@ static bool handle_command(const app_pomodoro_command_t *command)
                 memcpy(completion_audio_path,
                        snapshot->settings.completion_audio_path,
                        sizeof(completion_audio_path));
-                ESP_LOGI(TAG, "执行番茄钟完成音乐自检");
+                ESP_LOGI(TAG, "执行开机提示音");
             }
             else
             {
                 g_app_pomodoro_runtime.runtime_data.snapshot.last_error = ESP_ERR_INVALID_STATE;
-                ESP_LOGW(TAG, "番茄钟非空闲，忽略完成音乐自检");
+                ESP_LOGW(TAG, "番茄钟非空闲，忽略开机提示音");
             }
             break;
         case APP_POMODORO_COMMAND_UPDATE_SETTINGS:

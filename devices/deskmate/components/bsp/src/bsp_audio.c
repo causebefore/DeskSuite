@@ -12,24 +12,16 @@
 #include "driver/i2s_tdm.h"
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 static const char *TAG = "bsp_audio";
 
 /* DMA 描述符/帧数，沿用小智 AudioCodec 默认值 */
-#define BSP_AUDIO_DMA_DESC_NUM                  6
-#define BSP_AUDIO_DMA_FRAME_NUM                 240
-#define BSP_AUDIO_WRITE_TIMEOUT_MS              1000U
-#define BSP_AUDIO_ES8311_DAC_MUTE_REG           0x31
-#define BSP_AUDIO_ES8311_DAC_VOLUME_REG         0x32
-#define BSP_AUDIO_ES8311_DAC_MUTE_MASK          0x60
-#define BSP_AUDIO_OUTPUT_SELF_TEST_VOLUME       100
-#define BSP_AUDIO_OUTPUT_SELF_TEST_FREQUENCY_HZ 1000U
-#define BSP_AUDIO_OUTPUT_SELF_TEST_DURATION_MS  300U
-#define BSP_AUDIO_OUTPUT_SELF_TEST_SETTLE_MS    30U
-#define BSP_AUDIO_OUTPUT_SELF_TEST_DRAIN_MS     80U
-#define BSP_AUDIO_OUTPUT_SELF_TEST_AMPLITUDE    30000
+#define BSP_AUDIO_DMA_DESC_NUM          6
+#define BSP_AUDIO_DMA_FRAME_NUM         240
+#define BSP_AUDIO_WRITE_TIMEOUT_MS      1000U
+#define BSP_AUDIO_ES8311_DAC_MUTE_REG   0x31
+#define BSP_AUDIO_ES8311_DAC_VOLUME_REG 0x32
+#define BSP_AUDIO_ES8311_DAC_MUTE_MASK  0x60
 /* 默认音量与增益见 Kconfig: DeskMate Audio/Voice */
 /* ES7210 双麦通道掩码（mic1+mic2）。channel_mask 决定 I2S TDM 的 active_slot =
  * popcount(mask)（见 i2s_tdm.c），即 DMA 每帧实际交付的通道数，必须与 ES7210 的
@@ -37,7 +29,7 @@ static const char *TAG = "bsp_audio";
  * 双麦用 2 位(0x3)：duplex 下 TX/RX 共享 WS，slot 数必须相同，input 2 slot 才能让
  * TX 回到标准 16-bit stereo（slot_bit=16）；若 input 4 slot 会逼 TX slot_bit=32/64
  * 错位、播放爆音。AEC 参考通道取舍由 AFE 的 aec_init 控制，与此处无关。 */
-#define BSP_AUDIO_INPUT_CH_MASK (ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) | ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1))
+#define BSP_AUDIO_INPUT_CH_MASK         (ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) | ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1))
 
 /* I2S 双工通道句柄：TX 喂 ES8311，RX 收 ES7210，共用 MCLK/BCLK/WS */
 static i2s_chan_handle_t s_tx_handle;
@@ -288,119 +280,6 @@ static void release_audio_resources(void)
     s_ready         = false;
 }
 
-/**
- * @brief 以最大硬件音量向 I2S TX 直接写入短音调，隔离上层播放链路进行开机诊断
- *
- * 自检只复用 BSP 的 Codec 启停和同步 I2S 写入，不经过 Audio Service、解码器、
- * 采样率转换或流缓冲。结束时关闭输出并恢复调用前音量。
- *
- * @return ESP_OK 音调完整提交并恢复输出状态；其他值表示板级输出链路操作失败
- */
-static esp_err_t run_output_self_test(void)
-{
-    const int original_volume = s_output_volume;
-    esp_err_t result          = ESP_OK;
-
-    ESP_LOGW(TAG,
-             "开始扬声器直驱自检: volume=%d frequency=%uHz duration=%ums",
-             BSP_AUDIO_OUTPUT_SELF_TEST_VOLUME,
-             BSP_AUDIO_OUTPUT_SELF_TEST_FREQUENCY_HZ,
-             BSP_AUDIO_OUTPUT_SELF_TEST_DURATION_MS);
-
-    if (s_config.sample_rate_hz < 2U * BSP_AUDIO_OUTPUT_SELF_TEST_FREQUENCY_HZ)
-    {
-        ESP_LOGE(TAG, "扬声器直驱自检采样率过低: rate=%u", (unsigned) s_config.sample_rate_hz);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    result = bsp_audio_set_output_volume(BSP_AUDIO_OUTPUT_SELF_TEST_VOLUME);
-    if (result == ESP_OK)
-    {
-        result = bsp_audio_enable_output(true);
-    }
-    if (result == ESP_OK)
-    {
-        vTaskDelay(pdMS_TO_TICKS(BSP_AUDIO_OUTPUT_SELF_TEST_SETTLE_MS));
-
-        int16_t      tone[BSP_AUDIO_DMA_FRAME_NUM];
-        uint32_t     phase_hz = 0U;
-        const size_t total_samples =
-            (size_t) (((uint64_t) s_config.sample_rate_hz * BSP_AUDIO_OUTPUT_SELF_TEST_DURATION_MS) / 1000U);
-        size_t submitted = 0U;
-
-        while (submitted < total_samples)
-        {
-            const size_t remaining     = total_samples - submitted;
-            const size_t block_samples = remaining < BSP_AUDIO_DMA_FRAME_NUM ? remaining : BSP_AUDIO_DMA_FRAME_NUM;
-            for (size_t index = 0U; index < block_samples; ++index)
-            {
-                tone[index] = phase_hz < (s_config.sample_rate_hz / 2U)
-                                  ? (int16_t) BSP_AUDIO_OUTPUT_SELF_TEST_AMPLITUDE
-                                  : (int16_t) -BSP_AUDIO_OUTPUT_SELF_TEST_AMPLITUDE;
-                phase_hz += BSP_AUDIO_OUTPUT_SELF_TEST_FREQUENCY_HZ;
-                if (phase_hz >= s_config.sample_rate_hz)
-                {
-                    phase_hz -= s_config.sample_rate_hz;
-                }
-            }
-
-            size_t written = 0U;
-            result         = bsp_audio_write(tone, block_samples, &written);
-            if (result != ESP_OK || written != block_samples)
-            {
-                ESP_LOGE(TAG,
-                         "扬声器直驱自检写入失败: submitted=%u requested=%u written=%u error=%s",
-                         (unsigned) submitted,
-                         (unsigned) block_samples,
-                         (unsigned) written,
-                         esp_err_to_name(result));
-                if (result == ESP_OK)
-                {
-                    result = ESP_FAIL;
-                }
-                break;
-            }
-            submitted += written;
-        }
-
-        if (result == ESP_OK)
-        {
-            memset(tone, 0, sizeof(tone));
-            size_t silence_written = 0U;
-            result                 = bsp_audio_write(tone, BSP_AUDIO_DMA_FRAME_NUM, &silence_written);
-            if (result == ESP_OK && silence_written != BSP_AUDIO_DMA_FRAME_NUM)
-            {
-                result = ESP_FAIL;
-            }
-            vTaskDelay(pdMS_TO_TICKS(BSP_AUDIO_OUTPUT_SELF_TEST_DRAIN_MS));
-        }
-    }
-
-    if (s_output_enabled)
-    {
-        const esp_err_t close_result = bsp_audio_enable_output(false);
-        if (result == ESP_OK)
-        {
-            result = close_result;
-        }
-    }
-    const esp_err_t restore_result = bsp_audio_set_output_volume(original_volume);
-    if (result == ESP_OK)
-    {
-        result = restore_result;
-    }
-
-    if (result == ESP_OK)
-    {
-        ESP_LOGW(TAG, "扬声器直驱自检完成，已恢复默认音量=%d", original_volume);
-    }
-    else
-    {
-        ESP_LOGE(TAG, "扬声器直驱自检失败: %s", esp_err_to_name(result));
-    }
-    return result;
-}
-
 esp_err_t bsp_audio_init(const bsp_audio_config_t *config)
 {
     if (s_ready)
@@ -532,11 +411,6 @@ esp_err_t bsp_audio_init(const bsp_audio_config_t *config)
     s_config        = *config;
     s_output_volume = config->initial_volume;
     s_ready         = true;
-    result          = run_output_self_test();
-    if (result != ESP_OK)
-    {
-        goto fail;
-    }
     ESP_LOGI(TAG, "音频初始化完成: ES8311(播放) + ES7210(录音), 采样率=%dHz", (int) s_config.sample_rate_hz);
     return ESP_OK;
 

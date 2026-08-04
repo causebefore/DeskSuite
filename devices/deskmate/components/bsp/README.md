@@ -9,10 +9,6 @@ BSP 读取 Boards 参数，创建 ESP-IDF 总线和 Driver 实例，并提供同
 
 业务层不直接依赖 BSP；稳定能力由 `components/device/device_*` 再封装。
 
-音频初始化期间会执行一次临时硬件诊断：BSP 把 ES8311 与 GPIO46 功放设为最大音量，
-直接向 I2S TX 写入 300 ms、1 kHz 的高幅度音调，再关闭输出并恢复配置音量。该音调不经过
-Audio Service、MP3 解码、AI PCM、采样率转换或流缓冲，用于区分板级输出与上层播放故障。
-
 `bsp_storage` 独占 SD 卡的 SPI2 总线，负责 SDSPI 卡探测与同步扇区访问；FAT 分区、格式化和
 VFS 挂载由 System 通过 `device_storage` 完成。当前板型未提供 Card Detect 和 Write Protect，
 不支持运行期热插拔；硬件必须使用 3.3 V 电平并为 SD SPI 信号提供必要上拉。

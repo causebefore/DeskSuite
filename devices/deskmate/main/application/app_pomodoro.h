@@ -157,7 +157,7 @@ extern "C"
     /**
      * @brief 异步请求播放当前完成音乐一次
      *
-     * 仅供番茄钟处于 IDLE 时执行音频自检。返回成功只表示命令已入队；实际播放结果由
+     * 仅供番茄钟处于 IDLE 时播放开机提示音。返回成功只表示命令已入队；实际播放结果由
      * Audio Service 日志与事件报告。
      *
      * @return ESP_OK 已入队；ESP_ERR_INVALID_STATE 未运行或正在停止；ESP_ERR_TIMEOUT 队列已满
