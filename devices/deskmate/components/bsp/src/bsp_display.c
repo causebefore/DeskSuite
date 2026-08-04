@@ -455,6 +455,12 @@ static esp_err_t lcd_init_te_gpio(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 完整初始化 ST7305，并在显示开启前收敛到稳定 HPM 电压状态
+ *
+ * OTA 等软件重启不会切断面板电源。Sleep-Out 配置完成后仍显式执行一次
+ * LPM -> HPM 稳定时序，避免复位前残留的模拟电压状态造成低对比度。
+ */
 static esp_err_t lcd_init_controller(void)
 {
     const uint8_t d6[]          = { 0x17, 0x02 };
@@ -519,7 +525,7 @@ static esp_err_t lcd_init_controller(void)
     ESP_RETURN_ON_ERROR(lcd_data(tear, sizeof(tear)), TAG, "写 TE 数据失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0xD0), TAG, "设置自动电源失败");
     ESP_RETURN_ON_ERROR(lcd_data(d0, sizeof(d0)), TAG, "写自动电源数据失败");
-    ESP_RETURN_ON_ERROR(lcd_cmd(ST7305_CMD_HIGH_POWER_MODE), TAG, "切换 ST7305 HPM 失败");
+    ESP_RETURN_ON_ERROR(lcd_switch_to_high_power_mode(), TAG, "稳定 ST7305 初始化 HPM 失败");
     ESP_RETURN_ON_ERROR(lcd_cmd(0x29), TAG, "开启显示失败");
     return ESP_OK;
 }

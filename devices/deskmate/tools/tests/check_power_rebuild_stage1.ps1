@@ -80,6 +80,8 @@ Assert-Contains $displayBspSource `
 Assert-Contains $displayBspSource `
     '(?s)lcd_switch_to_high_power_mode\s*\(void\).*?ST7305_CMD_LOW_POWER_MODE.*?ST7305_CMD_HIGH_POWER_MODE.*?ST7305_LPM_TO_HPM_MODE_SETTLE_MS.*?lcd_write_source_voltage_levels.*?lcd_select_source_voltage_set.*?ST7305_LPM_TO_HPM_VOLTAGE_SETTLE_MS'
 Assert-Contains $displayBspSource `
+    '(?s)lcd_init_controller\s*\(void\).*?lcd_cmd\(0x11\).*?lcd_switch_to_high_power_mode\s*\(\s*\).*?lcd_cmd\(0x29\)'
+Assert-Contains $displayBspSource `
     '(?s)bsp_display_stop\s*\(uint32_t\s+timeout_ms\).*?bsp_display_wait_flush_done.*?gpio_intr_disable.*?lcd_switch_to_low_power_mode.*?lcd_set_io_hold\(true\)'
 Assert-Contains $displayBspSource `
     '(?s)bsp_display_start\s*\(void\).*?lcd_set_io_hold\(false\).*?lcd_switch_to_high_power_mode.*?gpio_intr_enable.*?set_display_accepting_frames\(true\)'
