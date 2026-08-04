@@ -26,6 +26,7 @@ typedef enum
     POMODORO_FIELD_SHORT_BREAK_MINUTES,
     POMODORO_FIELD_LONG_BREAK_MINUTES,
     POMODORO_FIELD_LONG_BREAK_INTERVAL,
+    POMODORO_FIELD_COMPLETION_AUDIO_PATH,
     POMODORO_FIELD_COUNT,
 } pomodoro_field_index_t;
 
@@ -74,6 +75,16 @@ static const web_console_field_info_t s_pomodoro_fields[POMODORO_FIELD_COUNT] = 
             .maximum = 8,
             .step    = 1U,
         },
+    [POMODORO_FIELD_COMPLETION_AUDIO_PATH] =
+        {
+            .id               = "completion_audio_path",
+            .label            = "完成音乐",
+            .type             = WEB_CONSOLE_FIELD_TYPE_STRING,
+            .access           = 0U,
+            .effect           = WEB_CONSOLE_FIELD_EFFECT_IDLE_ONLY,
+            .max_length_bytes = APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH,
+            .file_suffix      = ".mp3",
+        },
 };
 
 /** @brief 把 Pomodoro 设置字段写入 Console 按描述符排序的值数组。 */
@@ -82,7 +93,7 @@ static void write_pomodoro_values(
     web_console_field_value_t values[POMODORO_FIELD_COUNT])
 {
     memset(values, 0, sizeof(*values) * POMODORO_FIELD_COUNT);
-    for (size_t index = 0U; index < POMODORO_FIELD_COUNT; ++index)
+    for (size_t index = 0U; index < POMODORO_FIELD_COMPLETION_AUDIO_PATH; ++index)
     {
         values[index].type       = WEB_CONSOLE_FIELD_TYPE_UINT32;
         values[index].configured = true;
@@ -91,6 +102,12 @@ static void write_pomodoro_values(
     values[POMODORO_FIELD_SHORT_BREAK_MINUTES].data.uint32_value = settings->short_break_minutes;
     values[POMODORO_FIELD_LONG_BREAK_MINUTES].data.uint32_value  = settings->long_break_minutes;
     values[POMODORO_FIELD_LONG_BREAK_INTERVAL].data.uint32_value = settings->long_break_interval;
+    values[POMODORO_FIELD_COMPLETION_AUDIO_PATH].type             = WEB_CONSOLE_FIELD_TYPE_STRING;
+    values[POMODORO_FIELD_COMPLETION_AUDIO_PATH].configured       = true;
+    (void) snprintf(values[POMODORO_FIELD_COMPLETION_AUDIO_PATH].data.string_value,
+                    sizeof(values[POMODORO_FIELD_COMPLETION_AUDIO_PATH].data.string_value),
+                    "%s",
+                    settings->completion_audio_path);
 }
 
 /**
@@ -129,12 +146,30 @@ static esp_err_t make_pomodoro_settings_update(
     {
         const web_console_settings_update_field_t *field = &update->fields[index];
         if (field->field_index >= POMODORO_FIELD_COUNT || seen[field->field_index]
-            || field->value.type != WEB_CONSOLE_FIELD_TYPE_UINT32 || !field->value.configured
-            || field->value.data.uint32_value > UINT8_MAX)
+            || !field->value.configured)
         {
             return ESP_ERR_INVALID_ARG;
         }
         seen[field->field_index] = true;
+        if (field->field_index == POMODORO_FIELD_COMPLETION_AUDIO_PATH)
+        {
+            const size_t path_length = strnlen(field->value.data.string_value,
+                                               APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH + 1U);
+            if (field->value.type != WEB_CONSOLE_FIELD_TYPE_STRING
+                || path_length > APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH)
+            {
+                return ESP_ERR_INVALID_ARG;
+            }
+            memcpy(out_update->settings.completion_audio_path,
+                   field->value.data.string_value,
+                   path_length + 1U);
+            continue;
+        }
+        if (field->value.type != WEB_CONSOLE_FIELD_TYPE_UINT32
+            || field->value.data.uint32_value > UINT8_MAX)
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
         const uint8_t value      = (uint8_t) field->value.data.uint32_value;
         switch ((pomodoro_field_index_t) field->field_index)
         {
@@ -150,6 +185,7 @@ static esp_err_t make_pomodoro_settings_update(
             case POMODORO_FIELD_LONG_BREAK_INTERVAL:
                 out_update->settings.long_break_interval = value;
                 break;
+            case POMODORO_FIELD_COMPLETION_AUDIO_PATH:
             case POMODORO_FIELD_COUNT:
             default:
                 return ESP_ERR_INVALID_ARG;

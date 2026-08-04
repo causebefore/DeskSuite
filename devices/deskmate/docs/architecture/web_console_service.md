@@ -100,6 +100,8 @@ Provider 集合只通过 `web_console_service_init_borrow()` 的初始化配置�
 Settings Provider 必须能够表达：
 
 - 稳定 section/field ID、类型、长度、范围和枚举约束。
+- 普通可读写字符串可选声明文件扩展名；该元数据只在 Files 同时启用时合法，浏览器通过
+  认证后的目录接口选择逻辑路径，Provider 回调不得为此访问文件系统。
 - `READ_ONLY`、`SECRET`、`WRITE_ONLY` 等访问属性。
 - 立即生效、下一事务、重连、重启或仅空闲态等生效事实。
 - 公开快照、完整候选或 patch 校验、异步应用请求及其最终结果。

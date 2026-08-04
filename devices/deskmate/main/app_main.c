@@ -87,17 +87,22 @@ static esp_err_t app_main_ui_user_intent_callback(const ui_user_intent_t *intent
             {
                 return ESP_ERR_INVALID_ARG;
             }
-            const app_pomodoro_settings_update_t update = {
-                .settings = {
-                    .focus_minutes       = intent->pomodoro_settings.focus_minutes,
-                    .short_break_minutes = intent->pomodoro_settings.short_break_minutes,
-                    .long_break_minutes  = intent->pomodoro_settings.long_break_minutes,
-                    .long_break_interval = intent->pomodoro_settings.long_break_interval,
-                },
+            app_pomodoro_snapshot_t snapshot;
+            esp_err_t               error = app_pomodoro_get_snapshot_copy(&snapshot);
+            if (error != ESP_OK)
+            {
+                return error;
+            }
+            app_pomodoro_settings_update_t update = {
+                .settings         = snapshot.settings,
                 .expected_version = intent->pomodoro_settings.expected_version,
             };
-            uint64_t        request_id = 0U;
-            const esp_err_t error      = app_pomodoro_request_update_settings_copy(&update, &request_id);
+            update.settings.focus_minutes       = intent->pomodoro_settings.focus_minutes;
+            update.settings.short_break_minutes = intent->pomodoro_settings.short_break_minutes;
+            update.settings.long_break_minutes  = intent->pomodoro_settings.long_break_minutes;
+            update.settings.long_break_interval = intent->pomodoro_settings.long_break_interval;
+            uint64_t request_id                 = 0U;
+            error                               = app_pomodoro_request_update_settings_copy(&update, &request_id);
             if (error == ESP_OK)
             {
                 out_result->request_id = request_id;

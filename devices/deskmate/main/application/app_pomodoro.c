@@ -5,6 +5,7 @@
 #include "app_pomodoro_internal.h"
 
 #include <limits.h>
+#include <string.h>
 
 #include "app_page.h"
 #include "esp_log.h"
@@ -27,15 +28,29 @@ static const app_pomodoro_settings_t DEFAULT_SETTINGS = {
     .short_break_minutes = 5U,
     .long_break_minutes  = 15U,
     .long_break_interval = 4U,
+    .completion_audio_path = POMODORO_STORE_DEFAULT_COMPLETION_AUDIO_PATH,
 };
+
+_Static_assert(APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH
+                   == POMODORO_STORE_COMPLETION_AUDIO_PATH_MAX_LENGTH,
+               "番茄钟 Application 与 Store 的完成音乐路径上限必须一致");
 
 bool app_pomodoro_settings_are_valid(const app_pomodoro_settings_t *settings)
 {
-    return settings != NULL && settings->focus_minutes >= 5U && settings->focus_minutes <= 90U
-           && (settings->focus_minutes % 5U) == 0U && settings->short_break_minutes >= 1U
-           && settings->short_break_minutes <= 30U && settings->long_break_minutes >= 5U
-           && settings->long_break_minutes <= 60U && (settings->long_break_minutes % 5U) == 0U
-           && settings->long_break_interval >= 2U && settings->long_break_interval <= 8U;
+    if (settings == NULL)
+    {
+        return false;
+    }
+    pomodoro_store_settings_t stored = {
+        .focus_minutes       = settings->focus_minutes,
+        .short_break_minutes = settings->short_break_minutes,
+        .long_break_minutes  = settings->long_break_minutes,
+        .long_break_interval = settings->long_break_interval,
+    };
+    memcpy(stored.completion_audio_path,
+           settings->completion_audio_path,
+           sizeof(stored.completion_audio_path));
+    return pomodoro_store_settings_are_valid(&stored);
 }
 
 /** @brief 阶段 one-shot Timer 回调只投递携带代次的 TICK 命令 */
@@ -178,48 +193,64 @@ esp_err_t app_pomodoro_init(void)
         return error;
     }
 
+    app_pomodoro_settings_t restored_settings = {
+        .focus_minutes       = stored.settings.focus_minutes,
+        .short_break_minutes = stored.settings.short_break_minutes,
+        .long_break_minutes  = stored.settings.long_break_minutes,
+        .long_break_interval = stored.settings.long_break_interval,
+    };
+    memcpy(restored_settings.completion_audio_path,
+           stored.settings.completion_audio_path,
+           sizeof(restored_settings.completion_audio_path));
+    const bool stored_settings_valid =
+        stored.settings_valid && app_pomodoro_settings_are_valid(&restored_settings);
+    const bool recognized_schema = stored.schema_valid || stored.migration_required;
+
     app_pomodoro_runtime_data_t initial = { 0 };
-    initial.snapshot.settings = stored.settings_valid
-                                  ? (app_pomodoro_settings_t) {
-                                        .focus_minutes       = stored.settings.focus_minutes,
-                                        .short_break_minutes = stored.settings.short_break_minutes,
-                                        .long_break_minutes  = stored.settings.long_break_minutes,
-                                        .long_break_interval = stored.settings.long_break_interval,
-                                    }
-                                  : DEFAULT_SETTINGS;
+    initial.snapshot.settings = stored_settings_valid ? restored_settings : DEFAULT_SETTINGS;
     initial.snapshot.settings_version       = 1U;
     initial.snapshot.phase                  = APP_POMODORO_PHASE_NONE;
     initial.snapshot.next_phase             = APP_POMODORO_PHASE_FOCUS;
     initial.snapshot.run_state              = APP_POMODORO_RUN_STATE_IDLE;
     initial.snapshot.remaining_seconds      = (uint32_t) initial.snapshot.settings.focus_minutes * 60U;
     initial.snapshot.phase_duration_seconds = initial.snapshot.remaining_seconds;
-    initial.snapshot.settings_saved         = stored.schema_valid && stored.settings_valid && stored.counts_valid;
+    initial.snapshot.settings_saved         = stored.schema_valid && stored_settings_valid && stored.counts_valid;
     initial.snapshot.generation             = 1U;
-    if (stored.schema_valid && stored.counts_valid)
+    if (recognized_schema && stored.counts_valid)
     {
         initial.today_date                   = stored.today_date;
         initial.snapshot.today_focus_count   = stored.today_count;
         initial.snapshot.pending_focus_count = stored.pending_count;
     }
 
-    if (!stored.settings_valid)
+    if (!stored_settings_valid || stored.migration_required)
     {
-        ESP_LOGW(TAG, "番茄钟持久化设置缺失或无效，恢复默认值");
-        const pomodoro_store_settings_t defaults = {
-            .focus_minutes       = DEFAULT_SETTINGS.focus_minutes,
-            .short_break_minutes = DEFAULT_SETTINGS.short_break_minutes,
-            .long_break_minutes  = DEFAULT_SETTINGS.long_break_minutes,
-            .long_break_interval = DEFAULT_SETTINGS.long_break_interval,
+        if (stored.migration_required && stored_settings_valid)
+        {
+            ESP_LOGI(TAG, "迁移番茄钟设置并保留默认完成音乐");
+        }
+        else
+        {
+            ESP_LOGW(TAG, "番茄钟持久化设置缺失或无效，恢复默认值");
+        }
+        pomodoro_store_settings_t settings_to_save = {
+            .focus_minutes       = initial.snapshot.settings.focus_minutes,
+            .short_break_minutes = initial.snapshot.settings.short_break_minutes,
+            .long_break_minutes  = initial.snapshot.settings.long_break_minutes,
+            .long_break_interval = initial.snapshot.settings.long_break_interval,
         };
-        error                           = pomodoro_store_save_settings_copy(&defaults);
-        initial.snapshot.settings_saved = error == ESP_OK;
+        memcpy(settings_to_save.completion_audio_path,
+               initial.snapshot.settings.completion_audio_path,
+               sizeof(settings_to_save.completion_audio_path));
+        error                           = pomodoro_store_save_settings_copy(&settings_to_save);
+        initial.snapshot.settings_saved = error == ESP_OK && (!recognized_schema || stored.counts_valid);
         initial.snapshot.last_error     = error;
         if (error != ESP_OK)
         {
             ESP_LOGW(TAG, "恢复默认番茄钟设置失败: %s", esp_err_to_name(error));
         }
     }
-    if (stored.schema_valid && !stored.counts_valid)
+    if (recognized_schema && !stored.counts_valid)
     {
         ESP_LOGW(TAG, "番茄钟完成计数字段无效，已从零恢复");
     }

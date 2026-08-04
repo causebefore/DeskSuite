@@ -8,6 +8,7 @@
 #include "audio_service.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -16,6 +17,7 @@
 #include "pomodoro_presenter.h"
 #include "presentation_dispatch.h"
 #include "system_clock.h"
+#include "system_filesystem.h"
 
 #define US_PER_SECOND 1000000LL
 #define US_PER_MINUTE (60LL * US_PER_SECOND)
@@ -28,17 +30,27 @@ static bool                                  s_dispatched_settings_result_valid;
 static uint64_t                              s_last_dispatched_settings_request_id;
 static app_pomodoro_settings_update_result_t s_last_dispatched_settings_result;
 
-#define APP_POMODORO_COMPLETE_MP3_PATH "/sdcard/pomodoro-complete.mp3"
-
 /** @brief 在状态锁和 Presenter 发布之外提交一次幂等的完成提示音请求。 */
-static void request_completion_audio(uint64_t completion_generation)
+static void request_completion_audio(uint64_t completion_generation, const char *logical_path)
 {
-    if (completion_generation == 0U)
+    if (completion_generation == 0U || logical_path == NULL)
     {
         return;
     }
+    char absolute_path[sizeof(SYSTEM_FILESYSTEM_MOUNT_POINT)
+                       + APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH];
+    const int written = snprintf(absolute_path,
+                                 sizeof(absolute_path),
+                                 "%s%s",
+                                 SYSTEM_FILESYSTEM_MOUNT_POINT,
+                                 logical_path);
+    if (written < 0 || (size_t) written >= sizeof(absolute_path))
+    {
+        ESP_LOGW(TAG, "番茄钟完成音乐路径超出运行时上限");
+        return;
+    }
     const esp_err_t error =
-        audio_service_request_play_mp3_file_copy(APP_POMODORO_COMPLETE_MP3_PATH, completion_generation);
+        audio_service_request_play_mp3_file_copy(absolute_path, completion_generation);
     if (error != ESP_OK)
     {
         ESP_LOGW(TAG,
@@ -634,12 +646,15 @@ static void update_settings_locked(const app_pomodoro_command_t *command)
     state->snapshot.settings_version++;
     state->snapshot.phase_duration_seconds = duration_seconds_for(state, APP_POMODORO_PHASE_FOCUS);
     state->snapshot.remaining_seconds      = state->snapshot.phase_duration_seconds;
-    const pomodoro_store_settings_t stored = {
+    pomodoro_store_settings_t stored = {
         .focus_minutes       = update->settings.focus_minutes,
         .short_break_minutes = update->settings.short_break_minutes,
         .long_break_minutes  = update->settings.long_break_minutes,
         .long_break_interval = update->settings.long_break_interval,
     };
+    memcpy(stored.completion_audio_path,
+           update->settings.completion_audio_path,
+           sizeof(stored.completion_audio_path));
     state->snapshot.settings_saved                               = false;
     state->snapshot.last_error                                   = ESP_OK;
     g_app_pomodoro_runtime.latest_settings_update_result.version = state->snapshot.settings_version;
@@ -702,6 +717,7 @@ static bool handle_command(const app_pomodoro_command_t *command)
     bool     notify_completion_activity = false;
     uint64_t completion_to_play         = 0U;
     uint64_t completion_to_cancel       = 0U;
+    char     completion_audio_path[APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH + 1U] = { 0 };
     xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
     const app_pomodoro_snapshot_t *snapshot = &g_app_pomodoro_runtime.runtime_data.snapshot;
     const uint64_t previous_completion      = snapshot->completion_latched ? snapshot->completion_generation : 0U;
@@ -814,6 +830,9 @@ static bool handle_command(const app_pomodoro_command_t *command)
     if (current_completion != 0U && current_completion != previous_completion)
     {
         completion_to_play = current_completion;
+        memcpy(completion_audio_path,
+               snapshot->settings.completion_audio_path,
+               sizeof(completion_audio_path));
     }
     xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     if (publish)
@@ -821,7 +840,7 @@ static bool handle_command(const app_pomodoro_command_t *command)
         publish_current_snapshot();
     }
     cancel_completion_audio(completion_to_cancel);
-    request_completion_audio(completion_to_play);
+    request_completion_audio(completion_to_play, completion_audio_path);
     if (notify_completion_activity)
     {
         const esp_err_t activity_error = app_power_notify_activity();
@@ -849,11 +868,18 @@ void app_pomodoro_task(void *arg)
     const uint64_t current_completion = g_app_pomodoro_runtime.runtime_data.snapshot.completion_latched
                                             ? g_app_pomodoro_runtime.runtime_data.snapshot.completion_generation
                                             : 0U;
+    char completion_audio_path[APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH + 1U] = { 0 };
+    if (current_completion != 0U && current_completion != previous_completion)
+    {
+        memcpy(completion_audio_path,
+               g_app_pomodoro_runtime.runtime_data.snapshot.settings.completion_audio_path,
+               sizeof(completion_audio_path));
+    }
     xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     publish_current_snapshot();
     if (current_completion != 0U && current_completion != previous_completion)
     {
-        request_completion_audio(current_completion);
+        request_completion_audio(current_completion, completion_audio_path);
     }
     (void) xSemaphoreGive(g_app_pomodoro_runtime.ready_sem);
 

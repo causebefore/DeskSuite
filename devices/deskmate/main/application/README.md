@@ -65,7 +65,7 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | --- | --- |
 | `app_key` | 把稳定按键事实转换为产品输入 |
 | `app_page` | 维护顶层环形页面、Screen 切换门控和 500 ms 完成事件兜底 |
-| `app_pomodoro` | 拥有本地番茄钟状态机、设置版本与异步更新结果、单调 deadline、日期归一化、NVS 计数、前台秒级显示事实和睡眠唤醒补算 |
+| `app_pomodoro` | 拥有本地番茄钟状态机、设置版本与异步更新结果、完成音乐逻辑路径、单调 deadline、日期归一化、NVS 计数、前台秒级显示事实和睡眠唤醒补算 |
 | `app_settings` | 保存线程安全的设置菜单开启门控，把按键转换为设置动作或配网请求，并只在网页控制台明确停止后清理会话 |
 | `app_ota` | 手动检查、确认安装、目标丢弃和 OTA 导航锁定 |
 | `app_voice` | Processor → Voice 的产品生命周期、连续语音入口和整段会话网络租约；不转发通用音频状态 |
@@ -98,8 +98,9 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 返回同一个请求 ID；Application Task 把最新 ID 与结果按值推送给 Presenter，UI 只消费匹配
 ID 的终态，不能把“已入队”当成“已保存”。
 
-阶段完成后，Pomodoro Task 在释放状态锁并发布快照后，以非零 `completion_generation` 向
-Audio Service 提交固定路径 `/sdcard/pomodoro-complete.mp3`。自然 TICK 完成和 Light-sleep
+阶段完成后，Pomodoro Task 在释放状态锁并发布快照后，把持久化的 `.mp3` 逻辑路径映射到
+`/sdcard`，再以非零 `completion_generation` 向 Audio Service 提交绝对路径。旧 schema 自动
+迁移到 `/pomodoro-complete.mp3`，升级后保持原固定文件行为。自然 TICK 完成和 Light-sleep
 唤醒补算复用同一提交逻辑；Confirm、Reset 或开始下一阶段时在锁外取消旧代次。播放请求失败
 只记录事实，不回滚 DONE、完成计数、持久化或 10 秒活动窗口。
 
@@ -235,10 +236,11 @@ Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当�
 实际取得的资源；Service 报告 `STOPPING/CLEANUP_FAILED` 时保留租约，不能伪装为可退出。
 任何 request API 返回非 `ESP_OK` 时均不承诺后续 Presentation 事件，调用方直接处理同步错误。
 当前 Files 契约支持创建目录、常规文件移动/重命名，以及常规文件和空目录的单项删除；不包含
-递归目录删除、目录移动/重命名、WebDAV 或 WebSocket。Settings 当前只暴露四项番茄钟设置，
-Status 当前暴露系统只读事实与 Network Manager 网络诊断；网络 SSID、敏感凭据、OTA 和
-Dashboard 不进入字段表。浏览器批量文件操作只是顺序调用单项接口，不声明跨多个目录项的
-原子事务。
+递归目录删除、目录移动/重命名、WebDAV 或 WebSocket。Settings 暴露四项时长设置和一个完成
+音乐逻辑路径；后者通过通用 `.mp3` 文件选择元数据复用认证后的 Files 目录接口，Provider
+回调本身不遍历 SD 卡。Status 当前暴露系统只读事实与 Network Manager 网络诊断；网络 SSID、
+敏感凭据、OTA 和 Dashboard 不进入字段表。浏览器批量文件操作只是顺序调用单项接口，不声明
+跨多个目录项的原子事务。
 
 同步回执 waiter 在同一个 `s_state_lock` 临界区完成 deadline 最终仲裁：`COMPLETED` 先复制
 结果并释放槽，`EXECUTING` 解锁后等待最终信号，已到期的 `PENDING` 当场释放；不存在检查

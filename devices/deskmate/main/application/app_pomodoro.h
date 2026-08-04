@@ -16,6 +16,9 @@ extern "C"
 {
 #endif
 
+    /** @brief 完成音乐逻辑路径最大 UTF-8 字节数，不含结尾 NUL */
+#define APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH 95U
+
     /** @brief 番茄钟阶段 */
     typedef enum
     {
@@ -41,6 +44,8 @@ extern "C"
         uint8_t short_break_minutes; /**< 短休时长，1..30，步长 1 */
         uint8_t long_break_minutes;  /**< 长休时长，5..60，步长 5 */
         uint8_t long_break_interval; /**< 长休间隔，2..8 轮 */
+        /** SD 卡内以 `/` 开头的 `.mp3` 逻辑路径 */
+        char completion_audio_path[APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH + 1U];
     } app_pomodoro_settings_t;
 
     /** @brief 番茄钟完整领域快照 */

@@ -93,6 +93,7 @@ $voiceInternal = 'components\services\voice_service\src\voice_service_internal.h
 $voicePresenter = 'main\presentation\voice_presenter.c'
 $voiceViewModel = 'main\presentation\presentation_view_model.h'
 $voicePage = 'main\ui\pages\ui_voice_page.c'
+$pomodoroStoreHeader = 'components\data\pomodoro_store\include\pomodoro_store.h'
 $pomodoroTask = 'main\application\app_pomodoro_task.c'
 $powerTask = 'main\application\app_power_task.c'
 $appVoice = 'main\application\app_voice.c'
@@ -244,10 +245,14 @@ Assert-Contains $audioTask 'esp_ae_ch_cvt_process' 'MP3/PCM 输出未执行声�
 Assert-Contains $audioTask 'esp_ae_rate_cvt_process' 'MP3/PCM 输出未执行采样率转换'
 Assert-Contains $audioTask 'AUDIO_SERVICE_EVENT_FILE_PLAYBACK_FINISHED' '文件请求未发布唯一终态事件'
 
-Assert-Contains $pomodoroTask 'APP_POMODORO_COMPLETE_MP3_PATH\s+"/sdcard/pomodoro-complete\.mp3"' `
-    'Pomodoro 固定提示音路径不符合契约'
-Assert-Contains $pomodoroTask 'audio_service_request_play_mp3_file_copy\s*\(\s*APP_POMODORO_COMPLETE_MP3_PATH' `
-    'Pomodoro 未以完成代次提交 MP3 请求'
+Assert-Contains $pomodoroStoreHeader `
+    'POMODORO_STORE_DEFAULT_COMPLETION_AUDIO_PATH\s+"/pomodoro-complete\.mp3"' `
+    'Pomodoro 升级默认提示音逻辑路径不符合契约'
+Assert-Contains $pomodoroTask 'SYSTEM_FILESYSTEM_MOUNT_POINT[\s\S]{0,220}logical_path' `
+    'Pomodoro 未在播放边界把逻辑路径映射到 SD 卡挂载点'
+Assert-Contains $pomodoroTask `
+    'audio_service_request_play_mp3_file_copy\s*\(\s*absolute_path\s*,\s*completion_generation\s*\)' `
+    'Pomodoro 未以完成代次提交选择后的 MP3 绝对路径'
 Assert-Contains $pomodoroTask 'audio_service_request_cancel_file_playback' 'Pomodoro 未取消旧完成代次'
 Assert-OnlyFilesContain @('main\application') `
     'audio_service_request_play_mp3_file_copy\b' `

@@ -84,6 +84,11 @@ $ownerInternal = 'main\application\app_pomodoro_internal.h'
 $ownerSource = 'main\application\app_pomodoro.c'
 $ownerTask = 'main\application\app_pomodoro_task.c'
 $provider = 'main\application\app_web_console_provider.c'
+$storeHeader = 'components\data\pomodoro_store\include\pomodoro_store.h'
+$storeSource = 'components\data\pomodoro_store\src\pomodoro_store.c'
+$sharedProviderHeader = '..\..\shared\components\services\web_console_service\include\web_console_provider.h'
+$sharedProviderRegistry = '..\..\shared\components\services\web_console_service\src\providers\web_console_provider_registry.cpp'
+$sharedProviderHttp = '..\..\shared\components\services\web_console_service\src\providers\web_console_provider_http.cpp'
 
 Assert-Contains $ownerHeader 'uint64_t\s+settings_version' `
     'Pomodoro 快照未声明独立 64 位设置版本'
@@ -130,13 +135,14 @@ foreach ($fieldId in @(
     'focus_minutes',
     'short_break_minutes',
     'long_break_minutes',
-    'long_break_interval'
+    'long_break_interval',
+    'completion_audio_path'
 )) {
     Assert-Contains $provider "\.id\s*=\s*`"$fieldId`"" `
         "DeskMate Settings Provider 缺少字段 $fieldId"
 }
-Assert-MatchCount $provider 'WEB_CONSOLE_FIELD_EFFECT_IDLE_ONLY' 4 `
-    '四项番茄钟设置未全部声明 IDLE_ONLY'
+Assert-MatchCount $provider 'WEB_CONSOLE_FIELD_EFFECT_IDLE_ONLY' 5 `
+    '五项番茄钟设置未全部声明 IDLE_ONLY'
 Assert-Contains $provider '\.minimum\s*=\s*5[\s\S]{0,100}\.maximum\s*=\s*90[\s\S]{0,100}\.step\s*=\s*5U' `
     '专注时长范围或步长不符合契约'
 Assert-Contains $provider '\.minimum\s*=\s*1[\s\S]{0,100}\.maximum\s*=\s*30[\s\S]{0,100}\.step\s*=\s*1U' `
@@ -145,6 +151,37 @@ Assert-Contains $provider '\.minimum\s*=\s*5[\s\S]{0,100}\.maximum\s*=\s*60[\s\S
     '长休时长范围或步长不符合契约'
 Assert-Contains $provider '\.minimum\s*=\s*2[\s\S]{0,100}\.maximum\s*=\s*8[\s\S]{0,100}\.step\s*=\s*1U' `
     '长休间隔范围或步长不符合契约'
+Assert-Contains $provider `
+    'completion_audio_path[\s\S]{0,260}WEB_CONSOLE_FIELD_TYPE_STRING[\s\S]{0,260}\.file_suffix\s*=\s*"\.mp3"' `
+    '完成音乐未声明为 Files 支持的 MP3 字符串字段'
+Assert-Contains $provider `
+    'POMODORO_FIELD_COMPLETION_AUDIO_PATH[\s\S]{0,520}data\.string_value' `
+    '完成音乐路径未进入 Pomodoro Settings 快照'
+Assert-Contains $ownerHeader 'char\s+completion_audio_path\[' `
+    'Pomodoro 设置未保存完成音乐逻辑路径'
+Assert-Contains $storeHeader 'POMODORO_STORE_SCHEMA_VERSION\s+2U' `
+    'Pomodoro Store 未升级到包含完成音乐路径的 schema 2'
+Assert-Contains $storeHeader 'bool\s+migration_required' `
+    'Pomodoro Store 未公开旧 schema 迁移事实'
+Assert-Contains $storeHeader 'pomodoro_store_settings_are_valid\s*\(' `
+    'Pomodoro Store 未公开统一设置 schema 校验'
+Assert-Contains $ownerSource 'pomodoro_store_settings_are_valid\s*\(' `
+    'Pomodoro Application 未复用 Store 的统一设置校验'
+Assert-Contains $storeSource 'POMODORO_LEGACY_SCHEMA_VERSION\s+1U' `
+    'Pomodoro Store 未兼容 schema 1'
+Assert-Contains $storeSource `
+    'nvs_set_str\s*\(\s*handle\s*,\s*"complete_mp3"\s*,\s*settings->completion_audio_path\s*\)' `
+    'Pomodoro Store 未持久化完成音乐路径'
+Assert-Contains $sharedProviderHeader 'const char\s+\*file_suffix' `
+    '通用字段元数据未声明文件后缀'
+Assert-InOrder $sharedProviderRegistry @(
+    'source->file_suffix',
+    'web_console_copy_string\s*\(\s*source->file_suffix',
+    'destination->file_suffix'
+) '通用 Provider Registry 未深复制文件后缀元数据'
+Assert-Contains $sharedProviderHttp `
+    'cJSON_AddStringToObject\s*\(\s*object\s*,\s*"fileSuffix"\s*,\s*field->file_suffix\s*\)' `
+    'Capabilities 未编码文件选择后缀'
 
 foreach ($fieldId in @(
     'firmware_version',
@@ -186,6 +223,8 @@ Assert-Contains 'sdkconfig.defaults' 'CONFIG_WEB_CONSOLE_SETTINGS=y' `
     'DeskMate 默认构建未启用 Settings 模块'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_WEB_CONSOLE_STATUS=y' `
     'DeskMate 默认构建未启用 Status 模块'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_WEB_CONSOLE_FILES=y' `
+    'DeskMate 默认构建未启用完成音乐选择所需的 Files 模块'
 
 Assert-Contains 'main\presentation\pomodoro_presenter.h' 'uint64_t\s+settings_version' `
     'Pomodoro View Model 未携带设置版本'

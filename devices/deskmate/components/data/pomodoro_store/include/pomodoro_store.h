@@ -15,7 +15,13 @@ extern "C"
 #endif
 
     /** @brief 当前番茄钟持久化格式版本 */
-#define POMODORO_STORE_SCHEMA_VERSION 1U
+#define POMODORO_STORE_SCHEMA_VERSION                   2U
+
+    /** @brief 完成音乐逻辑路径最大 UTF-8 字节数，不含结尾 NUL */
+#define POMODORO_STORE_COMPLETION_AUDIO_PATH_MAX_LENGTH 95U
+
+    /** @brief 无持久化值或迁移旧 schema 时使用的完成音乐逻辑路径 */
+#define POMODORO_STORE_DEFAULT_COMPLETION_AUDIO_PATH "/pomodoro-complete.mp3"
 
     /** @brief 番茄钟持久化设置 */
     typedef struct
@@ -24,18 +30,21 @@ extern "C"
         uint8_t short_break_minutes; /**< 短休时长，单位分钟 */
         uint8_t long_break_minutes;  /**< 长休时长，单位分钟 */
         uint8_t long_break_interval; /**< 进入长休前需要完成的专注轮数 */
+        /** SD 卡内以 `/` 开头的 `.mp3` 逻辑路径 */
+        char completion_audio_path[POMODORO_STORE_COMPLETION_AUDIO_PATH_MAX_LENGTH + 1U];
     } pomodoro_store_settings_t;
 
     /** @brief 番茄钟持久化快照 */
     typedef struct
     {
-        pomodoro_store_settings_t settings;       /**< 原样读取的设置 */
-        uint32_t                  today_date;     /**< 本地日期戳 YYYYMMDD */
-        uint8_t                   today_count;    /**< 已归入 today_date 的完成数 */
-        uint8_t                   pending_count;  /**< 尚未归入可信日期的完成数 */
-        bool                      schema_valid;   /**< 格式版本是否为当前版本 */
-        bool                      settings_valid; /**< 四项设置是否全部存在且在范围内 */
-        bool                      counts_valid;   /**< 三个计数字段是否缺失或类型正确 */
+        pomodoro_store_settings_t settings;           /**< 原样读取的设置 */
+        uint32_t                  today_date;         /**< 本地日期戳 YYYYMMDD */
+        uint8_t                   today_count;        /**< 已归入 today_date 的完成数 */
+        uint8_t                   pending_count;      /**< 尚未归入可信日期的完成数 */
+        bool                      schema_valid;       /**< 格式版本是否为当前版本 */
+        bool                      migration_required; /**< 是否从兼容旧格式读取并需要迁移 */
+        bool                      settings_valid;     /**< 全部设置是否存在且合法 */
+        bool                      counts_valid;       /**< 三个计数字段是否缺失或类型正确 */
     } pomodoro_store_snapshot_t;
 
     /**
@@ -46,6 +55,14 @@ extern "C"
      * @return ESP_OK 可访问；其他值表示 NVS 打开失败
      */
     esp_err_t pomodoro_store_init(void);
+
+    /**
+     * @brief 校验一份完整番茄钟持久化设置
+     *
+     * @param[in] settings 调用期间借用的完整设置
+     * @return true 时长范围、步长和完成音乐 UTF-8 逻辑路径均合法；false 设置无效
+     */
+    bool pomodoro_store_settings_are_valid(const pomodoro_store_settings_t *settings);
 
     /**
      * @brief 按值读取番茄钟持久化快照
