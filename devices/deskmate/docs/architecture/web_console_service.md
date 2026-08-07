@@ -1,15 +1,15 @@
 # Web Console 可移植组件契约
 
-> 状态：已确认的迁移目标契约，修订于 2026-07-30。
+> 状态：已实现的共享组件与 DeskMate 装配契约，修订于 2026-08-08。
 >
-> 本文固定 `web_file_service` 向共享 `web_console_service` 迁移时必须保持的职责、依赖和裁剪
-> 边界。迁移期间当前实现与本文存在的差异属于待迁移项，不能反向扩张本文职责。
+> 本文固定共享 `web_console_service` 与 DeskMate 产品装配必须保持的职责、依赖和裁剪边界；
+> 后续功能不能反向扩张本文职责。
 
 ## 1. 目标
 
 `web_console_service` 是可跨产品移植的本地认证管理控制台 Service。它通过 ESP-IDF HTTPD
 提供 Web UI 与 HTTP API，统一拥有认证会话、URI 生命周期、活动 handler 记账和有界停止；
-文件、用户设置和状态展示属于可裁剪模块。
+文件、用户设置、状态展示和非破坏性操作属于可裁剪模块。
 
 目标源码位置为：
 
@@ -67,7 +67,7 @@ Core 不负责：
 - 调用 Provider 所属组件的 `init/start/stop/deinit`。
 - 决定产品级降级、重试、重启、页面导航或维护时机。
 
-Core 必须在没有 Files、Settings 和 Network Provider 时仍能独立完成
+Core 必须在没有 Files、Settings、Status、Actions 和 Network Provider 时仍能独立完成
 `init/start/stop/deinit`。空控制台可以只提供认证入口与启用模块清单。
 
 ## 4. 可裁剪模块
@@ -86,24 +86,30 @@ Files 不挂载或卸载文件系统。文件系统根、事务目录和容量 P
 `init` 成功到 `deinit` 完成；调用方在此期间不得释放其上下文。关闭 Files 构建开关后，
 Core 不编译文件 handler、事务恢复和文件传输源码，也不保留产品 `System` 依赖。
 
-### 4.2 Settings 与 Status
+### 4.2 Settings、Status 与 Actions
 
-Settings/Status 模块只负责认证后的 HTTP 映射、字段元数据编码、Provider 发现和结果分发。
+Settings/Status/Actions 模块只负责认证后的 HTTP 映射、字段元数据编码、Provider 发现和结果分发。
 领域 Provider 继续拥有数据、校验、持久化、运行时应用和失败策略。
 
-浏览器导航把两类能力合并为同一个“设备管理”页面，按“状态在前、设置在后”同时呈现；这只是
-页面组合，Capabilities、HTTP 路由、只读/可写语义和 Provider 生命周期仍各自独立。只启用
-Settings 或 Status 时，设备管理页面只装配对应区块，不携带另一模块的网页代码。
+认证后的顶层只显示“文件管理”“设置”和“退出登录”；退出登录是会话动作，不是领域模块。
+浏览器按相同 `section_id` 合并 Settings、Status 与 Actions 能力，在“设置”首页显示客户分组，
+再进入一层详情。不同 Provider 类型允许复用同一 section ID，同一类型内部仍要求唯一。关闭
+任一模块时，其 endpoint、文案、HTML/CSS/JS 标记和 Provider 存储均不得进入构建产物。
+
+DeskMate 完整装配只形成三个客户分组：`hub`（Hub Settings + Hub Actions）、`pomodoro`
+（番茄钟 Settings）和 `system`（“设备与系统” Status）。调试型 Network Manager Status
+Provider 不参与产品装配，也不形成 Wi-Fi 分类。
 
 Provider 集合只通过 `web_console_service_init_borrow()` 的初始化配置一次性装配，运行中不得
 动态增加、替换或注销。Console 复制回调集合并长期借用 `ctx`，借用期在 `deinit` 完成时
 结束。Provider 回调不得接收或保存 `httpd_req_t`，不得绕过 Core 的认证、handler 记账和
-停止屏障。阶段 2 纯重命名暂时保留无参数 `init()`；引入 Files/Provider 注入时再独立迁移为
-带 `_borrow` 的装配契约。
+停止屏障。
 
 Settings Provider 必须能够表达：
 
 - 稳定 section/field ID、类型、长度、范围和枚举约束。
+- section/field 的 UTF-8 标签与可选 `description`、`unit`、`summary`，以及 ASCII `format`。
+- STRING 值只能是可打印 ASCII，单值最多 127 bytes；显示元数据按各自上限使用有效 UTF-8。
 - 普通可读写字符串可选声明文件扩展名；该元数据只在 Files 同时启用时合法，浏览器通过
   认证后的目录接口选择逻辑路径，Provider 回调不得为此访问文件系统。
 - `READ_ONLY`、`SECRET`、`WRITE_ONLY` 等访问属性。
@@ -113,6 +119,18 @@ Settings Provider 必须能够表达：
 
 Secret 只允许报告是否已配置，不得通过快照、日志或错误正文返回原值。Console 不认识 NVS
 namespace/key、JSON 文件路径或产品持久化结构。
+
+Actions 只表达非破坏性、异步管理操作，固定增加两条认证路由：
+
+```text
+POST /api/actions?section=<id>&action=<id>
+GET  /api/actions/result?section=<id>&action=<id>&request=<uint64>
+```
+
+POST 只完成有界输入校验和快速复制/排队，GET 查询 `pending/succeeded/failed` 与稳定 reason。
+删除、覆盖、恢复出厂设置、OTA 和重启不得借 Actions 绕过单独的产品授权与安全设计。Actions
+Provider 与 Settings/Status 一样在 `init_borrow()` 期间深复制元数据和回调，只长期借用
+`context` 到 `deinit()` 成功。
 
 ### 4.3 Network Provider
 
@@ -133,6 +151,21 @@ Manager 状态、IPv4、网关、DNS、RSSI、AP 信息、已保存配置事实�
 按 HTTP 请求读取最新诊断即可满足首版需求。未来若增加网络配置修改，必须由 Application
 先接受异步产品请求，在 HTTP 响应完成后停止 Console、释放租约，再由 Network Manager 验证
 候选配置；HTTP handler 不得停止自身 Service。
+
+DeskMate 当前 Hub URL 不是 Network Provider 配置项，而由 `app_network` 独占。候选只接受
+ASCII `http://` authority：IPv4 或主机名、可选 `1..65535` 端口；scheme/host 规范化为小写，
+移除唯一末尾 `/`，并拒绝用户信息、业务 path、query、fragment、空白、非 ASCII 和超过
+127 bytes 的值。测试和保存共享一个 pending 槽，并与 Portal 的完整网络配置保存 reservation
+互斥，防止两个入口交错覆盖 `network_cfg`。
+
+测试只对候选的 `/healthz` 执行无凭据有界 GET，不写持久化；保存不能复用旧测试结果，而由
+唯一 Network Task 对同一候选重测，然后读取完整 `network_cfg`、只替换 `service_url` 并一次性
+提交单个 Blob。持久化成功后才发布新 URL/version，并立即使旧测试事实失效。随后远端日志按
+stop/configure/start 最佳努力重配；失败只记录事实、不回滚地址。已经复制旧后端上下文的在途
+事务继续完成，新 URL 只用于后续新事务。
+
+番茄钟更新同样由领域所有者执行：Task 在锁内重检版本与空闲状态，锁外先持久化候选，成功后
+才在短锁内发布新 settings/version；失败保留旧设置、版本、派生字段和原 `settings_saved`。
 
 ## 5. 生命周期、并发与所有权
 
@@ -164,7 +197,7 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
   是否开放 Secret 写入必须单独确认传输安全策略。
 - 所有认证后 API 默认 `Cache-Control: no-store`，不得记录访问码、Bearer token、密码或完整
   Authorization。
-- Files、Settings、Status 和 Network Provider 的路由必须在启动前形成固定、有界、无冲突
+- Files、Settings、Status、Actions 和 Network Provider 的路由必须在启动前形成固定、有界、无冲突
   的表；停止时由 Core 对称注销。
 
 ## 7. 构建与裁剪验收
@@ -177,11 +210,14 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 | Console Core-only | 不依赖文件系统或 Communication，能够独立启停 |
 | Core + Files | 保持现有文件 HTTP、安全和恢复契约 |
 | Core + Settings | 使用内存 Provider 即可构建，不依赖产品存储 |
+| Core + Actions | 只开放非破坏性异步操作，不携带 Files/Settings/Status 路由或网页片段 |
 | Core + Network Provider | 只增加对 `network_manager` 的单向只读依赖 |
-| DeskMate 完整组合 | Application 继续拥有网络租约和启停时机 |
+| DeskMate 完整组合 | 顶层“文件管理 / 设置 / 退出登录”；Application 继续拥有网络租约和启停时机 |
 
-静态检查、固件编译和真实设备验收是三个独立等级。固件编译只能通过 DeskSuite 根目录
-`ds.ps1` 执行；编译通过不代表 HTTP、SD、断网或停止流程已经完成设备验收。
+Python/Node/PowerShell 主机测试与静态检查只能证明源码、网页装配和 host helper 契约；它们
+不等于固件编译、OTA 发布、设备安装、真实设备、真实 Hub 或浏览器交互验收。固件编译只能在
+用户明确要求后通过 DeskSuite 根目录 `ds.ps1` 执行；编译通过也不代表 HTTP、SD、断网或停止
+流程已经完成设备验收。
 
 ## 8. 迁移提交顺序
 

@@ -60,9 +60,11 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
 - 网络：`app_network` 拥有 DeskMate 的 Dashboard、OTA、语音租约和会话退避策略；
   Communication 的 `network_manager` 只拥有 Wi‑Fi/Portal 技术状态机，协议与传输不决定产品时机。
 - 网页控制台：设备设置页选择“网页控制台”后，Application 申请专用网络租约并启动本地
-  认证管理 Service；产品显式组合 Files、番茄钟 Settings、系统 Status 与可选网络 Status，
-  浏览器把 Settings 与 Status 合并到一个“设备管理”页面，番茄钟完成音乐通过 Files 支持的
-  `.mp3` 路径选择字段配置；页面返回必须等待 Service 完整停止后才释放租约。
+  认证管理 Service；浏览器顶层只有“文件管理 / 设置 / 退出登录”，“设置”首页按客户分组呈现
+  Hub Settings/连接测试 Actions、番茄钟 Settings 和“设备与系统” Status。产品不装配调试型
+  Network Manager Status，不提供 Wi-Fi 分类、OTA 或重启动作。Hub 测试与保存由 `app_network`
+  串行执行，番茄钟完成音乐通过 Files 支持的 `.mp3` 路径选择字段配置；页面返回必须等待
+  Service 完整停止后才释放租约。
 - 呈现：Service、Communication 或 Application 报告事实，Presenter 更新 View Model 并发布呈现事件，
   UI Runtime 在唯一 LVGL 上下文读取并渲染。
 - 番茄钟：`app_pomodoro_task` 使用单调 deadline 串行推进专注、短休和长休；设置以独立版本

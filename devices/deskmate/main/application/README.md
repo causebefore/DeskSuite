@@ -194,7 +194,7 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → web_console_service 恢复事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → Files handler 串行浏览、下载、事务上传或执行单项目录/文件变更
-  → 浏览器在同一个“设备管理”页面呈现 Hub、番茄钟、设备与系统三个产品分区
+  → 浏览器顶层显示“文件管理 / 设置 / 退出登录”，并在“设置”首页呈现 Hub、番茄钟、设备与系统三个客户分组
   → Hub Settings/Actions 经 app_web_console_provider 共享同一个 hub section
   → 番茄钟 Settings 经 app_web_console_provider 提交版本化更新并查询结果
   → 设备与系统 Status 经 app_web_console_provider 读取单份系统快照
@@ -255,7 +255,8 @@ Loop 接受 `STATUS_UPDATE` 才清除；任何后续状态推送也会重试当�
 设备与系统三项：Hub Settings 与 Hub Actions 使用同一个 `hub` section；Pomodoro Settings 暴露
 四项时长和一个完成音乐逻辑路径，后者通过通用 `.mp3` 文件选择元数据复用认证后的 Files 目录
 接口，Provider 回调本身不遍历 SD 卡；设备与系统 Status 只暴露七项系统只读事实，不再组合
-调试型 Network Manager 诊断 Provider。网络 SSID、敏感凭据、OTA 和 Dashboard 不进入字段表。
+调试型 Network Manager 诊断 Provider。产品不提供 Wi-Fi 分类；网络 SSID、敏感凭据、OTA、重启
+和 Dashboard 不进入字段表或 Actions。
 浏览器批量文件操作只是顺序调用单项接口，不声明跨多个目录项的原子事务。
 
 同步回执 waiter 在同一个 `s_state_lock` 临界区完成 deadline 最终仲裁：`COMPLETED` 先复制
@@ -340,7 +341,12 @@ Dashboard 同步失败是可重试的数据错误；语音、网络或 UI 无法
 - 低功耗维护契约执行 `.\tools\tests\check_power_rebuild_stage1.ps1`。
 - 网页控制台产品 Provider 回归执行
   `.\tools\tests\check_web_console_product_providers.ps1`。
+- Hub URL host helper、Portal/Web 互斥、单 Blob 提交和远端日志重配契约执行
+  `.\tools\tests\check_app_network_hub_settings.ps1`。
 - 固件编译必须通过仓库统一命令 `& .\ds.ps1 build deskmate` 执行。
+
+上述 PowerShell 与网页 Python/Node 验证只覆盖 host/static 契约，不等于固件编译、OTA 发布、
+设备安装、真实设备、浏览器交互或真实 Hub 验收。
 
 相关规范：
 

@@ -1,8 +1,8 @@
 # `web_console_service`
 
 > `web_console_service` 是 Service 层的可移植本地认证网页控制台。Console Core 始终提供
-> HTTPD、单会话凭据、能力发现、URI 入口关闭与 handler 排空；Files、Settings、Status
-> 是彼此可裁剪的可选模块。产品通过 Storage / Settings / Status Provider 注入能力，组件
+> HTTPD、单会话凭据、能力发现、URI 入口关闭与 handler 排空；Files、Settings、Status、Actions
+> 是彼此可裁剪的可选模块。产品通过 Storage / Settings / Status / Actions Provider 注入能力，组件
 > 不决定控制台何时开放，也不拥有产品配置、状态或持久化。
 
 ## 1. 定位
@@ -25,11 +25,12 @@
   URI 并等待活动 handler 排空，最后由一次性清理 Task 完成合法 HTTPD 销毁。
 - 内部 Files 模块拥有目录浏览、下载、事务式上传和短时文件变更 handler，以及单传输状态、
   PSRAM 缓冲区和上传恢复 journal。
-- 内部 Settings/Status HTTP 映射负责通用 JSON 编解码、字段类型/范围/访问属性校验、版本化
-  异步更新协议和 Provider 输出契约校验；领域所有者继续负责语义校验、排队、持久化、生效和
-  最终结果。
-- 浏览器把 Settings 与 Status 聚合到同一个“设备管理”入口，先呈现只读状态，再呈现可写设置；
-  两类能力仍按各自构建开关裁剪，并分别调用原有 HTTP/Provider 契约。
+- 内部 Settings/Status/Actions HTTP 映射负责通用 JSON 编解码、字段类型/范围/访问属性校验、
+  版本化设置和非破坏性操作的异步协议，以及 Provider 输出契约校验；领域所有者继续负责语义
+  校验、排队、持久化、生效和最终结果。
+- 认证后的顶层只显示“文件管理”“设置”和“退出登录”。浏览器在“设置”首页按相同 section ID
+  合并实际存在的 Settings、Status 与 Actions 能力，再进入一层详情；三类能力仍按各自构建
+  开关裁剪，并分别调用自己的 HTTP/Provider 契约。
 - 普通可读写字符串可声明一个文件后缀；Files 同时启用时，浏览器使用现有认证目录接口提供
   只读路径选择器和文件存在状态，不允许自由输入路径，也不把目录 I/O 放进 Provider 回调。
 
@@ -42,7 +43,7 @@ Core 与可选模块通过组件私有的领域路由描述协作。模块不注
 - 不启动 Wi-Fi、AP 或 Portal，不决定服务开放时机、产品降级、重试或重启策略。
 - 不挂载或卸载存储，不调用存储 Provider 的生命周期 API。
 - 不把访问码嵌入 HTML 或写入日志；访问码如何在设备 UI 上呈现由上层决定。
-- 不定义产品设置、不直接访问产品 NVS、不执行 Wi-Fi 重连/设备重启等领域动作，也不采集
+- 不定义产品设置、不直接访问产品 NVS、不执行 Wi-Fi 重连/设备重启/OTA 等领域动作，也不采集
   产品状态；这些事实全部来自注入 Provider。
 - 不提供递归目录删除、目录移动/重命名、WebDAV、WebSocket、CORS、LRU 会话淘汰或长期
   后台轮询 Task。
@@ -59,7 +60,7 @@ Core 与可选模块通过组件私有的领域路由描述协作。模块不注
   → web_console_service 恢复可选 Files 事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → 浏览器读取 capabilities，只呈现实际装配模块
-  → handler 读取状态、提交版本化设置更新，或执行可选文件操作
+  → handler 读取状态、提交版本化设置更新、提交非破坏性操作，或执行可选文件操作
   → 设备返回时 Service 安全停止后释放网络租约
 ```
 
@@ -103,6 +104,8 @@ GET /api/capabilities（Bearer token）
 | `PATCH /api/settings?section=...` | `202 Accepted` 及请求 ID | 2 KiB JSON 上限；通用校验后由所有者复制并异步受理 |
 | `GET /api/settings/result?section=...&request=...` | `202` pending 或 `200` 终态 | 请求 ID 与版本均使用无精度损失的十进制字符串 |
 | `GET /api/status?section=...` | 一个只读分区摘要 | Provider 回调只能做有界事实读取和短时所有者加锁 |
+| `POST /api/actions?section=...&action=...` | `202 Accepted` 及请求 ID | 只接受元数据声明的有界、非秘密输入；Provider 必须快速复制并排队 |
+| `GET /api/actions/result?section=...&action=...&request=...` | `202` pending 或 `200` 终态 | 返回稳定 `reason`；未知请求不得触发重复提交 |
 | `GET /api/files?path=/...` | 目录容量和逐项 `entries` JSON | 精确 `Bearer ` token、严格单一 `path` query、双遍历后分块发送 |
 | `GET /api/file?path=/...` | 常规文件下载 | 精确 `Bearer ` token、固定 `Content-Length` 原始分块、UTF-8 `filename*` |
 | `PUT /api/file?path=/...` | `201 Created` 或覆盖时 `200 OK` | 原始请求体、配置上限、覆盖确认、配置空间余量和可恢复提交 |
@@ -120,12 +123,12 @@ GET /api/capabilities（Bearer token）
 起算；已有传输期间到达的并发请求不会因起始授权时间已超过十分钟而清除同一会话，而是先完成
 token 校验再返回单传输忙。停止流程已清空的会话不会被传输释放路径重新创建或恢复。
 
-### 3.2 Settings 与 Status 数据流
+### 3.2 Settings、Status 与 Actions 数据流
 
 ```text
 初始化
-  → 校验分区/字段 ID、UTF-8 标签、类型、范围、访问属性和回调
-  → 按实际装配量深复制字符串、字段和枚举元数据
+  → 校验分区/字段/操作 ID、UTF-8 显示元数据、ASCII format、类型、范围、访问属性和回调
+  → 按实际装配量深复制字符串、字段、枚举、操作和输入元数据
   → 仅长期借用 Provider context
 
 读取
@@ -151,9 +154,19 @@ Provider 回调运行在 HTTPD 普通 Task、Core 锁外，只能做有界内存
 排队；不得执行网络、文件、NVS 等长 I/O，不得长期等待，也不得回调 Console。Console 不创建
 轮询 Task，异步状态查询由已登录浏览器发起。
 
-Settings 与 Status 同时存在时，公共页面为它们创建一个“设备管理”导航项并并行装载两个区块；
-只启用其中之一时仍使用同一入口。这个聚合只属于浏览器导航，不改变 Capabilities 中的模块 ID、
-路由数量、只读/可写属性或 Provider 所有权。
+STRING 字段值和 Actions 字符串输入只允许可打印 ASCII，单值最多 127 bytes；section/field/action
+标签、说明、单位、摘要和枚举标签必须是有效 UTF-8 并遵守各自字节上限，`format` 与
+`file_suffix` 使用有界 ASCII。显示元数据可以包含中文，但不能据此放宽协议值缓冲区。
+
+公共页面为 Settings、Status 与 Actions 创建同一个“设置”导航项；只启用其中之一时仍使用
+同一入口。不同类型可复用 section ID 形成一个客户分组，同一类型内部仍拒绝重复。这个聚合
+只属于浏览器导航，不改变 Capabilities 中的模块 ID、路由数量、只读/可写属性或 Provider
+所有权。
+
+Actions 只用于非破坏性异步操作。POST 完成通用输入校验、调用无副作用领域校验，再由
+`request_copy` 快速复制并返回非零、单调、不回绕的请求 ID；GET 通过 action index 和请求 ID
+查询 `pending/succeeded/failed` 与稳定 reason。输入草稿不写 `sessionStorage`，结果暂时未知时
+只允许查询原请求，不自动重复提交。删除、覆盖、恢复出厂设置等破坏性动作不属于该契约。
 
 字段描述符的可选 `file_suffix` 只允许用于普通可读写字符串，并要求同一构建启用 Files。
 Capabilities 将其编码为 `fileSuffix`；浏览器按后缀大小写不敏感地筛选常规文件，保留目录导航，
@@ -263,7 +276,7 @@ journal 只包含版本、阶段、预期长度和规范逻辑目标路径。每
 | 私有调用 | `esp_timer` | 登录锁定、会话空闲失效和停止期限的单调时间 |
 | 私有调用 | `freertos` | Service 状态锁、完成信号量和一次性 HTTPD 清理 Task |
 | 可选私有调用 | `heap` | Files 开启时分配内部 RAM 请求工作区和共享 32 KiB PSRAM 传输缓冲区 |
-| 组件清单依赖 | `espressif__cjson` | Settings/Status 开启时才编译并链接，用于严格解析和有界编码 JSON |
+| 组件清单依赖 | `espressif__cjson` | Settings/Status/Actions 任一开启时才编译并链接，用于严格解析和有界编码 JSON |
 | 可选调用方 | [`web_console_network_provider`](../web_console_network_provider/README.md) | 通过公共 Status 契约提供 Network Manager 只读诊断；Core 不反向依赖 |
 | 被调用 | 目标 Application / Composition Root | 按产品时机装配生命周期并读取运行摘要 |
 
@@ -271,7 +284,7 @@ journal 只包含版本、阶段、预期长度和规范逻辑目标路径。每
 文件 API 和注入的容量快照，不依赖产品 `sys` 组件。
 
 ESP-IDF Component Manager 在 Kconfig 求值前解析组件清单，因此可移植包始终声明并解析
-`espressif/cjson`；关闭 Settings/Status 会裁掉其源码、头文件路径和链接依赖，但不承诺省略
+`espressif/cjson`；关闭 Settings/Status/Actions 会裁掉其源码、头文件路径和链接依赖，但不承诺省略
 依赖解析/下载。若宿主要求连依赖解析也裁掉，应把 Provider HTTP 映射拆成单独发现的组件，
 而不是让 Core 静默依赖宿主已有的 JSON 组件。
 
@@ -292,7 +305,9 @@ ESP-IDF Component Manager 在 Kconfig 求值前解析组件清单，因此可移
 `web_console_service_status_t.access_code` 是为上层本地呈现而提供的秘密副本，仅在运行态非空；调用方
 不得记录或远程转发它。配置中的字符串及回调函数指针在初始化期间复制；Provider `context`
 由调用方持有并必须保持有效，直到 `web_console_service_deinit()` 成功。
-字段描述符中的 `file_suffix` 也由 Service 深复制；关闭 Files 的构建不得装配该元数据。
+字段描述符中的说明、单位、摘要、格式、`file_suffix`，以及 Actions 的操作/输入元数据也由
+Service 深复制；关闭 Files 的构建不得装配 `file_suffix` 元数据。仅各 Provider 的 `context`
+长期借用到 `deinit()` 成功。
 
 ## 6. 状态、生命周期与并发
 
@@ -359,14 +374,18 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 ## 8. 配置与文件
 
 - HTTP 端口：由 `web_console_service_config_t.server_port` 注入。
-- 固定 Core 路由 4 条；Files 6 条；Settings 3 条；Status 1 条。完整构建共 14 条，关闭模块
+- 固定 Core 路由 4 条；Files 6 条；Settings 3 条；Status 1 条；Actions 2 条。完整构建共 16 条，关闭模块
   时 `max_uri_handlers` 与实际路由数同步缩减。
 - `max_open_sockets = 1`；HTTPD 另行占用 listen 和两个控制 socket。
 - recv/send timeout：各 5 秒；LRU purge 关闭；不注册 WebSocket。
-- 构建配置：`CONFIG_WEB_CONSOLE_FILES` 默认开启；`CONFIG_WEB_CONSOLE_SETTINGS` 与
-  `CONFIG_WEB_CONSOLE_STATUS` 默认关闭。构建始终使用 `web/index.html` 唯一公共壳，只把
-  已开启模块的 `web/modules/` 片段组装到 gzip 资源中；Settings/Status 复用一份字段样式和
-  分区选择逻辑，并在浏览器导航层聚合为设备管理页。
+- 构建配置：`CONFIG_WEB_CONSOLE_FILES` 默认开启；`CONFIG_WEB_CONSOLE_SETTINGS`、
+  `CONFIG_WEB_CONSOLE_STATUS` 与 `CONFIG_WEB_CONSOLE_ACTIONS` 默认关闭。共享组件不会因存在
+  Provider 类型而自动启用 Actions，产品消费者必须在自身配置中显式开启并装配 Provider；
+  DeskMate 当前通过 `sdkconfig.defaults` 开启 Actions。构建始终使用 `web/index.html` 唯一公共壳，
+  只把已开启模块的路由与 `web/modules/` HTML/CSS/JS 片段装入产物；关闭 Actions 时还会裁掉
+  Actions Provider 注册表存储。Settings/Status/Actions 复用一份字段样式和 section 合并逻辑。
+  关闭某模块时，其 endpoint、文案和代码标记必须物理裁掉，四个模块共覆盖全部 16 种确定性
+  组合。
 - [`src/core/web_console_service.cpp`](src/core/web_console_service.cpp)：生命周期、HTTPD 句柄和停止资源所有权。
 - [`src/core/web_console_service_http.cpp`](src/core/web_console_service_http.cpp)：首页、认证会话、静态
   路由槽、统一 dispatcher 与入口关闭。
@@ -387,9 +406,9 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 - [`src/providers/web_console_provider_registry.cpp`](src/providers/web_console_provider_registry.cpp)：
   Provider 元数据校验、按量深复制、发现与释放。
 - [`src/providers/web_console_provider_http.cpp`](src/providers/web_console_provider_http.cpp)：Capabilities、
-  Settings/Status 的认证 HTTP/JSON 映射和 Provider 输出契约检查。
+  Settings/Status/Actions 的认证 HTTP/JSON 映射和 Provider 输出契约检查。
 - [`scripts/build_html.py`](scripts/build_html.py) 与 [`scripts/test_build_html.py`](scripts/test_build_html.py)：
-  确定性模块装配、gzip 生成及全部八种裁剪组合测试。
+  确定性模块装配、gzip 生成及全部 16 种裁剪组合测试。
 - [`src/core/web_console_service_internal.hpp`](src/core/web_console_service_internal.hpp) 和
   [`src/files/web_console_files_internal.hpp`](src/files/web_console_files_internal.hpp)：Core/Files
   私有状态、领域路由与生命周期协作接口。
@@ -405,15 +424,16 @@ Service 手写实现均以 C++ 编译；构建期生成的 `web_console_index.ge
 README 不记录某次任务的构建结果、固件大小或尚未执行的临时状态。变更应按影响范围完成以下
 核查：
 
-- 静态与主机侧：覆盖路径解码、认证、单传输守卫、上传事务恢复、创建/移动/删除约束、八种
+- 静态与主机侧：覆盖路径解码、认证、单传输守卫、上传事务恢复、创建/移动/删除约束、16 种
   模块网页组合、Provider 元数据/输出/JSON 边界和 C/C++ ABI。
 - 固件：仅在用户明确要求时，从 DeskSuite 根目录执行统一命令
   `& .\ds.ps1 build deskmate`；不得绕过脚本调用下层构建工具。
-- 实机：覆盖登录/退出/重新登录、Capabilities 裁剪、设备管理单入口及状态/设置联合呈现、文件
+- 实机：覆盖登录/退出/重新登录、Capabilities 裁剪、“设置”单入口及状态/设置/操作联合呈现、文件
   选择字段的目录导航/后缀过滤/缺失状态、设置版本冲突和异步终态、状态读取、
   中英文和特殊名称、下载/上传完整性与边界大小、空间不足、覆盖恢复、创建/移动/删除约束、
   断网/掉电、安全停止和 STA 重连。
 - 资源：长传输期间记录内部堆与 PSRAM 的当前/历史最低空闲量；离开页面后确认 HTTPD Task、
   socket、文件句柄、PSRAM、秘密和网络租约均已释放。
 
-静态核查或编译成功都不等同于目标设备验收通过。
+Python/Node/PowerShell 主机测试或静态核查不等同于固件编译；固件编译也不等同于 OTA 发布、
+设备安装、真实设备、真实 Hub 或浏览器交互验收通过。
