@@ -83,6 +83,7 @@ $ownerHeader = 'main\application\app_pomodoro.h'
 $ownerInternal = 'main\application\app_pomodoro_internal.h'
 $ownerSource = 'main\application\app_pomodoro.c'
 $ownerTask = 'main\application\app_pomodoro_task.c'
+$pomodoroTask = 'main\application\app_pomodoro_task.c'
 $provider = 'main\application\app_web_console_provider.c'
 $storeHeader = 'components\data\pomodoro_store\include\pomodoro_store.h'
 $storeSource = 'components\data\pomodoro_store\src\pomodoro_store.c'
@@ -121,13 +122,10 @@ Assert-Contains $ownerTask 'expected_version\s*!=\s*state->snapshot\.settings_ve
     'Pomodoro Task 执行点未重检设置版本'
 Assert-Contains $ownerTask 'run_state\s*!=\s*APP_POMODORO_RUN_STATE_IDLE' `
     'Pomodoro Task 执行点未重检 IDLE'
-Assert-InOrder $ownerTask @(
-    'snapshot\.settings\s*=\s*update->settings',
-    'snapshot\.settings_version\+\+',
-    'xSemaphoreGive\s*\(\s*g_app_pomodoro_runtime\.state_lock\s*\)',
+Assert-InOrder $pomodoroTask @(
     'pomodoro_store_save_settings_copy\s*\(',
-    'xSemaphoreTake\s*\(\s*g_app_pomodoro_runtime\.state_lock'
-) 'Pomodoro 设置未按“内存与版本 → 解锁 → NVS → 重新加锁”顺序执行'
+    'state->snapshot\.settings\s*=\s*update->settings'
+) '番茄钟必须先持久化候选，再公开新内存设置'
 Assert-Contains $ownerTask 'APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED[\s\S]{0,160}error' `
     'Pomodoro NVS 失败未形成带真实错误的 FAILED 终态'
 
