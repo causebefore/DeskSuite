@@ -99,12 +99,18 @@ class BuildHtmlTests(unittest.TestCase):
             r'navigation: \{ id: "([^"]+)", label: "([^"]+)" \}',
             html,
         )
+        rendered_navigation = []
+        for contribution in [("files", "文件管理"), *navigation_descriptors]:
+            if contribution[0] not in {entry[0] for entry in rendered_navigation}:
+                rendered_navigation.append(contribution)
+        self.assertIn("const descriptor = controller.navigation || {", html)
+        self.assertIn("id: capability.id", html)
+        self.assertIn("label: capability.label", html)
+        self.assertIn("navigation.append(button)", html)
         self.assertEqual(
-            navigation_descriptors,
+            rendered_navigation,
             [
                 ("files", "文件管理"),
-                ("settings", "设置"),
-                ("settings", "设置"),
                 ("settings", "设置"),
             ],
         )

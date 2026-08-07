@@ -135,6 +135,24 @@ function Assert-TextInOrder {
     }
 }
 
+function Assert-TextNotContainsBefore {
+    param(
+        [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string]$BoundaryPattern,
+        [Parameter(Mandatory = $true)][string]$ForbiddenPattern,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+
+    $boundary = [regex]::Match($Content, $BoundaryPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    if (-not $boundary.Success) {
+        $failures.Add($Message)
+        return
+    }
+    if ($Content.Substring(0, $boundary.Index) -match $ForbiddenPattern) {
+        $failures.Add($Message)
+    }
+}
+
 function Read-CFunction {
     param(
         [Parameter(Mandatory = $true)][string]$RelativePath,
@@ -152,11 +170,56 @@ function Read-CFunction {
     }
     $openBrace = $content.IndexOf('{', $signature.Index)
     $depth = 0
+    $inString = $false
+    $inCharacter = $false
+    $inLineComment = $false
+    $inBlockComment = $false
     for ($index = $openBrace; $index -lt $content.Length; ++$index) {
-        if ($content[$index] -eq '{') {
+        $character = $content[$index]
+        $next = if ($index + 1 -lt $content.Length) { $content[$index + 1] } else { [char]0 }
+        if ($inLineComment) {
+            if ($character -eq "`n") { $inLineComment = $false }
+            continue
+        }
+        if ($inBlockComment) {
+            if ($character -eq '*' -and $next -eq '/') {
+                ++$index
+                $inBlockComment = $false
+            }
+            continue
+        }
+        if ($inString) {
+            if ($character -eq '\') { ++$index; continue }
+            if ($character -eq '"') { $inString = $false }
+            continue
+        }
+        if ($inCharacter) {
+            if ($character -eq '\') { ++$index; continue }
+            if ($character -eq "'") { $inCharacter = $false }
+            continue
+        }
+        if ($character -eq '/' -and $next -eq '/') {
+            ++$index
+            $inLineComment = $true
+            continue
+        }
+        if ($character -eq '/' -and $next -eq '*') {
+            ++$index
+            $inBlockComment = $true
+            continue
+        }
+        if ($character -eq '"') {
+            $inString = $true
+            continue
+        }
+        if ($character -eq "'") {
+            $inCharacter = $true
+            continue
+        }
+        if ($character -eq '{') {
             ++$depth
         }
-        elseif ($content[$index] -eq '}') {
+        elseif ($character -eq '}') {
             --$depth
             if ($depth -eq 0) {
                 return $content.Substring($signature.Index, $index - $signature.Index + 1)
@@ -210,6 +273,10 @@ Assert-Contains $pomodoroTask 'expected_version\s*!=\s*state->snapshot\.settings
 Assert-Contains $pomodoroTask 'run_state\s*!=\s*APP_POMODORO_RUN_STATE_IDLE' `
     'Pomodoro Task 执行点未重检 IDLE'
 $pomodoroUpdate = Read-CFunction $pomodoroTask 'update_settings_locked'
+Assert-TextNotContainsBefore $pomodoroUpdate `
+    'pomodoro_store_save_settings_copy\s*\(' `
+    'state->snapshot\.settings\s*=|state->snapshot\.settings_version\+\+|APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED' `
+    '番茄钟在持久化前不得发布设置、递增版本或完成成功结果'
 Assert-TextInOrder $pomodoroUpdate @(
     'const\s+app_pomodoro_settings_t\s+candidate\s*=\s*update->settings',
     'xSemaphoreGive\s*\(\s*g_app_pomodoro_runtime\.state_lock\s*\)',
@@ -226,12 +293,15 @@ Assert-TextContains $pomodoroUpdate `
     '番茄钟只可在持久化成功分支公开候选设置、版本与已保存事实'
 Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.settings\s*=\s*candidate' 1 `
     '番茄钟候选设置只能在持久化成功分支发布一次'
+Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.settings_version\+\+' 1 `
+    '番茄钟设置版本只能在持久化成功分支递增一次'
 Assert-TextNotContains $pomodoroUpdate 'state->snapshot\.settings\s*=\s*update->settings' `
     '番茄钟不得在持久化前直接公开 update 设置'
 Assert-TextNotContains $pomodoroUpdate 'state->snapshot\.settings_saved\s*=\s*false' `
     '番茄钟持久化失败不得覆盖旧的已保存事实'
-Assert-Contains $pomodoroTask 'APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED[\s\S]{0,160}error' `
-    'Pomodoro NVS 失败未形成带真实错误的 FAILED 终态'
+Assert-TextContains $pomodoroUpdate `
+    'finish_settings_update_locked\s*\(\s*command->settings_request_id\s*,\s*error\s*==\s*ESP_OK\s*\?\s*APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED\s*:\s*APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED\s*,\s*error\s*\)' `
+    'Pomodoro 持久化失败路径未在同一事务中完成 FAILED 结果'
 
 foreach ($fieldId in @(
     'focus_minutes',
