@@ -111,7 +111,6 @@ class BuildHtmlTests(unittest.TestCase):
             [
                 ("files", "文件管理"),
                 ("settings", "设置"),
-                ("settings", "设置"),
             ],
         )
         self.assertEqual(html.count('id="logoutButton"'), 1)
