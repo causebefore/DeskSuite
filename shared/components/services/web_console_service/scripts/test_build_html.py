@@ -1,6 +1,7 @@
 """验证网页控制台构建期模块裁剪与确定性输出。"""
 
 import itertools
+import json
 import pathlib
 import re
 import subprocess
@@ -568,38 +569,168 @@ console.log(JSON.stringify([
         self.assertNotIn("sessionStorage", submit_source)
         self.assertNotIn("submitAction(section", submit_source[submit_source.index("catch (error)"):])
 
-    def test_save_and_leave_timeout_restores_dialog_without_navigation_or_resubmit(self):
+    def test_save_and_leave_failures_restore_real_dialog_without_navigation_or_resubmit(self):
         settings_source = (WEB_ROOT / "modules" / "settings.js").read_text(encoding="utf-8")
-        self.assertIn("  async function pollSettings(", settings_source)
-        start = settings_source.index("  async function pollSettings(")
-        end = settings_source.index("\n  async function saveActive", start)
-        function_source = settings_source[start:end]
-        output = self.run_node(f'''\
-const PAGE_STATE = Object.freeze({{ networkUnknown: "network_unknown" }});
-const POLL_DEADLINE_MS = 30000;
-const messages = {{ deadline: "结果未知" }};
-let activeSectionId = "customer";
-let enabled = 0; let navigated = 0; let queried = 0; let submitted = 0; let state = "";
-const adapter = {{
-  getResult() {{ queried += 1; }},
-  submit() {{ submitted += 1; }},
-}};
-const view = {{ setPageState(next) {{ state = next; }} }};
-const activeContext = {{ view }};
-function enableDraftDialog() {{ enabled += 1; }}
-function closeDraftDialog() {{ navigated += 1; }}
-function moduleMessage(_part, key) {{ return messages[key]; }}
-const activePart = {{ adapter }};
-const Date = {{ now() {{ return 40000; }} }};
-{function_source}
-(async () => {{
-await pollSettings({{ section: "customer", action: "settings", request: "7", start: 0 }});
-console.log(JSON.stringify({{ state, enabled, navigated, queried, submitted }}));
-}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
-''')
+        script = r'''
+class FakeElement {
+  constructor(id) {
+    this.id = id;
+    this.disabled = false;
+    this.listeners = {};
+    this.children = [];
+    const classes = new Set(["hidden"]);
+    this.classList = {
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
+      contains: (name) => classes.has(name),
+    };
+  }
+  addEventListener(type, listener) {
+    (this.listeners[type] ||= []).push(listener);
+  }
+  async emit(type, event = {}) {
+    for (const listener of this.listeners[type] || []) {
+      await listener({ preventDefault() {}, ...event });
+    }
+  }
+  focus() { document.activeElement = this; }
+  querySelectorAll(selector) {
+    if (selector === "button" || selector === ".confirm-actions button") return [...this.children];
+    if (selector === "button:not(:disabled)") {
+      return this.children.filter((button) => !button.disabled);
+    }
+    throw new Error(`unexpected selector: ${selector}`);
+  }
+  replaceChildren() {}
+}
+
+const ids = [
+  "settingsForm", "settingsUndo", "settingsSave", "settingsChangeCount",
+  "settingsFields", "settingsFieldsRegion", "settingsControls", "draftDialog",
+  "draftSaveLeave", "draftDiscardLeave", "draftCancelLeave",
+];
+const elements = Object.fromEntries(ids.map((id) => [id, new FakeElement(id)]));
+const dialogButtons = [
+  elements.draftSaveLeave, elements.draftDiscardLeave, elements.draftCancelLeave,
+];
+elements.draftDialog.children = dialogButtons;
+const document = {
+  activeElement: null,
+  getElementById(id) { return elements[id]; },
+};
+const storage = new Map();
+const sessionStorage = {
+  getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+  setItem(key, value) { storage.set(key, value); },
+  removeItem(key) { storage.delete(key); },
+};
+
+let mode = "submit_failed";
+let submitCalls = 0;
+let queryCalls = 0;
+let registration;
+let controller;
+function response(status, payload) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return payload; },
+  };
+}
+const consoleApi = {
+  async apiFetch(url, options = {}) {
+    if (url.includes("/result")) {
+      queryCalls += 1;
+      throw new Error("network unavailable");
+    }
+    if (options.method === "PATCH") {
+      submitCalls += 1;
+      if (mode === "submit_failed") return response(500, { message: "提交失败" });
+      return response(202, { state: "pending", requestId: "7" });
+    }
+    return response(200, { section: "customer", version: "1", values: [] });
+  },
+  fields: {
+    mountModule(_kind, _capability, _adapter, value) { controller = value; },
+    unmountModule() {},
+  },
+  getToken() { return "token"; },
+  async readApiError() { return "读取失败"; },
+  registerModule(value) { registration = value; },
+};
+const window = {
+  webConsole: consoleApi,
+  clearTimeout() {},
+  setTimeout() { throw new Error("unexpected retry timer"); },
+};
+''' + f"\nconst settingsSource = {json.dumps(settings_source)};\neval(settingsSource);\n" + r'''
+
+const renderer = {
+  applyDraft() {},
+  changeCount() { return 1; },
+  exportDraft() { return [{ id: "duration", value: 2 }]; },
+  hasChanges() { return true; },
+  readChanges() { return [{ id: "duration", value: 2 }]; },
+  setDisabled() {},
+  setErrors() {},
+};
+let state = "dirty";
+const view = {
+  getPageState() { return state; },
+  isCurrent() { return true; },
+  reload() {},
+  renderFields() { return renderer; },
+  setPageState(next) { state = next; },
+  setPendingCheck() {},
+};
+const part = { id: "customer", fields: [] };
+const context = { section: { id: "customer" }, options: {}, view };
+
+async function runScenario(nextMode) {
+  controller.resetDetail();
+  mode = nextMode;
+  state = "dirty";
+  submitCalls = 0;
+  queryCalls = 0;
+  for (const button of dialogButtons) button.disabled = false;
+  elements.draftDialog.classList.add("hidden");
+  await controller.loadDetail(part, context);
+  let navigated = 0;
+  const leave = controller.confirmLeave(elements.settingsUndo).then((result) => {
+    if (controller.handleLeaveResult(result)) navigated += 1;
+    return result;
+  });
+  await elements.draftSaveLeave.emit("click");
+  await Promise.resolve();
+  await Promise.resolve();
+  const result = {
+    state,
+    enabled: dialogButtons.map((button) => !button.disabled),
+    operable: !elements.draftDialog.classList.contains("hidden"),
+    navigated,
+    submitCalls,
+    queryCalls,
+  };
+  await elements.draftCancelLeave.emit("click");
+  await leave;
+  return result;
+}
+
+(async () => {
+  await registration.mount({});
+  console.log(JSON.stringify([
+    await runScenario("submit_failed"),
+    await runScenario("network_unknown"),
+  ]));
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+'''
+        output = self.run_node(script)
         self.assertEqual(
             output,
-            '{"state":"network_unknown","enabled":1,"navigated":0,"queried":0,"submitted":0}',
+            '[{"state":"network_unknown","enabled":[true,true,true],"operable":true,'
+            '"navigated":0,"submitCalls":1,"queryCalls":0},'
+            '{"state":"network_unknown","enabled":[true,true,true],"operable":true,'
+            '"navigated":0,"submitCalls":1,"queryCalls":1}]',
         )
 
     def test_polling_is_bounded_and_does_not_persist_secret_payloads(self):

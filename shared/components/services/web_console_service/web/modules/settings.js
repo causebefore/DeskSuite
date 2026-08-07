@@ -24,7 +24,7 @@
     cancel: "cancel",
   });
   const messages = Object.freeze({
-    conflict: "设备设置已更新；已刷新基线并保留草稿，请确认后再保存。",
+    conflict: "设置已更新；刷新基线并保留草稿，请确认后保存。",
     dirty: "本地更改尚未保存。",
     succeeded: "保存成功，已重新读取设备设置。",
     deadline: "保存结果暂时未知，请查询原请求，勿重复提交。",
@@ -356,7 +356,7 @@
   }
 
   function enableDraftDialog() {
-    for (const button of focusableElements()) button.disabled = false;
+    for (const button of byId("draftDialog").querySelectorAll("button")) button.disabled = false;
   }
 
   function closeDraftDialog(result) {
