@@ -757,25 +757,23 @@ static void adjust_pomodoro_draft(bool increase)
         case 0:
             value   = &s_view.pomodoro_draft.focus_minutes;
             minimum = 5U;
-            maximum = 90U;
-            step    = 5U;
+            maximum = 180U;
             break;
         case 1:
             value   = &s_view.pomodoro_draft.short_break_minutes;
-            minimum = 1U;
-            maximum = 30U;
+            minimum = 5U;
+            maximum = 180U;
             break;
         case 2:
             value   = &s_view.pomodoro_draft.long_break_minutes;
             minimum = 5U;
-            maximum = 60U;
-            step    = 5U;
+            maximum = 180U;
             break;
         case 3:
         default:
             value   = &s_view.pomodoro_draft.long_break_interval;
             minimum = 2U;
-            maximum = 8U;
+            maximum = 12U;
             break;
     }
     if (increase)

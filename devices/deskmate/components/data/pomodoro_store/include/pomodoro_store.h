@@ -26,10 +26,10 @@ extern "C"
     /** @brief 番茄钟持久化设置 */
     typedef struct
     {
-        uint8_t focus_minutes;       /**< 专注时长，单位分钟 */
-        uint8_t short_break_minutes; /**< 短休时长，单位分钟 */
-        uint8_t long_break_minutes;  /**< 长休时长，单位分钟 */
-        uint8_t long_break_interval; /**< 进入长休前需要完成的专注轮数 */
+        uint8_t focus_minutes;       /**< 专注时长，5..180 分钟，步长 1 */
+        uint8_t short_break_minutes; /**< 短休时长，5..180 分钟，步长 1 */
+        uint8_t long_break_minutes;  /**< 长休时长，5..180 分钟，步长 1 */
+        uint8_t long_break_interval; /**< 进入长休前需要完成的专注轮数，2..12，步长 1 */
         /** SD 卡内以 `/` 开头的 `.mp3` 逻辑路径 */
         char completion_audio_path[POMODORO_STORE_COMPLETION_AUDIO_PATH_MAX_LENGTH + 1U];
     } pomodoro_store_settings_t;
@@ -60,7 +60,9 @@ extern "C"
      * @brief 校验一份完整番茄钟持久化设置
      *
      * @param[in] settings 调用期间借用的完整设置
-     * @return true 时长范围、步长和完成音乐 UTF-8 逻辑路径均合法；false 设置无效
+     * 三项时长均接受 5..180 范围内任意整数分钟，长休间隔接受 2..12 范围内任意整数轮。
+     *
+     * @return true 时长范围和完成音乐 UTF-8 逻辑路径均合法；false 设置无效
      */
     bool pomodoro_store_settings_are_valid(const pomodoro_store_settings_t *settings);
 

@@ -334,6 +334,22 @@ Assert-Contains $provider '\.id\s*=\s*"long_break_minutes"[\s\S]{0,320}\.minimum
     '长休时长范围或步长不符合契约'
 Assert-Contains $provider '\.id\s*=\s*"long_break_interval"[\s\S]{0,320}\.minimum\s*=\s*2[\s\S]{0,100}\.maximum\s*=\s*12[\s\S]{0,100}\.step\s*=\s*1U' `
     '长休间隔范围或步长不符合契约'
+Assert-Contains $storeSource 'settings->focus_minutes\s*>=\s*5U[\s\S]{0,100}settings->focus_minutes\s*<=\s*180U' `
+    'Pomodoro Store 专注时长权威范围必须与 Provider 的 5..180 一致'
+Assert-Contains $storeSource 'settings->short_break_minutes\s*>=\s*5U[\s\S]{0,100}settings->short_break_minutes\s*<=\s*180U' `
+    'Pomodoro Store 短休时长权威范围必须与 Provider 的 5..180 一致'
+Assert-Contains $storeSource 'settings->long_break_minutes\s*>=\s*5U[\s\S]{0,100}settings->long_break_minutes\s*<=\s*180U' `
+    'Pomodoro Store 长休时长权威范围必须与 Provider 的 5..180 一致'
+Assert-Contains $storeSource 'settings->long_break_interval\s*>=\s*2U[\s\S]{0,100}settings->long_break_interval\s*<=\s*12U' `
+    'Pomodoro Store 长休间隔权威范围必须与 Provider 的 2..12 一致'
+Assert-NotContains $storeSource 'settings->(?:focus_minutes|short_break_minutes|long_break_minutes)\s*%' `
+    'Pomodoro Store 三项分钟设置必须接受范围内任意整数，不得保留旧步长取模限制'
+Assert-Contains $ownerSource 'bool\s+app_pomodoro_settings_are_valid\s*\([^)]*\)[\s\S]{0,760}return\s+pomodoro_store_settings_are_valid\s*\(\s*&stored\s*\)' `
+    'Pomodoro Owner 必须把完整候选交给 Store 权威校验，禁止复制第二套范围'
+Assert-Contains 'main\presentation\pomodoro_presenter.c' 'input->long_break_interval\s*<\s*2U[\s\S]{0,100}input->long_break_interval\s*>\s*12U' `
+    'Pomodoro Presenter 必须接受 Owner 合法的 2..12 长休间隔'
+Assert-Contains 'main\ui\pages\ui_settings_page.c' 'case\s+0:[\s\S]{0,180}minimum\s*=\s*5U[\s\S]{0,100}maximum\s*=\s*180U[\s\S]{0,140}case\s+1:[\s\S]{0,180}minimum\s*=\s*5U[\s\S]{0,100}maximum\s*=\s*180U[\s\S]{0,140}case\s+2:[\s\S]{0,180}minimum\s*=\s*5U[\s\S]{0,100}maximum\s*=\s*180U[\s\S]{0,180}minimum\s*=\s*2U[\s\S]{0,100}maximum\s*=\s*12U' `
+    '本机 Pomodoro 设置页范围必须与 Provider、Owner 和 Store 一致'
 Assert-Contains $provider `
     'completion_audio_path[\s\S]{0,260}WEB_CONSOLE_FIELD_TYPE_STRING[\s\S]{0,260}\.file_suffix\s*=\s*"\.mp3"' `
     '完成音乐未声明为 Files 支持的 MP3 字符串字段'

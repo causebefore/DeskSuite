@@ -202,7 +202,7 @@ esp_err_t pomodoro_presenter_apply(const pomodoro_presenter_input_t *input, bool
                 || (input->settings_update_state == POMODORO_VIEW_SETTINGS_UPDATE_FAILED
                     && input->settings_update_error == ESP_OK)))
         || input->long_break_interval < 2U
-        || input->long_break_interval > 8U)
+        || input->long_break_interval > 12U)
     {
         return ESP_ERR_INVALID_ARG;
     }

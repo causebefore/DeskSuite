@@ -122,11 +122,10 @@ static bool completion_audio_path_is_valid(const char *path)
 
 bool pomodoro_store_settings_are_valid(const pomodoro_store_settings_t *settings)
 {
-    return settings != NULL && settings->focus_minutes >= 5U && settings->focus_minutes <= 90U
-           && (settings->focus_minutes % 5U) == 0U && settings->short_break_minutes >= 1U
-           && settings->short_break_minutes <= 30U && settings->long_break_minutes >= 5U
-           && settings->long_break_minutes <= 60U && (settings->long_break_minutes % 5U) == 0U
-           && settings->long_break_interval >= 2U && settings->long_break_interval <= 8U
+    return settings != NULL && settings->focus_minutes >= 5U && settings->focus_minutes <= 180U
+           && settings->short_break_minutes >= 5U && settings->short_break_minutes <= 180U
+           && settings->long_break_minutes >= 5U && settings->long_break_minutes <= 180U
+           && settings->long_break_interval >= 2U && settings->long_break_interval <= 12U
            && completion_audio_path_is_valid(settings->completion_audio_path);
 }
 

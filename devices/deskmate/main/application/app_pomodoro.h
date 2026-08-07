@@ -40,10 +40,10 @@ extern "C"
     /** @brief 番茄钟可持久化设置 */
     typedef struct
     {
-        uint8_t focus_minutes;       /**< 专注时长，5..90，步长 5 */
-        uint8_t short_break_minutes; /**< 短休时长，1..30，步长 1 */
-        uint8_t long_break_minutes;  /**< 长休时长，5..60，步长 5 */
-        uint8_t long_break_interval; /**< 长休间隔，2..8 轮 */
+        uint8_t focus_minutes;       /**< 专注时长，5..180 分钟，步长 1 */
+        uint8_t short_break_minutes; /**< 短休时长，5..180 分钟，步长 1 */
+        uint8_t long_break_minutes;  /**< 长休时长，5..180 分钟，步长 1 */
+        uint8_t long_break_interval; /**< 长休间隔，2..12 轮，步长 1 */
         /** SD 卡内以 `/` 开头的 `.mp3` 逻辑路径 */
         char completion_audio_path[APP_POMODORO_COMPLETION_AUDIO_PATH_MAX_LENGTH + 1U];
     } app_pomodoro_settings_t;
