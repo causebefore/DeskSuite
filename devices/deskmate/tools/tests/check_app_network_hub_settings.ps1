@@ -199,7 +199,23 @@ $networkTask = 'main\application\app_network_task.c'
 $networkHeader = 'main\application\app_network.h'
 $hubUrlHeader = 'main\application\app_network_hub_url.h'
 $hubUrlHostTest = 'tools\tests\test_app_network_hub_url.c'
+$hubUrlHostRunner = Join-Path $PSScriptRoot 'run_app_network_hub_url_host_test.ps1'
 $provider = 'main\application\app_web_console_provider.c'
+
+if (-not (Test-Path -LiteralPath $hubUrlHostRunner)) {
+    $failures.Add('缺少 Hub URL host-test 执行入口')
+}
+else {
+    Assert-Contains $hubUrlHostRunner 'test_app_network_hub_url\.c' 'Hub URL host-test 执行入口未编译目标测试源'
+    Assert-Contains $hubUrlHostRunner '(?:cl|gcc|clang)[\s\S]{0,220}test_app_network_hub_url\.c' `
+        'Hub URL host-test 执行入口未实际编译目标测试'
+    Assert-Contains $hubUrlHostRunner '&\s+\$[A-Za-z_][A-Za-z0-9_]*' `
+        'Hub URL host-test 执行入口未实际运行 host 可执行文件'
+    & $hubUrlHostRunner
+    if ($LASTEXITCODE -ne 0) {
+        $failures.Add("Hub URL host-test 执行失败（退出码 $LASTEXITCODE）")
+    }
+}
 
 Assert-Contains $hubUrlHeader 'APP_NETWORK_HUB_URL_MAX_LENGTH\s+127U' 'Hub URL 纯 helper 未声明 127 字节上限'
 Assert-Contains $hubUrlHeader 'app_network_hub_url_parse_copy\s*\(' 'Hub URL 纯 helper 未公开规范化入口'
@@ -214,6 +230,15 @@ Assert-Contains $hubUrlHostTest '"http://[^"]+#[^"]*"' 'Hub URL host-test 未拒
 Assert-Contains $hubUrlHostTest '"http://[^"]+/[^"]+"' 'Hub URL host-test 未拒绝业务 path'
 Assert-Contains $hubUrlHostTest '127U|APP_NETWORK_HUB_URL_MAX_LENGTH' 'Hub URL host-test 未覆盖 ASCII 127 字节边界'
 Assert-Contains $hubUrlHostTest '\\x80|0x80|非 ASCII' 'Hub URL host-test 未覆盖非 ASCII 拒绝'
+Assert-Contains $hubUrlHostTest 'assert\s*\(' 'Hub URL host-test 未使用明确断言'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_success\s*\(\s*"HTTP://Example\.COM/"\s*,\s*"http://example\.com"\s*\)' 'Hub URL host-test 未断言合法输入的精确规范化输出'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_rejected\s*\(\s*"https://' 'Hub URL host-test 未断言 https 输入失败'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_rejected\s*\(\s*"http://user@' 'Hub URL host-test 未断言 userinfo 输入失败'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_rejected\s*\(\s*"http://[^"]+\?[^"]*"' 'Hub URL host-test 未断言 query 输入失败'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_rejected\s*\(\s*"http://[^"]+#[^"]*"' 'Hub URL host-test 未断言 fragment 输入失败'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_rejected\s*\(\s*"http://[^"]+/[^"]+"' 'Hub URL host-test 未断言业务 path 输入失败'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_rejected\s*\(\s*overlong' 'Hub URL host-test 未断言超长输入失败'
+Assert-Contains $hubUrlHostTest 'assert_hub_url_rejected\s*\(\s*non_ascii' 'Hub URL host-test 未断言非 ASCII 输入失败'
 
 Assert-Contains $networkHeader 'app_network_get_hub_settings_snapshot_copy\s*\(' `
     'Network Application 未公开 Hub 设置快照入口'
@@ -245,9 +270,20 @@ Assert-TextContains $hubHealthCheck 'APP_NETWORK_HUB_HEALTH_TIMEOUT_MS' `
 Assert-TextNotContains $hubHealthCheck 'Authorization|device_token|token' `
     'Hub 健康检查不得携带访问令牌或设备 Token'
 
+$hubCandidateInvalidation = Read-CFunction $networkTask 'invalidate_hub_test_result_for_candidate'
+Assert-TextInOrder $hubCandidateInvalidation @(
+    'const\s+char\s*\*\s*candidate',
+    'strcmp\s*\([^,]+,\s*candidate\s*\)\s*!=\s*0',
+    '(?:candidate_url|service_url)',
+    '(?:candidate_version|version)',
+    'APP_NETWORK_HUB_TEST_STATE_INVALIDATED'
+) 'Hub 候选地址变化必须绑定候选与版本，并清除或降级旧测试结果'
+Assert-TextNotContains $hubCandidateInvalidation 'system_storage_(get|set)_network_config|settings_store_save|nvs_' 'Hub 候选地址变化不得持久化配置'
+
 $hubTest = Read-CFunction $networkTask 'handle_hub_test_command'
 Assert-TextInOrder $hubTest @(
     'const\s+char\s*\*\s*candidate\s*=\s*command->hub_url',
+    'invalidate_hub_test_result_for_candidate\s*\(\s*candidate',
     'perform_hub_health_check\s*\(\s*candidate',
     '(?:result|test_result)\.(?:candidate_url|service_url)[\s\S]{0,180}candidate',
     'finish_hub'
@@ -258,6 +294,7 @@ $hubUpdate = Read-CFunction $networkTask 'handle_hub_update_command'
 Assert-TextNotContainsBefore $hubUpdate 'system_storage_set_network_config_borrow\s*\(' 'snapshot\.service_url\s*=|snapshot\.version\+\+|APP_NETWORK_HUB_UPDATE_STATE_SUCCEEDED' 'Hub 持久化成功前不得发布新的地址、版本或成功结果'
 Assert-TextInOrder $hubUpdate @(
     'const\s+char\s*\*\s*candidate\s*=\s*command->hub_url',
+    'invalidate_hub_test_result_for_candidate\s*\(\s*candidate',
     'perform_hub_health_check\s*\(\s*candidate',
     'system_storage_get_network_config_copy\s*\(\s*&network_cfg\s*\)',
     'settings_store_copy_string\s*\(\s*network_cfg\.service_url[\s\S]{0,180}candidate',

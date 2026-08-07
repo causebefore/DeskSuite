@@ -386,6 +386,7 @@ Assert-Contains $provider '\.section_id\s*=\s*"system"[\s\S]{0,160}\.label\s*=\s
     '设置首页缺少设备与系统分组'
 Assert-NotContains $provider '\.section_id\s*=\s*"network"' `
     '设置首页不得保留独立网络分组'
+Assert-NotContains $provider '\.section_id\s*=\s*"(?!hub"|pomodoro"|system")' '设置首页不得出现 Hub、番茄钟、设备与系统以外的分组'
 Assert-NotContains $provider 'app_pomodoro_internal|g_app_pomodoro_runtime|pomodoro_store|nvs_|httpd_|xTaskCreate|xQueueCreate|esp_timer_create' `
     '产品 Provider 越过公共 API 或拥有了 Task、Queue、Timer、NVS、HTTPD 状态'
 Assert-NotContains $provider '\.id\s*=\s*"(ssid|password|token|ota|dashboard)' `

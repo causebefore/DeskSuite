@@ -86,12 +86,19 @@ class BuildHtmlTests(unittest.TestCase):
         ]
         self.assertEqual(endpoint_positions, sorted(endpoint_positions))
 
-    def test_management_modules_render_one_settings_center(self):
+    def test_actions_module_can_be_assembled(self):
+        try:
+            html = build_html.assemble_html(
+                INDEX_TEMPLATE,
+                ("files", "settings", "status", "actions"),
+            )
+        except ValueError as error:
+            self.fail(f"Actions 模块必须可组装：{error}")
+        self.assertIn('data-web-console-module="actions"', html)
+        self.assertIn("/api/actions", html)
+
+    def test_management_navigation_renders_only_files_settings_and_logout(self):
         html = build_html.assemble_html(
-            INDEX_TEMPLATE,
-            ("files", "settings", "status", "actions"),
-        )
-        without_actions = build_html.assemble_html(
             INDEX_TEMPLATE,
             ("files", "settings", "status"),
         )
@@ -99,38 +106,45 @@ class BuildHtmlTests(unittest.TestCase):
             r'navigation: \{ id: "([^"]+)", label: "([^"]+)" \}',
             html,
         )
-        rendered_navigation = []
-        for contribution in [("files", "文件管理"), *navigation_descriptors]:
-            if contribution[0] not in {entry[0] for entry in rendered_navigation}:
-                rendered_navigation.append(contribution)
-        self.assertIn("const descriptor = controller.navigation || {", html)
-        self.assertIn("id: capability.id", html)
-        self.assertIn("label: capability.label", html)
-        self.assertIn("navigation.append(button)", html)
         self.assertEqual(
-            rendered_navigation,
+            navigation_descriptors,
             [
                 ("files", "文件管理"),
+                ("settings", "设置"),
                 ("settings", "设置"),
             ],
         )
         self.assertEqual(html.count('id="logoutButton"'), 1)
         self.assertIn(">退出登录<", html)
-        self.assertIn('id="settingsHome"', html)
         self.assertNotIn("设备管理", html)
+        self.assertNotIn('navigation: { id: "management"', html)
+
+    def test_settings_home_has_only_customer_groups(self):
+        html = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("files", "settings", "status"),
+        )
+        self.assertIn('id="settingsHome"', html)
         self.assertNotIn("配置分区", html)
-        for resource, relative_path in (
-            ("Actions HTML", "modules/actions.html"),
-            ("Actions CSS", "modules/actions.css"),
-            ("Actions JS", "modules/actions.js"),
+        self.assertNotIn("状态分区", html)
+
+    def test_actions_resources_are_trimmed_when_actions_are_disabled(self):
+        html = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("files", "settings", "status"),
+        )
+        for marker in MODULE_MARKERS["actions"]:
+            self.assertNotIn(marker, html)
+        for relative_path in (
+            "modules/actions.html",
+            "modules/actions.css",
+            "modules/actions.js",
         ):
-            with self.subTest(resource=resource):
-                fragment = (WEB_ROOT / relative_path).read_text(encoding="utf-8").strip()
-                self.assertTrue(fragment, f"{resource} 片段不能为空")
-                self.assertIn(fragment, html)
-                self.assertNotIn(fragment, without_actions)
-        self.assertIn("/api/actions", html)
-        self.assertNotIn("/api/actions", without_actions)
+            path = WEB_ROOT / relative_path
+            if path.exists():
+                fragment = path.read_text(encoding="utf-8").strip()
+                self.assertTrue(fragment, f"{relative_path} 片段不能为空")
+                self.assertNotIn(fragment, html)
 
     def test_assembled_page_has_unique_ids_and_no_placeholders(self):
         html = build_html.assemble_html(
