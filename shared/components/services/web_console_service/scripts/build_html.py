@@ -143,6 +143,63 @@ def minify_html(html: str) -> str:
             index += 1
         return "".join(output).strip()
 
+    def compact_javascript(source: str) -> str:
+        """压缩字面量之外的 JS 空白与注释。"""
+        output: list[str] = []
+        quote = ""
+        escaped = False
+        pending_space = False
+        index = 0
+        delimiters = "{}[]();,:"
+        while index < len(source):
+            character = source[index]
+            if quote:
+                output.append(character)
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == quote:
+                    quote = ""
+                index += 1
+                continue
+            if source.startswith("//", index):
+                newline = source.find("\n", index + 2)
+                index = len(source) if newline < 0 else newline + 1
+                pending_space = True
+                continue
+            if source.startswith("/*", index):
+                closing = source.find("*/", index + 2)
+                if closing < 0:
+                    index = len(source)
+                else:
+                    comment = source[index : closing + 2]
+                    if "Copyright" in comment or "Crosslink" in comment:
+                        if pending_space and output:
+                            output.append(" ")
+                        output.append(re.sub(r"\s+", " ", comment))
+                    index = closing + 2
+                pending_space = True
+                continue
+            if character in "\"'`":
+                if pending_space and output and output[-1] not in delimiters:
+                    output.append(" ")
+                pending_space = False
+                quote = character
+                output.append(character)
+            elif character.isspace():
+                pending_space = True
+            else:
+                if character in delimiters:
+                    while output and output[-1] == " ":
+                        output.pop()
+                elif pending_space and output and output[-1] not in delimiters:
+                    output.append(" ")
+                pending_space = False
+                output.append(character)
+            index += 1
+        return "".join(output).strip()
+
     def compact_code_block(block: str, tag: str) -> str:
         opening_end = block.find(">") + 1
         closing_start = block.lower().rfind(f"</{tag}")
@@ -152,33 +209,7 @@ def minify_html(html: str) -> str:
         if tag == "style":
             body = compact_css(source)
         else:
-            lines: list[str] = []
-            in_template = False
-            for raw_line in source.splitlines():
-                stripped = raw_line.strip()
-                if not in_template and (not stripped or stripped.startswith("//")):
-                    continue
-                was_in_template = in_template
-                quote = "`" if in_template else ""
-                escaped = False
-                index = 0
-                while index < len(raw_line):
-                    character = raw_line[index]
-                    if quote:
-                        if escaped:
-                            escaped = False
-                        elif character == "\\":
-                            escaped = True
-                        elif character == quote:
-                            quote = ""
-                    elif character in "\"'`":
-                        quote = character
-                    elif raw_line.startswith("//", index):
-                        break
-                    index += 1
-                in_template = quote == "`"
-                lines.append(raw_line if was_in_template else raw_line.lstrip().rstrip())
-            body = "\n".join(lines)
+            body = compact_javascript(source)
         return f"{opening}\n{body}\n{closing}"
 
     def preserve(match: re.Match[str]) -> str:

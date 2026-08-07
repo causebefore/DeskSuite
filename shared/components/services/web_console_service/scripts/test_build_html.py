@@ -25,6 +25,9 @@ MODULE_MARKERS = {
         "/api/settings",
         "保存更改",
         "保存并离开",
+        "保存成功，已重新读取设备设置。",
+        "保存结果暂时未知",
+        "本地更改尚未保存",
     ),
     "status": (
         'data-web-console-module="status"',
@@ -36,11 +39,24 @@ MODULE_MARKERS = {
         'data-web-console-module="actions"',
         "/api/actions",
         "可用操作",
+        "操作结果暂时未知，请勿重复提交。",
+        "操作已完成。",
+        "正在执行“",
     ),
 }
 
 
 class BuildHtmlTests(unittest.TestCase):
+    def run_node(self, source):
+        result = subprocess.run(
+            ("node", "-e", source),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
     def module_combinations(self):
         for length in range(len(build_html.MODULE_ORDER) + 1):
             yield from itertools.combinations(build_html.MODULE_ORDER, length)
@@ -222,6 +238,10 @@ class BuildHtmlTests(unittest.TestCase):
         self.assertEqual(first[0:3], b"\x1f\x8b\x08")
         self.assertEqual(first[4:8], b"\x00\x00\x00\x00")
 
+    def test_full_module_gzip_stays_within_review_budget(self):
+        html = build_html.assemble_html(INDEX_TEMPLATE, build_html.MODULE_ORDER)
+        self.assertLessEqual(len(build_html.compress_html(html)), 23288)
+
     def test_cli_without_modules_builds_core_only(self):
         self.assertEqual(
             build_html.resolve_cli_modules(None),
@@ -354,6 +374,104 @@ class BuildHtmlTests(unittest.TestCase):
             "focusableElements",
         ):
             self.assertIn(marker, html)
+
+    def test_discard_clears_renderer_and_preserved_draft_before_leaving(self):
+        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
+        self.assertIn("  function discardActiveDraft()", fields_source)
+        self.assertIn("  function handleLeaveResult(", fields_source)
+        discard_start = fields_source.index("  function discardActiveDraft()")
+        discard_end = fields_source.index("\n  function ", discard_start + 3)
+        handle_start = fields_source.index("  function handleLeaveResult(")
+        handle_end = fields_source.index("\n  function ", handle_start + 3)
+        functions = fields_source[discard_start:discard_end] + fields_source[handle_start:handle_end]
+        output = self.run_node(f'''\
+const LEAVE_RESULT = Object.freeze({{ proceed: "proceed", save: "save", discard: "discard", cancel: "cancel" }});
+const preservedDrafts = new Map();
+let activeSection = {{ id: "customer-section" }};
+let settingsRenderer = {{ hasChanges: () => true }};
+{functions}
+function discardThenReenter(route) {{
+  preservedDrafts.set(activeSection.id, [{{ id: "duration", value: "20" }}]);
+  settingsRenderer = {{ hasChanges: () => true }};
+  const mayLeave = handleLeaveResult(LEAVE_RESULT.discard);
+  return {{ route, mayLeave, rendererCleared: settingsRenderer === null,
+    restored: preservedDrafts.get(activeSection.id) || null }};
+}}
+console.log(JSON.stringify([
+  discardThenReenter("home-settings"),
+  discardThenReenter("files-settings"),
+]));
+''')
+        self.assertEqual(
+            output,
+            '[{"route":"home-settings","mayLeave":true,"rendererCleared":true,"restored":null},'
+            '{"route":"files-settings","mayLeave":true,"rendererCleared":true,"restored":null}]',
+        )
+        return_home = fields_source[
+            fields_source.index("  async function requestReturnHome()"):
+            fields_source.index("\n  function mountModule", fields_source.index("  async function requestReturnHome()"))
+        ]
+        self.assertLess(return_home.index("handleLeaveResult"), return_home.index("showHome()"))
+        common_source = (WEB_ROOT / "common.js").read_text(encoding="utf-8")
+        self.assertIn("fields.handleLeaveResult(await fields.confirmLeave(trigger))", common_source)
+
+    def test_generated_description_ids_are_unique_for_consecutive_read_only_fields(self):
+        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
+        start = fields_source.index("  function appendFieldHeading(")
+        end = fields_source.index("\n  function renderFields", start)
+        function_source = fields_source[start:end]
+        output = self.run_node(f'''\
+let descriptionSequence = 0;
+const document = {{
+  createElement(tag) {{
+    return {{ tag, children: [], className: "", textContent: "", id: "",
+      append(...items) {{ this.children.push(...items); }},
+      setAttribute() {{}} }};
+  }},
+}};
+function row() {{ return {{ children: [], prepend(...items) {{ this.children.unshift(...items); }} }}; }}
+{function_source}
+const first = row();
+const second = row();
+appendFieldHeading(first, {{ label: "只读一", description: "说明一" }}, null);
+appendFieldHeading(second, {{ label: "密钥二", description: "说明二", secret: true }}, null);
+console.log(JSON.stringify([first.children[0].children[1].id, second.children[0].children[1].id]));
+''')
+        self.assertEqual(
+            output,
+            '["console-field-description-1","console-field-description-2"]',
+        )
+
+    def test_action_submit_failure_states_are_distinct_and_inputs_stay_in_memory(self):
+        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
+        self.assertIn("  function actionFailureState(", fields_source)
+        start = fields_source.index("  function actionFailureState(")
+        end = fields_source.index("\n  function ", start + 3)
+        function_source = fields_source[start:end]
+        output = self.run_node(f'''\
+const PAGE_STATE = Object.freeze({{
+  sessionExpired: "session_expired", validationError: "validation_error",
+  ownerBusy: "owner_busy", networkUnknown: "network_unknown",
+}});
+{function_source}
+console.log(JSON.stringify([
+  actionFailureState({{ status: 401 }}, false),
+  actionFailureState({{ status: 422 }}, true),
+  actionFailureState({{ status: 409, payload: {{ error: "owner_busy" }} }}, true),
+  actionFailureState({{}}, true),
+]));
+''')
+        self.assertEqual(
+            output,
+            '["session_expired","validation_error","owner_busy","network_unknown"]',
+        )
+        submit_start = fields_source.index("  async function submitAction(")
+        submit_end = fields_source.index("\n  async function pollAction", submit_start)
+        submit_source = fields_source[submit_start:submit_end]
+        self.assertLess(submit_source.index("preservedActionInputs.set"), submit_source.index("adapter.submit"))
+        self.assertIn("renderer.setErrors(error.payload && error.payload.errors)", submit_source)
+        self.assertNotIn("sessionStorage", submit_source)
+        self.assertNotIn("submitAction(section", submit_source[submit_source.index("catch (error)"):])
 
     def test_polling_is_bounded_and_does_not_persist_secret_payloads(self):
         html = build_html.assemble_html(

@@ -13,6 +13,12 @@
     versionConflict: "version_conflict",
     sessionExpired: "session_expired",
   });
+  const LEAVE_RESULT = Object.freeze({
+    proceed: "proceed",
+    save: "save",
+    discard: "discard",
+    cancel: "cancel",
+  });
   const INTEGER_LIMITS = {
     int32: { min: -2147483648, max: 2147483647 },
     uint32: { min: 0, max: 4294967295 },
@@ -24,6 +30,7 @@
   const consoleApi = window.webConsole;
   const providers = new Map();
   const preservedDrafts = new Map();
+  const preservedActionInputs = new Map();
   const byId = (id) => document.getElementById(id);
   const hasOwn = (object, key) =>
     object !== null && object !== undefined &&
@@ -39,6 +46,18 @@
   let leaveResolver = null;
   let leaveTrigger = null;
   let fieldSequence = 0;
+  let descriptionSequence = 0;
+
+  function moduleMessage(sectionPart, key, ...args) {
+    const message = sectionPart && sectionPart.adapter &&
+      sectionPart.adapter.messages && sectionPart.adapter.messages[key];
+    if (typeof message === "function") return message(...args);
+    return typeof message === "string" ? message : "";
+  }
+
+  function actionInputKey(sectionId, actionId) {
+    return `${sectionId}\u0000${actionId}`;
+  }
 
   function optionParts(option) {
     if (option && typeof option === "object") {
@@ -112,15 +131,15 @@
       }
       seen.add(section.id);
       if (kind === "actions") {
-        if (!Array.isArray(section.actions)) throw new Error("操作类别描述无效。");
+        if (!Array.isArray(section.actions)) throw new Error("输入类别描述无效。");
         const actionIds = new Set();
         for (const action of section.actions) {
           if (!action || typeof action.id !== "string" ||
               typeof action.label !== "string" || actionIds.has(action.id)) {
-            throw new Error("操作描述无效。");
+            throw new Error("输入描述无效。");
           }
           actionIds.add(action.id);
-          validateFields(action.inputs, "操作输入");
+          validateFields(action.inputs, "输入");
         }
       } else {
         validateFields(section.fields, "设置中心类别");
@@ -270,7 +289,7 @@
     heading.append(label);
     if (typeof field.description === "string" && field.description) {
       const description = document.createElement("p");
-      description.id = `${input ? input.id : `field-${fieldSequence}`}-description`;
+      description.id = `console-field-description-${++descriptionSequence}`;
       description.className = "field-description";
       description.textContent = field.description;
       heading.append(description);
@@ -561,7 +580,10 @@
     }
     const fields = document.createElement("div");
     fields.className = "field-list";
-    const renderer = renderFields(fields, action.inputs, [], { editable: true });
+    const key = actionInputKey(section.id, action.id);
+    const renderer = renderFields(
+      fields, action.inputs, preservedActionInputs.get(key) || [], { editable: true },
+    );
     const run = document.createElement("button");
     run.type = "button";
     run.textContent = action.label;
@@ -645,14 +667,14 @@
     if (options.conflict) {
       setPageState(
         PAGE_STATE.versionConflict,
-        "设备设置已更新；已刷新设备基线并保留本地草稿，请确认后再次保存。",
+        moduleMessage(section.settings, "conflict"),
       );
     } else if (failed) {
       setPageState(PAGE_STATE.networkUnknown, "部分数据暂时无法读取，请稍后刷新。");
     } else if (hasDraft) {
-      setPageState(PAGE_STATE.dirty, "本地更改尚未保存。");
+      setPageState(PAGE_STATE.dirty, moduleMessage(section.settings, "dirty"));
     } else if (options.succeeded) {
-      setPageState(PAGE_STATE.succeeded, "保存成功，已重新读取设备设置。", "success");
+      setPageState(PAGE_STATE.succeeded, moduleMessage(section.settings, "succeeded"), "success");
     } else setPageState(PAGE_STATE.synced, "");
     const stored = readPendingFact();
     if (stored && stored.section === section.id) {
@@ -668,7 +690,7 @@
     if (settingsRenderer.hasChanges()) {
       preservedDrafts.set(activeSection.id, settingsRenderer.exportDraft());
       if (pageState !== PAGE_STATE.saving && pageState !== PAGE_STATE.versionConflict) {
-        setPageState(PAGE_STATE.dirty, "本地更改尚未保存。");
+        setPageState(PAGE_STATE.dirty, moduleMessage(activeSection.settings, "dirty"));
       } else updateSettingsControls();
     } else {
       preservedDrafts.delete(activeSection.id);
@@ -701,7 +723,7 @@
     if (deadlineReached && !manual) {
       setPageState(
         PAGE_STATE.networkUnknown,
-        "保存结果暂时未知。请继续查询原请求，不要重复提交。",
+        moduleMessage(activeSection.settings, "deadline"),
       );
       return;
     }
@@ -709,7 +731,11 @@
       const payload = await activeSection.settings.adapter.getResult(fact.section, fact.request);
       if (payload.state === "pending") {
         if (deadlineReached || manual) {
-          setPageState(PAGE_STATE.networkUnknown, "原请求仍在处理中，可稍后再次查询。", "info");
+          setPageState(
+            PAGE_STATE.networkUnknown,
+            moduleMessage(activeSection.settings, "pending"),
+            "info",
+          );
         } else {
           pollTimer = window.setTimeout(() => pollSettings(fact), pollDelay(payload));
         }
@@ -719,21 +745,27 @@
       if (payload.state === "succeeded") {
         preservedDrafts.delete(activeSection.id);
         await loadDetail(activeSection, { succeeded: true });
-        if (leaveResolver) closeDraftDialog(true);
+        if (leaveResolver) closeDraftDialog(LEAVE_RESULT.save);
         return;
       }
       const state = reasonState(payload.reason);
       if (state === PAGE_STATE.versionConflict) {
         await refreshBaselinePreservingDraft();
       } else {
-        setPageState(state, payload.message || "设备未能应用更改。");
+        setPageState(state, payload.message || moduleMessage(activeSection.settings, "failed"));
       }
       enableDraftDialog();
     } catch (error) {
       if (!consoleApi.getToken()) {
-        setPageState(PAGE_STATE.sessionExpired, "登录已失效，本地草稿仍保留在当前页面内存中。");
+        setPageState(
+          PAGE_STATE.sessionExpired,
+          moduleMessage(activeSection.settings, "sessionExpired"),
+        );
       } else {
-        setPageState(PAGE_STATE.networkUnknown, "保存结果暂时未知，请继续查询原请求。");
+        setPageState(
+          PAGE_STATE.networkUnknown,
+          moduleMessage(activeSection.settings, "resultUnknown"),
+        );
       }
       enableDraftDialog();
     }
@@ -750,7 +782,7 @@
       return false;
     }
     if (changes.length === 0) return true;
-    setPageState(PAGE_STATE.saving, "正在提交并等待设备确认…");
+    setPageState(PAGE_STATE.saving, moduleMessage(activeSection.settings, "submitting"));
     try {
       const payload = await activeSection.settings.adapter.submit(
         activeSection.id, baselineVersion, changes,
@@ -766,7 +798,10 @@
       return null;
     } catch (error) {
       if (!consoleApi.getToken()) {
-        setPageState(PAGE_STATE.sessionExpired, "登录已失效，本地草稿仍保留在当前页面内存中。");
+        setPageState(
+          PAGE_STATE.sessionExpired,
+          moduleMessage(activeSection.settings, "sessionExpired"),
+        );
       } else if (error.status === 422) {
         if (settingsRenderer) settingsRenderer.setErrors(error.payload && error.payload.errors);
         setPageState(PAGE_STATE.validationError, error.message, "error");
@@ -778,12 +813,19 @@
       } else {
         setPageState(
           PAGE_STATE.networkUnknown,
-          "提交结果暂时未知。为避免重复写入，请先重新读取或确认原请求结果。",
+          moduleMessage(activeSection.settings, "submitUnknown"),
           "error",
         );
       }
       return false;
     }
+  }
+
+  function actionFailureState(error, hasToken) {
+    if (!hasToken) return PAGE_STATE.sessionExpired;
+    if (error.status === 422) return PAGE_STATE.validationError;
+    if (error.status === 409) return PAGE_STATE.ownerBusy;
+    return PAGE_STATE.networkUnknown;
   }
 
   async function submitAction(section, action, renderer, button) {
@@ -795,8 +837,13 @@
       setPageState(PAGE_STATE.validationError, error.message, "error");
       return;
     }
+    const inputKey = actionInputKey(section.id, action.id);
+    preservedActionInputs.set(inputKey, inputs);
     button.disabled = true;
-    setPageState(PAGE_STATE.saving, `正在执行“${action.label}”…`);
+    setPageState(
+      PAGE_STATE.saving,
+      moduleMessage(section.actions, "submitting", action.label),
+    );
     try {
       const payload = await section.actions.adapter.submit(section.id, action.id, inputs);
       const fact = {
@@ -809,9 +856,17 @@
       pollAction(fact);
     } catch (error) {
       button.disabled = false;
+      const state = actionFailureState(error, Boolean(consoleApi.getToken()));
+      if (state === PAGE_STATE.validationError) {
+        renderer.setErrors(error.payload && error.payload.errors);
+      }
+      const message = state === PAGE_STATE.sessionExpired
+        ? moduleMessage(section.actions, "sessionExpired")
+        : (state === PAGE_STATE.networkUnknown
+          ? moduleMessage(section.actions, "unknown") : error.message);
       setPageState(
-        error.status === 409 ? PAGE_STATE.ownerBusy : PAGE_STATE.networkUnknown,
-        error.message || "操作结果暂时未知，请勿重复提交。",
+        state,
+        message,
         "error",
       );
     }
@@ -821,7 +876,10 @@
     if (!activeSection || !activeSection.actions || fact.section !== activeSection.id) return;
     const deadlineReached = Date.now() - fact.start >= POLL_DEADLINE_MS;
     if (deadlineReached && !manual) {
-      setPageState(PAGE_STATE.networkUnknown, "操作结果暂时未知，请勿重复提交。");
+      setPageState(
+        PAGE_STATE.networkUnknown,
+        moduleMessage(activeSection.actions, "unknown"),
+      );
       return;
     }
     try {
@@ -830,7 +888,11 @@
       );
       if (payload.state === "pending") {
         if (deadlineReached || manual) {
-          setPageState(PAGE_STATE.networkUnknown, "原操作仍在处理中，可稍后再次查询。", "info");
+          setPageState(
+            PAGE_STATE.networkUnknown,
+            moduleMessage(activeSection.actions, "pending"),
+            "info",
+          );
         } else {
           pollTimer = window.setTimeout(() => pollAction(fact), pollDelay(payload));
         }
@@ -838,15 +900,44 @@
       }
       clearPendingFact();
       if (payload.state === "succeeded") {
-        setPageState(PAGE_STATE.succeeded, "操作已完成。", "success");
+        preservedActionInputs.delete(actionInputKey(fact.section, fact.action));
+        setPageState(
+          PAGE_STATE.succeeded,
+          moduleMessage(activeSection.actions, "succeeded"),
+          "success",
+        );
       } else {
-        setPageState(reasonState(payload.reason), payload.message || "操作未完成。", "error");
+        setPageState(
+          reasonState(payload.reason),
+          payload.message || moduleMessage(activeSection.actions, "failed"),
+          "error",
+        );
       }
     } catch (error) {
       if (!consoleApi.getToken()) {
-        setPageState(PAGE_STATE.sessionExpired, "登录已失效，请重新登录后查询原操作。", "error");
-      } else setPageState(PAGE_STATE.networkUnknown, "操作结果暂时未知，请勿重复提交。", "error");
+        setPageState(
+          PAGE_STATE.sessionExpired,
+          moduleMessage(activeSection.actions, "sessionExpired"),
+          "error",
+        );
+      } else {
+        setPageState(
+          PAGE_STATE.networkUnknown,
+          moduleMessage(activeSection.actions, "unknown"),
+          "error",
+        );
+      }
     }
+  }
+
+  function discardActiveDraft() {
+    if (activeSection) preservedDrafts.delete(activeSection.id);
+    settingsRenderer = null;
+  }
+
+  function handleLeaveResult(result) {
+    if (result === LEAVE_RESULT.discard) discardActiveDraft();
+    return result !== LEAVE_RESULT.cancel;
   }
 
   function focusableElements() {
@@ -868,8 +959,10 @@
   }
 
   function confirmLeave(trigger) {
-    if (!settingsRenderer || !settingsRenderer.hasChanges()) return Promise.resolve(true);
-    if (leaveResolver) return Promise.resolve(false);
+    if (!settingsRenderer || !settingsRenderer.hasChanges()) {
+      return Promise.resolve(LEAVE_RESULT.proceed);
+    }
+    if (leaveResolver) return Promise.resolve(LEAVE_RESULT.cancel);
     leaveTrigger = trigger || document.activeElement;
     byId("draftDialog").classList.remove("hidden");
     byId("draftSaveLeave").focus();
@@ -877,8 +970,8 @@
   }
 
   async function requestReturnHome() {
-    if (!await confirmLeave(byId("settingsBack"))) return;
-    preservedDrafts.delete(activeSection.id);
+    const result = await confirmLeave(byId("settingsBack"));
+    if (!handleLeaveResult(result)) return;
     history.replaceState(null, "");
     showHome();
   }
@@ -931,18 +1024,19 @@
     byId("draftSaveLeave").addEventListener("click", async () => {
       for (const button of focusableElements()) button.disabled = true;
       const result = await saveActive();
-      if (result === true) closeDraftDialog(true);
+      if (result === true) closeDraftDialog(LEAVE_RESULT.save);
       else if (result === false) enableDraftDialog();
     });
     byId("draftDiscardLeave").addEventListener("click", () => {
-      if (activeSection) preservedDrafts.delete(activeSection.id);
-      closeDraftDialog(true);
+      closeDraftDialog(LEAVE_RESULT.discard);
     });
-    byId("draftCancelLeave").addEventListener("click", () => closeDraftDialog(false));
+    byId("draftCancelLeave").addEventListener(
+      "click", () => closeDraftDialog(LEAVE_RESULT.cancel),
+    );
     draftDialog.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        closeDraftDialog(false);
+        closeDraftDialog(LEAVE_RESULT.cancel);
         return;
       }
       if (event.key !== "Tab") return;
@@ -963,7 +1057,8 @@
   });
   window.addEventListener("popstate", async (event) => {
     if (!activeSection) return;
-    if (!await confirmLeave(byId("settingsBack"))) {
+    const result = await confirmLeave(byId("settingsBack"));
+    if (!handleLeaveResult(result)) {
       history.pushState({ settingsSection: activeSection.id }, "");
       return;
     }
@@ -975,6 +1070,7 @@
 
   window.webConsole.fields = Object.freeze({
     confirmLeave,
+    handleLeaveResult,
     mountModule,
     unmountModule,
   });

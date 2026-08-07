@@ -106,7 +106,7 @@
   async function mayLeaveCurrentView(trigger) {
     const fields = window.webConsole && window.webConsole["fields"];
     if (!fields || typeof fields.confirmLeave !== "function") return true;
-    return fields.confirmLeave(trigger);
+    return fields.handleLeaveResult(await fields.confirmLeave(trigger));
   }
 
   async function activateNavigation(navigation, button) {

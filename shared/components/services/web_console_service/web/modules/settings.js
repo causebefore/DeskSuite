@@ -5,6 +5,18 @@
   const RESULT_ENDPOINT = "/api/settings/result";
   const UINT64_PATTERN = /^(0|[1-9]\d{0,19})$/;
   const consoleApi = window.webConsole;
+  const messages = Object.freeze({
+    conflict: "设备设置已更新；已刷新设备基线并保留本地草稿，请确认后再次保存。",
+    dirty: "本地更改尚未保存。",
+    succeeded: "保存成功，已重新读取设备设置。",
+    deadline: "保存结果暂时未知。请继续查询原请求，不要重复提交。",
+    pending: "原请求仍在处理中，可稍后再次查询。",
+    failed: "设备未能应用更改。",
+    sessionExpired: "登录已失效，本地草稿仍保留在当前页面内存中。",
+    resultUnknown: "保存结果暂时未知，请继续查询原请求。",
+    submitting: "正在提交并等待设备确认…",
+    submitUnknown: "提交结果暂时未知。为避免重复写入，请先重新读取或确认原请求结果。",
+  });
 
   async function responseError(response, payload, fallback) {
     const error = new Error(
@@ -26,6 +38,7 @@
   }
 
   const adapter = Object.freeze({
+    messages,
     async getSnapshot(sectionId) {
       const response = await consoleApi.apiFetch(
         `${SETTINGS_ENDPOINT}?section=${encodeURIComponent(sectionId)}`,
