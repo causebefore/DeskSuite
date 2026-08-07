@@ -21,6 +21,25 @@
 #define WEB_CONSOLE_PROVIDER_JSON_ITEM_MAX_BYTES    4096U
 #define WEB_CONSOLE_PROVIDER_UINT64_TEXT_SIZE        21U
 
+#define WEB_CONSOLE_ASCII_VALUE_16 "0123456789ABCDEF"
+static constexpr char k_ascii_value_127[] =
+    WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
+        WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
+            WEB_CONSOLE_ASCII_VALUE_16 "0123456789ABCDE";
+static constexpr char k_ascii_value_128[] =
+    WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
+        WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
+            WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16;
+static_assert(web_console_provider_ascii_string_value_is_valid(
+                  k_ascii_value_127, sizeof(k_ascii_value_127) - 1U, 127U),
+              "127 字节 ASCII 字符串值必须有效");
+static_assert(!web_console_provider_ascii_string_value_is_valid(
+                  k_ascii_value_128, sizeof(k_ascii_value_128) - 1U, 127U),
+              "128 字节 ASCII 字符串值必须无效");
+static_assert(!web_console_provider_ascii_string_value_is_valid("\xE4\xB8\xAD", 3U, 127U),
+              "非 ASCII 字符串值必须无效");
+#undef WEB_CONSOLE_ASCII_VALUE_16
+
 enum web_console_update_parse_result_t
 {
     WEB_CONSOLE_UPDATE_PARSE_OK = 0,
@@ -753,6 +772,25 @@ static bool web_console_enum_value_is_valid(const web_console_field_info_t *fiel
     return false;
 }
 
+/** @brief 有界读取并校验一个 NUL 结尾的可打印 ASCII 字段字符串值。 */
+static bool web_console_provider_ascii_string_value_length(
+    const char *text,
+    uint32_t maximum_length,
+    size_t *out_length)
+{
+    if (text == NULL || out_length == NULL)
+    {
+        return false;
+    }
+    const size_t length = strnlen(text, WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U);
+    if (!web_console_provider_ascii_string_value_is_valid(text, length, maximum_length))
+    {
+        return false;
+    }
+    *out_length = length;
+    return true;
+}
+
 /** @brief 校验一个普通字段值的类型及元数据约束。 */
 static bool web_console_field_value_is_valid(const web_console_field_info_t *field,
                                              const web_console_field_value_t *value)
@@ -772,11 +810,9 @@ static bool web_console_field_value_is_valid(const web_console_field_info_t *fie
             return web_console_integer_value_is_valid(field, value->data.uint32_value);
         case WEB_CONSOLE_FIELD_TYPE_STRING:
         {
-            const size_t length = strnlen(
-                value->data.string_value, WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U);
-            return length <= field->max_length_bytes
-                   && length <= WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH
-                   && web_console_provider_utf8_is_valid(value->data.string_value, length);
+            size_t length = 0U;
+            return web_console_provider_ascii_string_value_length(
+                value->data.string_value, field->max_length_bytes, &length);
         }
         case WEB_CONSOLE_FIELD_TYPE_ENUM:
             return web_console_enum_value_is_valid(field, value->data.int32_value);
@@ -1318,11 +1354,9 @@ static bool web_console_provider_parse_change_value(const web_console_field_info
             {
                 return false;
             }
-            const size_t length = strnlen(
-                item->valuestring, WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U);
-            if (length > field->max_length_bytes
-                || length > WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH
-                || !web_console_provider_utf8_is_valid(item->valuestring, length))
+            size_t length = 0U;
+            if (!web_console_provider_ascii_string_value_length(
+                    item->valuestring, field->max_length_bytes, &length))
             {
                 return false;
             }

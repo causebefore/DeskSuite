@@ -54,7 +54,7 @@ extern "C"
 /** 可选字符串格式稳定 ID 最大 ASCII 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_FORMAT_MAX_LENGTH 31U
 
-/** 字符串字段值最大字节数，不含结尾 NUL；与 128 字节 Hub URL 缓冲区对齐。 */
+/** 字符串字段值最大可打印 ASCII 字节数，不含结尾 NUL；与 128 字节 Hub URL 缓冲区对齐。 */
 #define WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH 127U
 
 /** 文件选择型字符串字段的扩展名后缀最大 ASCII 字节数，不含结尾 NUL。 */
@@ -68,7 +68,7 @@ extern "C"
         WEB_CONSOLE_FIELD_TYPE_BOOL = 0, /**< 布尔值 */
         WEB_CONSOLE_FIELD_TYPE_INT32,    /**< 有符号 32 位整数 */
         WEB_CONSOLE_FIELD_TYPE_UINT32,   /**< 无符号 32 位整数 */
-        WEB_CONSOLE_FIELD_TYPE_STRING,   /**< 有界 NUL 结尾 UTF-8 字符串 */
+        WEB_CONSOLE_FIELD_TYPE_STRING,   /**< 有界 NUL 结尾可打印 ASCII 字符串，最多 127 bytes */
         WEB_CONSOLE_FIELD_TYPE_ENUM,     /**< 描述符枚举表中的一个有符号整数值 */
     } web_console_field_type_t;
 
@@ -128,7 +128,7 @@ extern "C"
         int64_t                        minimum;          /**< 整数最小值 */
         int64_t                        maximum;          /**< 整数最大值 */
         uint32_t                       step;             /**< 整数步长，必须非零 */
-        uint32_t                       max_length_bytes; /**< 字符串 UTF-8 字节上限 */
+        uint32_t                       max_length_bytes; /**< 字符串可打印 ASCII 字节上限，最多 127 bytes */
         const char                    *file_suffix;      /**< 可选文件后缀，如 `.mp3`；初始化期间复制 */
         const web_console_field_enum_value_t *enum_values; /**< 枚举值表 */
         size_t                         enum_value_count; /**< 枚举值数量 */
@@ -149,7 +149,7 @@ extern "C"
             bool     boolean_value; /**< BOOL 值 */
             int32_t  int32_value;   /**< INT32 或 ENUM 值 */
             uint32_t uint32_value;  /**< UINT32 值 */
-            char     string_value[WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U]; /**< STRING 值 */
+            char     string_value[WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U]; /**< 可打印 ASCII STRING 值，最多 127 bytes */
         } data;
     } web_console_field_value_t;
 
@@ -226,7 +226,7 @@ extern "C"
     /**
      * @brief 由领域所有者同步校验一个完整语义 update
      *
-     * Console 已完成字段存在性、访问属性、类型、范围、步长、枚举和字符串长度校验；本回调
+     * Console 已完成字段存在性、访问属性、类型、范围、步长、枚举和字符串可打印 ASCII/长度校验；本回调
      * 继续做早期版本、字段组合和领域状态校验，不得修改产品状态或执行 I/O。此结果不是提交
      * 保证：`request_update_copy` 或领域执行点仍必须原子地重新校验 `expected_version`，避免
      * 两次回调之间发生的设置变化被旧更新覆盖。版本冲突返回 `ESP_ERR_INVALID_VERSION`，
@@ -357,7 +357,7 @@ extern "C"
     } web_console_action_state_t;
 
     /**
-     * @brief Settings 与 Actions 可跨版本稳定编码的结果原因
+     * @brief Actions 可跨版本稳定编码的结果原因
      */
     typedef enum
     {
@@ -421,7 +421,7 @@ extern "C"
     /**
      * @brief 由领域所有者同步校验一个完整管理操作请求
      *
-     * Console 已完成字段、类型、范围、步长、枚举、字符串长度、重复和秘密字段校验。本回调
+     * Console 已完成字段、类型、范围、步长、枚举、字符串可打印 ASCII/长度、重复和秘密字段校验。本回调
      * 继续校验输入组合和领域状态，不得修改产品状态或执行 I/O。
      *
      * @param[in] context Provider 的长期借用上下文，可为空
