@@ -3,8 +3,9 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **执行状态（2026-08-08）：** Task 1–6 的实现、回归检查和契约文档已经按任务职责提交。
-> 下列步骤保留为设计与验收依据，不再是待执行指令；浏览器视觉/交互 QA 仍由主控制器基于生成的
-> `web-console-full.html` 完成，host/static 结果不替代固件、OTA、安装、实机或真实 Hub 验收。
+> 下列步骤保留为设计与验收依据，不再是待执行指令；主控制器已基于生成的
+> `web-console-full.html` 完成 1440×900 与 390×844 浏览器视觉/交互 QA。该模拟验收不替代
+> 固件、OTA、安装、实机或真实 Hub 验收。
 
 **Goal:** 将 DeskMate Web Console 从面向调试的“设备管理”表单改造成面向设备拥有者的设置中心，并完成 Hub URL 安全测试/保存与番茄钟原子持久化。
 
@@ -363,7 +364,7 @@ Run: `git diff --check`
 
 Expected: 全部退出码为 0；仅本任务路径有改动，`services/hub/` 既有改动保持不变。
 
-- [ ] **Step 4: 浏览器级静态验收**
+- [x] **Step 4: 浏览器级静态验收**
 
 生成完整 HTML，在 1440×900 与 390×844 检查首页三项、详情返回、步进器、粘性保存栏、确认层和焦点；无真实设备 API 时明确记录为模拟/静态验收，不冒充实机验证。
 
@@ -379,7 +380,9 @@ Expected: 全部退出码为 0；仅本任务路径有改动，`services/hub/` �
 
 各任务提交前均执行 scoped `git diff --cached --check`，且未暂存 `services/hub/` 既有改动。
 最终 host/static 验证覆盖 Python 35 tests、产品 Providers、Hub URL、shared network provider、
-`py_compile`、源/组装 JS `node --check`、gzip 预算和 `git diff --check`；浏览器 QA 仍是独立待办。
+`py_compile`、源/组装 JS `node --check`、gzip 预算和 `git diff --check`；浏览器 QA 已由主控制器
+基于本地 mock API 在 1440×900 与 390×844 完成：首页三项、详情返回、数字步进器、粘性保存栏、
+三选一离开确认、Escape/焦点循环、草稿丢弃与移动端无横向溢出均通过。
 
 ### Branch review 修复完成记录
 
@@ -398,4 +401,4 @@ Expected: 全部退出码为 0；仅本任务路径有改动，`services/hub/` �
   network provider、通用 UTF-8/旧 Provider 兼容、Actions 开/关与消费者语法、`py_compile`、
   源/组装 JS `node --check`。当前完整页面 gzip 24,044 bytes，相对同实现的
   `files,settings,status` baseline 22,774 bytes 增长 1,270 bytes（5.58%），低于 25% 阈值。
-  仍未执行固件编译、OTA、设备安装、真实设备、真实 Hub 或浏览器视觉验收。
+  浏览器模拟视觉/交互验收已通过；仍未执行固件编译、OTA、设备安装、真实设备或真实 Hub 验收。
