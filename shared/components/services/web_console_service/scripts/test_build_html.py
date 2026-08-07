@@ -30,6 +30,10 @@ MODULE_MARKERS = {
         "/api/status",
         "刷新状态",
     ),
+    "actions": (
+        'data-web-console-module="actions"',
+        "/api/actions",
+    ),
 }
 
 
@@ -52,7 +56,7 @@ class BuildHtmlTests(unittest.TestCase):
                         else:
                             self.assertNotIn(marker, html)
 
-                needs_fields = bool({"settings", "status"}.intersection(enabled))
+                needs_fields = bool({"settings", "status", "actions"}.intersection(enabled))
                 self.assertEqual("window.webConsole.fields" in html, needs_fields)
 
     def test_core_only_contains_no_module_contract_or_copy(self):
@@ -68,7 +72,7 @@ class BuildHtmlTests(unittest.TestCase):
     def test_module_order_is_fixed_independent_of_arguments(self):
         html = build_html.assemble_html(
             INDEX_TEMPLATE,
-            ("status", "files", "settings"),
+            tuple(reversed(build_html.MODULE_ORDER)),
         )
         positions = [
             html.index(f'data-web-console-module="{module}"')
@@ -85,17 +89,47 @@ class BuildHtmlTests(unittest.TestCase):
     def test_management_modules_render_one_settings_center(self):
         html = build_html.assemble_html(
             INDEX_TEMPLATE,
-            ("settings", "status", "actions"),
+            ("files", "settings", "status", "actions"),
         )
-        self.assertIn('navigation: { id: "settings", label: "设置"', html)
+        without_actions = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("files", "settings", "status"),
+        )
+        navigation_descriptors = re.findall(
+            r'navigation: \{ id: "([^"]+)", label: "([^"]+)" \}',
+            html,
+        )
+        self.assertEqual(
+            navigation_descriptors,
+            [
+                ("files", "文件管理"),
+                ("settings", "设置"),
+                ("settings", "设置"),
+                ("settings", "设置"),
+            ],
+        )
+        self.assertEqual(html.count('id="logoutButton"'), 1)
+        self.assertIn(">退出登录<", html)
         self.assertIn('id="settingsHome"', html)
-        self.assertIn("/api/actions", html)
+        self.assertNotIn("设备管理", html)
         self.assertNotIn("配置分区", html)
+        for resource, relative_path in (
+            ("Actions HTML", "modules/actions.html"),
+            ("Actions CSS", "modules/actions.css"),
+            ("Actions JS", "modules/actions.js"),
+        ):
+            with self.subTest(resource=resource):
+                fragment = (WEB_ROOT / relative_path).read_text(encoding="utf-8").strip()
+                self.assertTrue(fragment, f"{resource} 片段不能为空")
+                self.assertIn(fragment, html)
+                self.assertNotIn(fragment, without_actions)
+        self.assertIn("/api/actions", html)
+        self.assertNotIn("/api/actions", without_actions)
 
     def test_assembled_page_has_unique_ids_and_no_placeholders(self):
         html = build_html.assemble_html(
             INDEX_TEMPLATE,
-            ("files", "settings", "status"),
+            build_html.MODULE_ORDER,
         )
         ids = re.findall(r'\bid="([^"]+)"', html)
         self.assertEqual(len(ids), len(set(ids)))
@@ -137,7 +171,7 @@ class BuildHtmlTests(unittest.TestCase):
     def test_gzip_output_is_deterministic(self):
         html = build_html.assemble_html(
             INDEX_TEMPLATE,
-            ("files", "settings", "status"),
+            build_html.MODULE_ORDER,
         )
         first = build_html.compress_html(html)
         second = build_html.compress_html(html)

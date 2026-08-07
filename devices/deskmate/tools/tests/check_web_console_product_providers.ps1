@@ -79,10 +79,97 @@ function Assert-InOrder {
     }
 }
 
+function Assert-TextContains {
+    param(
+        [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string]$Pattern,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+
+    if ($Content -notmatch $Pattern) {
+        $failures.Add($Message)
+    }
+}
+
+function Assert-TextNotContains {
+    param(
+        [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string]$Pattern,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+
+    if ($Content -match $Pattern) {
+        $failures.Add($Message)
+    }
+}
+
+function Assert-TextMatchCount {
+    param(
+        [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string]$Pattern,
+        [Parameter(Mandatory = $true)][int]$ExpectedCount,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+
+    $count = [regex]::Matches($Content, $Pattern).Count
+    if ($count -ne $ExpectedCount) {
+        $failures.Add("$Message（期望 $ExpectedCount，实际 $count）")
+    }
+}
+
+function Assert-TextInOrder {
+    param(
+        [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string[]]$Patterns,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+
+    $remaining = $Content
+    foreach ($pattern in $Patterns) {
+        $match = [regex]::Match($remaining, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+        if (-not $match.Success) {
+            $failures.Add($Message)
+            return
+        }
+        $remaining = $remaining.Substring($match.Index + $match.Length)
+    }
+}
+
+function Read-CFunction {
+    param(
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [Parameter(Mandatory = $true)][string]$FunctionName
+    )
+
+    $content = Read-RepoFile $RelativePath
+    $signature = [regex]::Match(
+        $content,
+        "(?s)static\s+void\s+$FunctionName\s*\([^)]*\)\s*\{"
+    )
+    if (-not $signature.Success) {
+        $failures.Add("缺少待检查函数: $FunctionName")
+        return ''
+    }
+    $openBrace = $content.IndexOf('{', $signature.Index)
+    $depth = 0
+    for ($index = $openBrace; $index -lt $content.Length; ++$index) {
+        if ($content[$index] -eq '{') {
+            ++$depth
+        }
+        elseif ($content[$index] -eq '}') {
+            --$depth
+            if ($depth -eq 0) {
+                return $content.Substring($signature.Index, $index - $signature.Index + 1)
+            }
+        }
+    }
+    $failures.Add("函数大括号未闭合: $FunctionName")
+    return ''
+}
+
 $ownerHeader = 'main\application\app_pomodoro.h'
 $ownerInternal = 'main\application\app_pomodoro_internal.h'
 $ownerSource = 'main\application\app_pomodoro.c'
-$ownerTask = 'main\application\app_pomodoro_task.c'
 $pomodoroTask = 'main\application\app_pomodoro_task.c'
 $provider = 'main\application\app_web_console_provider.c'
 $storeHeader = 'components\data\pomodoro_store\include\pomodoro_store.h'
@@ -118,15 +205,32 @@ Assert-Contains $ownerSource 'latest_settings_update_result\.state[\s\S]{0,120}A
     'Pomodoro Owner 未实现单 pending 设置请求门'
 Assert-Contains $ownerSource 'xQueueSend\s*\([^,]+,\s*&command,\s*0\)' `
     'Pomodoro 设置请求未使用零等待复制入队'
-Assert-Contains $ownerTask 'expected_version\s*!=\s*state->snapshot\.settings_version' `
+Assert-Contains $pomodoroTask 'expected_version\s*!=\s*state->snapshot\.settings_version' `
     'Pomodoro Task 执行点未重检设置版本'
-Assert-Contains $ownerTask 'run_state\s*!=\s*APP_POMODORO_RUN_STATE_IDLE' `
+Assert-Contains $pomodoroTask 'run_state\s*!=\s*APP_POMODORO_RUN_STATE_IDLE' `
     'Pomodoro Task 执行点未重检 IDLE'
-Assert-InOrder $pomodoroTask @(
+$pomodoroUpdate = Read-CFunction $pomodoroTask 'update_settings_locked'
+Assert-TextInOrder $pomodoroUpdate @(
+    'const\s+app_pomodoro_settings_t\s+candidate\s*=\s*update->settings',
+    'xSemaphoreGive\s*\(\s*g_app_pomodoro_runtime\.state_lock\s*\)',
     'pomodoro_store_save_settings_copy\s*\(',
-    'state->snapshot\.settings\s*=\s*update->settings'
-) '番茄钟必须先持久化候选，再公开新内存设置'
-Assert-Contains $ownerTask 'APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED[\s\S]{0,160}error' `
+    'xSemaphoreTake\s*\(\s*g_app_pomodoro_runtime\.state_lock\s*,\s*portMAX_DELAY\s*\)',
+    'if\s*\(\s*error\s*==\s*ESP_OK\s*\)',
+    'state->snapshot\.settings\s*=\s*candidate',
+    'state->snapshot\.settings_version\+\+',
+    'state->snapshot\.settings_saved\s*=\s*true',
+    'finish_settings_update_locked\s*\(\s*command->settings_request_id'
+) '番茄钟必须在同一路径中先锁外持久化候选，成功后才锁内发布设置、版本与成功结果'
+Assert-TextContains $pomodoroUpdate `
+    'if\s*\(\s*error\s*==\s*ESP_OK\s*\)\s*\{[\s\S]{0,640}state->snapshot\.settings\s*=\s*candidate[\s\S]{0,240}state->snapshot\.settings_version\+\+[\s\S]{0,240}state->snapshot\.settings_saved\s*=\s*true' `
+    '番茄钟只可在持久化成功分支公开候选设置、版本与已保存事实'
+Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.settings\s*=\s*candidate' 1 `
+    '番茄钟候选设置只能在持久化成功分支发布一次'
+Assert-TextNotContains $pomodoroUpdate 'state->snapshot\.settings\s*=\s*update->settings' `
+    '番茄钟不得在持久化前直接公开 update 设置'
+Assert-TextNotContains $pomodoroUpdate 'state->snapshot\.settings_saved\s*=\s*false' `
+    '番茄钟持久化失败不得覆盖旧的已保存事实'
+Assert-Contains $pomodoroTask 'APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED[\s\S]{0,160}error' `
     'Pomodoro NVS 失败未形成带真实错误的 FAILED 终态'
 
 foreach ($fieldId in @(
@@ -141,13 +245,13 @@ foreach ($fieldId in @(
 }
 Assert-MatchCount $provider 'WEB_CONSOLE_FIELD_EFFECT_IDLE_ONLY' 5 `
     '五项番茄钟设置未全部声明 IDLE_ONLY'
-Assert-Contains $provider '\.minimum\s*=\s*5[\s\S]{0,100}\.maximum\s*=\s*90[\s\S]{0,100}\.step\s*=\s*5U' `
+Assert-Contains $provider '\.id\s*=\s*"focus_minutes"[\s\S]{0,320}\.minimum\s*=\s*5[\s\S]{0,100}\.maximum\s*=\s*180[\s\S]{0,100}\.step\s*=\s*1U' `
     '专注时长范围或步长不符合契约'
-Assert-Contains $provider '\.minimum\s*=\s*1[\s\S]{0,100}\.maximum\s*=\s*30[\s\S]{0,100}\.step\s*=\s*1U' `
+Assert-Contains $provider '\.id\s*=\s*"short_break_minutes"[\s\S]{0,320}\.minimum\s*=\s*5[\s\S]{0,100}\.maximum\s*=\s*180[\s\S]{0,100}\.step\s*=\s*1U' `
     '短休时长范围或步长不符合契约'
-Assert-Contains $provider '\.minimum\s*=\s*5[\s\S]{0,100}\.maximum\s*=\s*60[\s\S]{0,100}\.step\s*=\s*5U' `
+Assert-Contains $provider '\.id\s*=\s*"long_break_minutes"[\s\S]{0,320}\.minimum\s*=\s*5[\s\S]{0,100}\.maximum\s*=\s*180[\s\S]{0,100}\.step\s*=\s*1U' `
     '长休时长范围或步长不符合契约'
-Assert-Contains $provider '\.minimum\s*=\s*2[\s\S]{0,100}\.maximum\s*=\s*8[\s\S]{0,100}\.step\s*=\s*1U' `
+Assert-Contains $provider '\.id\s*=\s*"long_break_interval"[\s\S]{0,320}\.minimum\s*=\s*2[\s\S]{0,100}\.maximum\s*=\s*12[\s\S]{0,100}\.step\s*=\s*1U' `
     '长休间隔范围或步长不符合契约'
 Assert-Contains $provider `
     'completion_audio_path[\s\S]{0,260}WEB_CONSOLE_FIELD_TYPE_STRING[\s\S]{0,260}\.file_suffix\s*=\s*"\.mp3"' `
@@ -204,6 +308,14 @@ Assert-Contains $provider '#include\s+"app_pomodoro\.h"' `
     '产品 Provider 未通过 Pomodoro 公共 API 适配设置'
 Assert-Contains $provider '#include\s+"system_info\.h"' `
     '产品 Provider 未通过 System 公共 API 适配状态'
+Assert-Contains $provider '\.section_id\s*=\s*"hub"[\s\S]{0,160}\.label\s*=\s*"Hub"' `
+    '设置首页缺少 Hub 分组'
+Assert-Contains $provider '\.section_id\s*=\s*"pomodoro"[\s\S]{0,160}\.label\s*=\s*"番茄钟"' `
+    '设置首页缺少番茄钟分组'
+Assert-Contains $provider '\.section_id\s*=\s*"system"[\s\S]{0,160}\.label\s*=\s*"设备与系统"' `
+    '设置首页缺少设备与系统分组'
+Assert-NotContains $provider '\.section_id\s*=\s*"network"' `
+    '设置首页不得保留独立网络分组'
 Assert-NotContains $provider 'app_pomodoro_internal|g_app_pomodoro_runtime|pomodoro_store|nvs_|httpd_|xTaskCreate|xQueueCreate|esp_timer_create' `
     '产品 Provider 越过公共 API 或拥有了 Task、Queue、Timer、NVS、HTTPD 状态'
 Assert-NotContains $provider '\.id\s*=\s*"(ssid|password|token|ota|dashboard)' `
@@ -245,7 +357,7 @@ Assert-Contains 'main\ui\core\ui_main.c' `
 Assert-Contains 'main\presentation\pomodoro_presenter.h' `
     'settings_update_request_id[\s\S]{0,180}settings_update_error' `
     'Pomodoro View Model 未携带设置请求终态'
-Assert-Contains $ownerTask `
+Assert-Contains $pomodoroTask `
     'latest_settings_request_id[\s\S]{0,260}latest_settings_update_result' `
     'Pomodoro Task 未把最新请求 ID 与结果按同一快照推送'
 Assert-Contains 'main\application\app_web_console.cpp' `
