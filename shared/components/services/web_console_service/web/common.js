@@ -6,6 +6,14 @@
   const TOKEN_KEY = "webConsoleSessionToken";
   const TOKEN_PATTERN = /^[0-9a-fA-F]{32}$/;
   const modules = new Map();
+  const navigationDescriptors = new Map();
+  for (const entry of Array.isArray(window.webConsoleNavigation)
+    ? window.webConsoleNavigation : []) {
+    if (!entry || !entry.navigation || !Array.isArray(entry.modules)) continue;
+    for (const moduleId of entry.modules) {
+      navigationDescriptors.set(moduleId, entry.navigation);
+    }
+  }
   let activeNavigation = null;
 
   const element = (id) => document.getElementById(id);
@@ -26,11 +34,6 @@
         typeof controller.rootId !== "string" ||
         typeof controller.mount !== "function" || typeof controller.unmount !== "function") {
       throw new Error("网页控制台模块契约无效。");
-    }
-    if (controller.navigation !== undefined &&
-        (!controller.navigation || typeof controller.navigation.id !== "string" ||
-          typeof controller.navigation.label !== "string")) {
-      throw new Error("网页控制台模块导航描述无效。");
     }
     if (modules.has(controller.id)) {
       throw new Error(`网页控制台模块重复注册：${controller.id}`);
@@ -100,12 +103,19 @@
     return payload.modules;
   }
 
+  async function mayLeaveCurrentView(trigger) {
+    const fields = window.webConsole && window.webConsole["fields"];
+    if (!fields || typeof fields.confirmLeave !== "function") return true;
+    return fields.confirmLeave(trigger);
+  }
+
   async function activateNavigation(navigation, button) {
     if (activeNavigation && activeNavigation.id === navigation.id) return;
     deactivateNavigation();
     document.querySelectorAll("#moduleNavigation button").forEach((item) => {
       item.classList.toggle("active", item === button);
-      item.setAttribute("aria-current", item === button ? "page" : "false");
+      if (item === button) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
     });
     for (const module of navigation.modules) module.root.classList.remove("hidden");
     activeNavigation = navigation;
@@ -116,6 +126,12 @@
     } catch (error) {
       if (token()) setNotice(element("consoleMessage"), error.message);
     }
+  }
+
+  async function requestNavigation(navigation, button) {
+    if (activeNavigation && activeNavigation.id === navigation.id) return;
+    if (!await mayLeaveCurrentView(button)) return;
+    await activateNavigation(navigation, button);
   }
 
   async function loadCapabilities() {
@@ -129,19 +145,14 @@
 
     for (const capability of capabilities) {
       const controller = modules.get(capability.id);
-      if (!controller) continue;
+      const descriptor = navigationDescriptors.get(capability.id);
+      if (!controller || !descriptor) continue;
       const root = element(controller.rootId);
       if (!root) throw new Error(`模块页面不存在：${controller.id}`);
-      const descriptor = controller.navigation || {
-        id: capability.id,
-        label: capability.label,
-      };
       let entry = navigationEntries.get(descriptor.id);
       if (!entry) {
         entry = { id: descriptor.id, label: descriptor.label, modules: [] };
         navigationEntries.set(descriptor.id, entry);
-      } else if (entry.label !== descriptor.label) {
-        throw new Error(`共享导航标签不一致：${descriptor.id}`);
       }
       entry.modules.push({ capability, controller, root });
     }
@@ -151,7 +162,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = entry.label;
-      button.addEventListener("click", () => activateNavigation(entry, button));
+      button.addEventListener("click", () => requestNavigation(entry, button));
       navigation.append(button);
       entries.push({ entry, button });
     }
@@ -205,6 +216,7 @@
   }
 
   async function logout() {
+    if (!await mayLeaveCurrentView(element("logoutButton"))) return;
     const sessionToken = token();
     if (sessionToken) {
       try {
@@ -238,9 +250,7 @@
     try {
       await enterConsole();
     } catch (error) {
-      if (token()) {
-        showLogin(error.message);
-      }
+      if (token()) showLogin(error.message);
     }
   });
 })();

@@ -24,15 +24,18 @@ MODULE_MARKERS = {
         'data-web-console-module="settings"',
         "/api/settings",
         "保存更改",
+        "保存并离开",
     ),
     "status": (
         'data-web-console-module="status"',
         "/api/status",
         "刷新状态",
+        "当前状态",
     ),
     "actions": (
         'data-web-console-module="actions"',
         "/api/actions",
+        "可用操作",
     ),
 }
 
@@ -295,6 +298,142 @@ class BuildHtmlTests(unittest.TestCase):
         self.assertIn("input.readOnly = true", files_and_settings)
         self.assertIn("item.name.toLocaleLowerCase().endsWith(suffix)", files_and_settings)
         self.assertIn("当前文件在 SD 卡中不存在", files_and_settings)
+
+    def test_settings_center_exposes_complete_page_state_machine(self):
+        html = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("settings", "status", "actions"),
+        )
+        for state in (
+            "loading",
+            "synced",
+            "dirty",
+            "saving",
+            "succeeded",
+            "validation_error",
+            "owner_busy",
+            "network_unknown",
+            "version_conflict",
+            "session_expired",
+        ):
+            self.assertIn(f'"{state}"', html)
+        self.assertIn("PAGE_STATE", html)
+        self.assertIn("refreshBaselinePreservingDraft", html)
+        self.assertIn("reload authoritative snapshot", html)
+
+    def test_sections_are_merged_from_metadata_without_product_id_branches(self):
+        html = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("settings", "status", "actions"),
+        )
+        self.assertIn("mergeSectionCapabilities", html)
+        self.assertIn("field.summary", html)
+        self.assertIn("field.unit", html)
+        self.assertNotRegex(
+            html,
+            r'(?:===|!==|case\s+)[ ]*["\'](?:hub|pomodoro|system)["\']',
+        )
+
+    def test_number_fields_use_accessible_input_stepper(self):
+        html = build_html.assemble_html(INDEX_TEMPLATE, ("settings",))
+        self.assertIn('input.type = "number"', html)
+        self.assertIn('minus.textContent = "−"', html)
+        self.assertIn('plus.textContent = "+"', html)
+        self.assertIn("label.htmlFor = input.id", html)
+        self.assertIn('input.setAttribute("aria-describedby"', html)
+
+    def test_dirty_navigation_uses_three_choice_dialog_and_beforeunload(self):
+        html = build_html.assemble_html(INDEX_TEMPLATE, ("files", "settings"))
+        for marker in (
+            'id="draftDialog"',
+            ">保存并离开<",
+            ">放弃更改<",
+            ">取消<",
+            'addEventListener("beforeunload"',
+            'event.key === "Escape"',
+            "focusableElements",
+        ):
+            self.assertIn(marker, html)
+
+    def test_polling_is_bounded_and_does_not_persist_secret_payloads(self):
+        html = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("settings", "actions"),
+        )
+        self.assertIn("POLL_DEADLINE_MS", html)
+        self.assertIn("fact.start", html)
+        self.assertIn("PAGE_STATE.networkUnknown", html)
+        self.assertIn("PENDING_FACT_KEYS", html)
+        pending_writes = re.findall(
+            r'sessionStorage\.setItem\(PENDING_STORAGE_KEY,[\s\S]*?\);',
+            html,
+        )
+        self.assertTrue(pending_writes)
+        for write in pending_writes:
+            self.assertNotRegex(write, r"inputs|changes|draft|url|token")
+        self.assertNotIn("schedulePoll(() => submit", html)
+
+    def test_actions_render_and_submit_only_from_action_metadata(self):
+        html = build_html.assemble_html(INDEX_TEMPLATE, ("actions",))
+        for marker in (
+            "section.actions",
+            "action.inputs",
+            'method: "POST"',
+            "renderer.readAllValues()",
+            "JSON.stringify({ inputs })",
+            'const ACTION_RESULT_ENDPOINT = "/api/actions/result"',
+            "encodeURIComponent(actionId)",
+        ):
+            self.assertIn(marker, html)
+
+    def test_settings_layout_is_single_column_responsive_and_reduced_motion_safe(self):
+        html = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("settings", "status", "actions"),
+        )
+        for marker in (
+            "max-width: 720px",
+            "min-height: 44px",
+            "position: sticky",
+            "@media (max-width: 390px)",
+            "prefers-reduced-motion: reduce",
+        ):
+            self.assertIn(marker, html)
+
+    def test_each_summary_failure_is_isolated_to_its_section(self):
+        html = build_html.assemble_html(INDEX_TEMPLATE, ("settings", "status"))
+        self.assertIn("Promise.allSettled", html)
+        self.assertIn("暂时无法读取", html)
+        self.assertIn("renderSectionSummary", html)
+
+    def test_unknown_result_can_query_original_request_without_resubmitting(self):
+        html = build_html.assemble_html(
+            INDEX_TEMPLATE,
+            ("settings", "actions"),
+        )
+        self.assertIn('id="pendingResultCheck"', html)
+        self.assertIn("pollSettings(pendingFact, true)", html)
+        self.assertIn("pollAction(pendingFact, true)", html)
+        self.assertNotIn("submitAction(pendingFact", html)
+
+    def test_minifier_compacts_embedded_code_and_preserves_literal_whitespace(self):
+        source = '''<style>
+          .sample { content: "a > b"; color: red; }
+        </style><script>
+          // 构建产物不保留整行注释。
+          const text = "a  b";
+          const template = `first
+    second  `;
+
+          run(text);
+        </script><pre>  keep
+space  </pre>'''
+        result = build_html.minify_html(source)
+        self.assertIn('.sample{content:"a > b";color:red;}', result)
+        self.assertIn('const text = "a  b";', result)
+        self.assertIn("const template = `first\n    second  `;", result)
+        self.assertNotIn("构建产物不保留整行注释", result)
+        self.assertIn("<pre>  keep\nspace  </pre>", result)
 
 
 if __name__ == "__main__":

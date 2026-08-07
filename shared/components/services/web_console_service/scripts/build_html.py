@@ -8,9 +8,9 @@ from collections.abc import Iterable, Sequence
 
 
 PRESERVE_TAGS = ("pre", "code", "textarea", "script", "style")
-MODULE_ORDER = ("files", "status", "settings")
+MODULE_ORDER = ("files", "settings", "status", "actions")
 MODULE_STYLES = {"files": "modules/files.css"}
-FIELDS_MODULE_USERS = frozenset(("settings", "status"))
+FIELDS_MODULE_USERS = frozenset(("settings", "status", "actions"))
 STYLE_PLACEHOLDER = "<!-- WEB_CONSOLE_STYLES -->"
 MODULE_PLACEHOLDER = "<!-- WEB_CONSOLE_MODULES -->"
 SCRIPT_PLACEHOLDER = "<!-- WEB_CONSOLE_SCRIPTS -->"
@@ -52,7 +52,27 @@ def assemble_html(input_path: pathlib.Path, modules: Iterable[str]) -> str:
 
     styles = [read_fragment(web_root, "common.css")]
     module_markup: list[str] = []
-    scripts = [read_fragment(web_root, "common.js")]
+    navigation: list[str] = []
+    if "files" in enabled_modules:
+        navigation.append(
+            '  { modules: ["files"], navigation: { id: "files", label: "文件管理" } },'
+        )
+    settings_modules = [
+        module for module in MODULE_ORDER
+        if module in FIELDS_MODULE_USERS and module in enabled_modules
+    ]
+    if settings_modules:
+        module_list = ", ".join(f'"{module}"' for module in settings_modules)
+        navigation.append(
+            f'  {{ modules: [{module_list}], '
+            'navigation: { id: "settings", label: "设置" } },'
+        )
+    scripts = [
+        "window.webConsoleNavigation = Object.freeze([\n" +
+        "\n".join(navigation) +
+        "\n]);",
+        read_fragment(web_root, "common.js"),
+    ]
 
     for module in enabled_modules:
         if style_path := MODULE_STYLES.get(module):
@@ -61,6 +81,7 @@ def assemble_html(input_path: pathlib.Path, modules: Iterable[str]) -> str:
 
     if FIELDS_MODULE_USERS.intersection(enabled_modules):
         styles.append(read_fragment(web_root, "modules/fields.css"))
+        module_markup.insert(0, read_fragment(web_root, "modules/fields.html"))
         scripts.append(read_fragment(web_root, "modules/fields.js"))
 
     for module in enabled_modules:
@@ -79,8 +100,93 @@ def minify_html(html: str) -> str:
     tags = "|".join(PRESERVE_TAGS)
     blocks: list[str] = []
 
+    def compact_css(source: str) -> str:
+        """压缩 CSS 结构空白，同时保留字符串字面量内容。"""
+        output: list[str] = []
+        quote = ""
+        escaped = False
+        pending_space = False
+        index = 0
+        delimiters = "{}:;,>"
+        while index < len(source):
+            character = source[index]
+            if quote:
+                output.append(character)
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == quote:
+                    quote = ""
+                index += 1
+                continue
+            if source.startswith("/*", index):
+                closing = source.find("*/", index + 2)
+                index = len(source) if closing < 0 else closing + 2
+                continue
+            if character in "\"'":
+                if pending_space and output and output[-1] not in delimiters:
+                    output.append(" ")
+                pending_space = False
+                quote = character
+                output.append(character)
+            elif character.isspace():
+                pending_space = True
+            else:
+                if character in delimiters:
+                    while output and output[-1] == " ":
+                        output.pop()
+                elif pending_space and output and output[-1] not in delimiters:
+                    output.append(" ")
+                pending_space = False
+                output.append(character)
+            index += 1
+        return "".join(output).strip()
+
+    def compact_code_block(block: str, tag: str) -> str:
+        opening_end = block.find(">") + 1
+        closing_start = block.lower().rfind(f"</{tag}")
+        opening = block[:opening_end]
+        closing = block[closing_start:]
+        source = block[opening_end:closing_start]
+        if tag == "style":
+            body = compact_css(source)
+        else:
+            lines: list[str] = []
+            in_template = False
+            for raw_line in source.splitlines():
+                stripped = raw_line.strip()
+                if not in_template and (not stripped or stripped.startswith("//")):
+                    continue
+                was_in_template = in_template
+                quote = "`" if in_template else ""
+                escaped = False
+                index = 0
+                while index < len(raw_line):
+                    character = raw_line[index]
+                    if quote:
+                        if escaped:
+                            escaped = False
+                        elif character == "\\":
+                            escaped = True
+                        elif character == quote:
+                            quote = ""
+                    elif character in "\"'`":
+                        quote = character
+                    elif raw_line.startswith("//", index):
+                        break
+                    index += 1
+                in_template = quote == "`"
+                lines.append(raw_line if was_in_template else raw_line.lstrip().rstrip())
+            body = "\n".join(lines)
+        return f"{opening}\n{body}\n{closing}"
+
     def preserve(match: re.Match[str]) -> str:
-        blocks.append(match.group(0))
+        tag = match.group(1).lower()
+        block = match.group(0)
+        if tag in ("script", "style"):
+            block = compact_code_block(block, tag)
+        blocks.append(block)
         return f"__WEB_CONSOLE_PRESERVE_{len(blocks) - 1}__"
 
     html = re.sub(rf"<({tags})\b[^>]*>[\s\S]*?</\1>", preserve, html, flags=re.IGNORECASE)
@@ -122,7 +228,7 @@ def main() -> None:
         action="append",
         dest="modules",
         metavar="NAME",
-        help="启用网页模块；可重复传入，支持 files、settings、status",
+        help="启用网页模块；可重复传入，支持 files、settings、status、actions",
     )
     arguments = parser.parse_args()
 
