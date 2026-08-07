@@ -174,6 +174,7 @@ static app_network_hub_request_record_t    s_hub_request;
 static app_network_hub_test_result_t       s_hub_test_result;
 static uint64_t                            s_next_hub_request_id;
 static bool                                s_hub_settings_initialized;
+static bool                                s_hub_portal_save_pending;
 
 static void on_network_manager_notify(void *ctx);
 
@@ -396,7 +397,11 @@ static esp_err_t perform_hub_health_check(const char *candidate, app_network_hub
         return ESP_ERR_INVALID_RESPONSE;
     }
 
-    cJSON *root = cJSON_Parse(response.body);
+    const bool response_text_is_complete =
+        response.body != NULL && strnlen(response.body, response.body_len + 1U) == response.body_len;
+    cJSON *root = response_text_is_complete
+                      ? cJSON_ParseWithLengthOpts(response.body, response.body_len + 1U, NULL, true)
+                      : NULL;
     const cJSON *status = root == NULL ? NULL : cJSON_GetObjectItemCaseSensitive(root, "status");
     const bool healthy = cJSON_IsObject(root) && cJSON_IsString(status) && status->valuestring != NULL
                          && strcmp(status->valuestring, "ok") == 0;
@@ -513,19 +518,74 @@ static esp_err_t save_network_config(const network_manager_config_t *config, voi
         return ESP_ERR_INVALID_ARG;
     }
 
+    const bool hub_url_supplied = config->service_url[0] != '\0';
+    char       normalized_service_url[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U] = { 0 };
+    if (hub_url_supplied)
+    {
+        const esp_err_t parse_error =
+            app_network_hub_url_parse_copy(config->service_url, normalized_service_url);
+        if (parse_error != ESP_OK)
+        {
+            return parse_error;
+        }
+    }
+
+    taskENTER_CRITICAL(&s_state_lock);
+    const bool hub_request_pending =
+        s_hub_request.valid && s_hub_request.result.state == APP_NETWORK_HUB_REQUEST_STATE_PENDING;
+    if (!s_hub_settings_initialized || s_hub_portal_save_pending || hub_request_pending
+        || (hub_url_supplied && s_hub_snapshot.version == UINT64_MAX))
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint64_t expected_hub_version = s_hub_snapshot.version;
+    s_hub_portal_save_pending           = true;
+    taskEXIT_CRITICAL(&s_state_lock);
+
     device_settings_t settings;
-    ESP_RETURN_ON_ERROR(settings_store_load_copy(&settings), TAG, "读取待更新网络设置失败");
-    settings_store_copy_string(settings.wifi_ssid, sizeof(settings.wifi_ssid), config->ssid);
-    settings_store_copy_string(settings.wifi_password, sizeof(settings.wifi_password), config->password);
-    if (config->service_url[0] != '\0')
+    esp_err_t         error = settings_store_load_copy(&settings);
+    if (error == ESP_OK)
     {
-        settings_store_copy_string(settings.service_url, sizeof(settings.service_url), config->service_url);
+        settings_store_copy_string(settings.wifi_ssid, sizeof(settings.wifi_ssid), config->ssid);
+        settings_store_copy_string(settings.wifi_password, sizeof(settings.wifi_password), config->password);
+        if (hub_url_supplied)
+        {
+            settings_store_copy_string(
+                settings.service_url,
+                sizeof(settings.service_url),
+                normalized_service_url);
+        }
+        if (config->device_token[0] != '\0')
+        {
+            settings_store_copy_string(settings.device_token, sizeof(settings.device_token), config->device_token);
+        }
+        error = settings_store_save(&settings);
     }
-    if (config->device_token[0] != '\0')
+
+    taskENTER_CRITICAL(&s_state_lock);
+    if (error == ESP_OK && hub_url_supplied)
     {
-        settings_store_copy_string(settings.device_token, sizeof(settings.device_token), config->device_token);
+        if (!s_hub_settings_initialized || !s_hub_portal_save_pending
+            || s_hub_snapshot.version != expected_hub_version || s_hub_snapshot.version == UINT64_MAX)
+        {
+            error = ESP_ERR_INVALID_STATE;
+        }
+        else
+        {
+            settings_store_copy_string(
+                s_hub_snapshot.service_url,
+                sizeof(s_hub_snapshot.service_url),
+                normalized_service_url);
+            s_hub_snapshot.version++;
+            invalidate_hub_test_result_for_candidate(
+                s_hub_snapshot.service_url,
+                s_hub_snapshot.version);
+        }
     }
-    return settings_store_save(&settings);
+    s_hub_portal_save_pending = false;
+    taskEXIT_CRITICAL(&s_state_lock);
+    return error;
 }
 
 /**
@@ -830,7 +890,7 @@ static esp_err_t request_hub_url_copy(
     }
 
     taskENTER_CRITICAL(&s_state_lock);
-    if (!s_hub_settings_initialized || s_task == NULL || s_command_queue == NULL
+    if (!s_hub_settings_initialized || s_hub_portal_save_pending || s_task == NULL || s_command_queue == NULL
         || s_next_hub_request_id == UINT64_MAX
         || (s_hub_request.valid && s_hub_request.result.state == APP_NETWORK_HUB_REQUEST_STATE_PENDING))
     {
@@ -1784,6 +1844,9 @@ static void handle_hub_update_command(const network_command_t *command)
                 sizeof(s_hub_snapshot.service_url),
                 candidate);
             s_hub_snapshot.version++;
+            invalidate_hub_test_result_for_candidate(
+                s_hub_snapshot.service_url,
+                s_hub_snapshot.version);
             s_hub_request.result.state   = APP_NETWORK_HUB_REQUEST_STATE_SUCCEEDED;
             s_hub_request.result.reason  = APP_NETWORK_HUB_RESULT_REASON_NONE;
             s_hub_request.result.error   = ESP_OK;
@@ -2564,6 +2627,7 @@ esp_err_t app_network_init(void)
     memset(&s_hub_test_result, 0, sizeof(s_hub_test_result));
     s_next_hub_request_id    = 0U;
     s_hub_settings_initialized = true;
+    s_hub_portal_save_pending = false;
     taskEXIT_CRITICAL(&s_state_lock);
 
     const network_command_t start_command = {

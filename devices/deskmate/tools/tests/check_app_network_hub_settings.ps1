@@ -315,6 +315,53 @@ Assert-TextContains $hubHealthCheck 'APP_NETWORK_HUB_HEALTH_TIMEOUT_MS' `
     'Hub 健康检查必须使用独立的有界超时'
 Assert-TextNotContains $hubHealthCheck 'Authorization|device_token|token' `
     'Hub 健康检查不得携带访问令牌或设备 Token'
+Assert-TextContains $hubHealthCheck `
+    'cJSON_ParseWithLengthOpts\s*\(\s*response\.body\s*,\s*response\.body_len\s*\+\s*1U\s*,\s*NULL\s*,\s*true\s*\)' `
+    'Hub 健康响应必须按实际长度严格解析并要求完整 NUL 结尾，拒绝 trailing garbage'
+Assert-TextNotContains $hubHealthCheck 'cJSON_Parse\s*\(' `
+    'Hub 健康响应不得使用接受 trailing garbage 的宽松 cJSON_Parse'
+Assert-TextContains $hubHealthCheck `
+    'strnlen\s*\(\s*response\.body\s*,\s*response\.body_len\s*\+\s*1U\s*\)\s*==\s*response\.body_len' `
+    'Hub 健康响应必须拒绝实际 body_len 内夹带 NUL 后垃圾的响应体'
+Assert-TextContains $hubHealthCheck `
+    'cJSON_IsObject\s*\(\s*root\s*\)[\s\S]{0,180}cJSON_IsString\s*\(\s*status\s*\)[\s\S]{0,180}strcmp\s*\(\s*status->valuestring\s*,\s*"ok"\s*\)\s*==\s*0' `
+    'Hub 健康响应必须是顶层 object 且 status 为精确字符串 ok'
+
+$portalSave = Read-CFunction $networkTask 'save_network_config'
+Assert-TextInOrder $portalSave @(
+    'config->service_url\[0\]\s*!=\s*''\\0''',
+    'app_network_hub_url_parse_copy\s*\(\s*config->service_url\s*,\s*normalized_service_url\s*\)',
+    's_hub_settings_initialized',
+    's_hub_portal_save_pending\s*=\s*true',
+    'settings_store_load_copy\s*\(',
+    'settings_store_copy_string\s*\(\s*settings\.service_url[\s\S]{0,180}normalized_service_url',
+    'settings_store_save\s*\(',
+    'if\s*\(\s*error\s*==\s*ESP_OK\s*&&\s*hub_url_supplied\s*\)',
+    'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url[\s\S]{0,180}normalized_service_url',
+    's_hub_snapshot\.version\+\+',
+    'invalidate_hub_test_result_for_candidate\s*\(\s*s_hub_snapshot\.service_url\s*,\s*s_hub_snapshot\.version\s*\)',
+    's_hub_portal_save_pending\s*=\s*false'
+) 'Portal 保存必须先规范化 Hub 地址、互斥持久化，并仅在成功后短锁发布快照、版本与测试失效事实'
+Assert-TextContains $portalSave `
+    's_hub_snapshot\.version\s*==\s*UINT64_MAX' `
+    'Portal Hub 地址保存必须在版本最大值处拒绝回绕'
+Assert-TextContains $portalSave `
+    'if\s*\(\s*!s_hub_settings_initialized[\s\S]{0,260}return\s+ESP_ERR_INVALID_STATE' `
+    'Portal 保存必须在 Hub 初始 snapshot 尚未 ready 时拒绝，避免发布错误初始版本'
+Assert-TextContains $portalSave `
+    's_hub_request\.valid[\s\S]{0,140}s_hub_request\.result\.state\s*==\s*APP_NETWORK_HUB_REQUEST_STATE_PENDING' `
+    'Portal 保存不得与 Web Hub pending 请求并发覆盖 network_cfg'
+Assert-TextNotContains $portalSave `
+    'settings_store_copy_string\s*\(\s*settings\.service_url[\s\S]{0,180}config->service_url' `
+    'Portal 原始 Hub URL 不得绕过纯 helper 直接落盘'
+Assert-TextMatchCount $portalSave `
+    'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url' 1 `
+    'Portal Hub 快照只能在持久化成功分支发布一次'
+Assert-TextMatchCount $portalSave 's_hub_snapshot\.version\+\+' 1 `
+    'Portal Hub 版本只能在持久化成功分支递增一次'
+Assert-Contains $networkTask `
+    'request_hub_url_copy[\s\S]{0,1600}s_hub_portal_save_pending' `
+    'Web Hub 请求入口必须拒绝与 Portal 保存 reservation 并发'
 
 $hubCandidateInvalidation = Read-CFunction $networkTask 'invalidate_hub_test_result_for_candidate'
 Assert-TextInOrder $hubCandidateInvalidation @(
@@ -346,8 +393,9 @@ Assert-TextInOrder $hubUpdate @(
     'settings_store_copy_string\s*\(\s*network_cfg\.service_url[\s\S]{0,180}candidate',
     'system_storage_set_network_config_borrow\s*\(\s*&network_cfg\s*\)',
     'if\s*\(\s*error\s*==\s*ESP_OK\s*\)',
-    'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url[\s\S]{0,180}candidate',
+    'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url[\s\S]{0,180}candidate\s*\)',
     's_hub_snapshot\.version\+\+',
+    'invalidate_hub_test_result_for_candidate\s*\(\s*s_hub_snapshot\.service_url\s*,\s*s_hub_snapshot\.version\s*\)',
     'APP_NETWORK_HUB_REQUEST_STATE_SUCCEEDED'
 ) 'Hub 保存必须在同一路径重测同一候选地址，并仅在 network_cfg 成功后发布快照、版本与成功结果'
 Assert-TextMatchCount $hubUpdate 'system_storage_set_network_config_borrow\s*\(' 1 `
@@ -387,6 +435,8 @@ Assert-Contains 'sdkconfig.defaults' 'CONFIG_WEB_CONSOLE_ACTIONS=y' `
 
 Assert-TextMatchCount $hubUpdate 'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url' 1 'Hub 新地址只能在 network_cfg 成功分支发布一次'
 Assert-TextMatchCount $hubUpdate 's_hub_snapshot\.version\+\+' 1 'Hub 设置版本只能在 network_cfg 成功分支递增一次'
+Assert-TextMatchCount $hubUpdate 'invalidate_hub_test_result_for_candidate\s*\(' 2 `
+    'Web Hub 更新必须在候选提交前和新版本发布后各失效一次测试结果'
 Assert-TextNotContains $hubUpdate '(?:latest|last).*hub.*test.*(?:result|success)' 'Hub 地址变化后不得复用旧候选测试结果替代当前地址重测'
 
 if ($failures.Count -gt 0) {
