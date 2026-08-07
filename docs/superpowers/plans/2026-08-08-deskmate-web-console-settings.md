@@ -1,6 +1,10 @@
 # DeskMate Web Console 设置中心 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **执行状态（2026-08-08）：** Task 1–6 的实现、回归检查和契约文档已经按任务职责提交。
+> 下列步骤保留为设计与验收依据，不再是待执行指令；浏览器视觉/交互 QA 仍由主控制器基于生成的
+> `web-console-full.html` 完成，host/static 结果不替代固件、OTA、安装、实机或真实 Hub 验收。
 
 **Goal:** 将 DeskMate Web Console 从面向调试的“设备管理”表单改造成面向设备拥有者的设置中心，并完成 Hub URL 安全测试/保存与番茄钟原子持久化。
 
@@ -363,14 +367,16 @@ Expected: 全部退出码为 0；仅本任务路径有改动，`services/hub/` �
 
 生成完整 HTML，在 1440×900 与 390×844 检查首页三项、详情返回、步进器、粘性保存栏、确认层和焦点；无真实设备 API 时明确记录为模拟/静态验收，不冒充实机验证。
 
-- [ ] **Step 5: 按职责创建提交**
+- [x] **Step 5: 已按任务职责完成提交与范围检查**
 
-```powershell
-git add -- <shared-contract-and-web-files>
-git commit -m "feat(web-console): 实现设置中心与非破坏性操作"
+原计划中的两个聚合 `feat` 提交已由实际 Task 1–6 的任务级提交取代，不再作为未来 Git 指令：
 
-git add -- <deskmate-owner-provider-and-doc-files>
-git commit -m "feat(deskmate): 增加 Hub 设置并保证持久化原子性"
-```
+- Task 1–3 提交共享 Provider/Actions 契约、响应式设置中心、网页资源和对应回归测试。
+- Task 4–5 提交番茄钟持久化修正、Hub URL Application 所有权、产品 Providers 和 host/static
+  检查；后续修复仍保持在对应职责范围内。
+- Task 6 分别提交 shared network provider checker 边界修正与契约文档；review 后的迁移说明
+  清理继续保持 docs-only。
 
-提交前再次执行 `git diff --cached --check`，并确认未暂存 `services/hub/` 既有改动。
+各任务提交前均执行 scoped `git diff --cached --check`，且未暂存 `services/hub/` 既有改动。
+最终 host/static 验证覆盖 Python 35 tests、产品 Providers、Hub URL、shared network provider、
+`py_compile`、源/组装 JS `node --check`、gzip 预算和 `git diff --check`；浏览器 QA 仍是独立待办。

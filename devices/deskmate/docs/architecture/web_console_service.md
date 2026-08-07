@@ -190,9 +190,10 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 
 ## 6. HTTP 与安全边界
 
-- 迁移阶段保持现有文件 URI、状态码、认证与事务语义，命名和移动提交不得混入协议变化。
-- 纯重命名阶段暂时保留 `X-DeskMate-Overwrite`、HTML 产品标题和浏览器存储键；移入
-  `shared` 前必须改为产品无关协议名称或通过初始化/构建配置注入，公共源码不得残留产品名。
+- Files 保持当前文件 URI、状态码、认证与事务语义；协议变化必须单独评审，不能借命名或移动
+  代码静默改变客户端行为。
+- 覆盖确认头使用产品无关的 `X-Web-Console-Overwrite`；HTML 标题、浏览器存储键和公共源码
+  不得重新引入 DeskMate 产品名，产品差异只能通过初始化或构建配置显式注入。
 - 当前 HTTPD 为局域网明文 HTTP。首版 Settings 不允许写入 Wi-Fi 密码、设备 Token 等 Secret；
   是否开放 Secret 写入必须单独确认传输安全策略。
 - 所有认证后 API 默认 `Cache-Control: no-store`，不得记录访问码、Bearer token、密码或完整
@@ -202,7 +203,7 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
 
 ## 7. 构建与裁剪验收
 
-迁移完成必须验证以下构建组合：
+当前实现及后续维护必须验证以下构建组合：
 
 | 组合 | 必须成立的事实 |
 | --- | --- |
@@ -219,20 +220,16 @@ Python/Node/PowerShell 主机测试与静态检查只能证明源码、网页装
 用户明确要求后通过 DeskSuite 根目录 `ds.ps1` 执行；编译通过也不代表 HTTP、SD、断网或停止
 流程已经完成设备验收。
 
-## 8. 迁移提交顺序
+## 8. 当前维护边界
 
-迁移按以下可独立回滚的阶段执行：
+历史上的纯重命名、Core/Files 拆分、组件移动、Settings/Status Provider 和只读 Network
+Provider 引入均已完成，不再构成当前操作步骤。后续维护遵守以下边界：
 
-1. 确认本文契约与受控术语。
-2. 在原位置纯重命名为 `web_console_service`，不改变运行行为。
-3. 拆出可独立运行的 Core。
-4. 将 Files 改为可裁剪模块并注入文件系统能力。
-5. 将已去产品依赖的组件移动到 `shared/components/services/`。
-6. 增加通用 Settings/Status Provider 框架。
-7. 增加可选只读 `web_console_network_provider`。
-
-每一阶段必须独立编译并提交；命名、移动、行为重构和新增功能不得合并成一个提交。
-
-`app_web_console` 与 `APP_NETWORK_LEASE_WEB_CONSOLE` 是 DeskMate 产品编排符号；当前入口仍因
-启用 Files 能力而执行 SD 前置检查，但后续开放 Settings、Status 或维护入口时不得重新引入
-`web_file` 产品命名。共享 Console 和 Provider 不得依赖这些产品符号。
+- `app_web_console` 与 `APP_NETWORK_LEASE_WEB_CONSOLE` 继续只属于 DeskMate 产品编排；共享
+  Console 和 Provider 不得依赖这些产品符号，也不得重新引入 `web_file` 产品命名。
+- DeskMate 因启用 Files 而保留 SD 前置检查；Settings、Status 或 Actions 的共享实现不得据此
+  假设文件系统一定存在。
+- 命名整理、文件移动、协议变化、行为重构和新增功能必须保持可审查边界；涉及公共 API、
+  生命周期或跨模块术语时，先更新相应标准与契约，再按影响范围验证。
+- 当前三客户分组、Hub/Pomodoro 所有权和“不含 Wi-Fi/OTA/重启”的产品边界只有在新的明确设计
+  获批后才能改变，不能把历史迁移记录当作扩张授权。
