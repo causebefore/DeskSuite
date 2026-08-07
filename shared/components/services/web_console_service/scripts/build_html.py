@@ -82,9 +82,12 @@ def assemble_html(input_path: pathlib.Path, modules: Iterable[str]) -> str:
     if FIELDS_MODULE_USERS.intersection(enabled_modules):
         styles.append(read_fragment(web_root, "modules/fields.css"))
         module_markup.insert(0, read_fragment(web_root, "modules/fields.html"))
-        scripts.append(read_fragment(web_root, "modules/fields.js"))
 
+    fields_script_added = False
     for module in enabled_modules:
+        if module in FIELDS_MODULE_USERS and not fields_script_added:
+            scripts.append(read_fragment(web_root, "modules/fields.js"))
+            fields_script_added = True
         scripts.append(read_fragment(web_root, f"modules/{module}.js"))
 
     joined_styles = "\n".join(styles)
@@ -136,6 +139,8 @@ def minify_html(html: str) -> str:
                 if character in delimiters:
                     while output and output[-1] == " ":
                         output.pop()
+                    if character == "}" and output and output[-1] == ";":
+                        output.pop()
                 elif pending_space and output and output[-1] not in delimiters:
                     output.append(" ")
                 pending_space = False
@@ -150,7 +155,7 @@ def minify_html(html: str) -> str:
         escaped = False
         pending_space = False
         index = 0
-        delimiters = "{}[]();,:"
+        delimiters = "{}[]();,:=<>!?*%&|+-"
         while index < len(source):
             character = source[index]
             if quote:
@@ -190,8 +195,14 @@ def minify_html(html: str) -> str:
             elif character.isspace():
                 pending_space = True
             else:
-                if character in delimiters:
+                if character in "+-" and pending_space and output and output[-1] == character:
+                    output.append(" ")
+                elif character in delimiters:
                     while output and output[-1] == " ":
+                        output.pop()
+                    if character in "}]" and output and output[-1] == ",":
+                        output.pop()
+                    if character == "}" and output and output[-1] == ";":
                         output.pop()
                 elif pending_space and output and output[-1] not in delimiters:
                     output.append(" ")

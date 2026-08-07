@@ -44,15 +44,30 @@ MODULE_MARKERS = {
         "正在执行“",
     ),
 }
+MODULE_CODE_MARKERS = {
+    "settings": (
+        "function saveActive(",
+        "function pollSettings(",
+        "refreshBaselinePreservingDraft",
+        "preservedDrafts",
+    ),
+    "actions": (
+        "function submitAction(",
+        "function pollAction(",
+        "actionFailureState",
+        "preservedActionInputs",
+    ),
+}
 
 
 class BuildHtmlTests(unittest.TestCase):
     def run_node(self, source):
         result = subprocess.run(
-            ("node", "-e", source),
+            ("node", "-"),
             check=False,
             capture_output=True,
-            text=True,
+            input=source,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
@@ -69,6 +84,12 @@ class BuildHtmlTests(unittest.TestCase):
                 self.assertIn("/api/capabilities", html)
                 self.assertNotIn(".innerHTML", html)
                 for module, markers in MODULE_MARKERS.items():
+                    for marker in markers:
+                        if module in enabled:
+                            self.assertIn(marker, html)
+                        else:
+                            self.assertNotIn(marker, html)
+                for module, markers in MODULE_CODE_MARKERS.items():
                     for marker in markers:
                         if module in enabled:
                             self.assertIn(marker, html)
@@ -376,26 +397,26 @@ class BuildHtmlTests(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_discard_clears_renderer_and_preserved_draft_before_leaving(self):
-        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
-        self.assertIn("  function discardActiveDraft()", fields_source)
-        self.assertIn("  function handleLeaveResult(", fields_source)
-        discard_start = fields_source.index("  function discardActiveDraft()")
-        discard_end = fields_source.index("\n  function ", discard_start + 3)
-        handle_start = fields_source.index("  function handleLeaveResult(")
-        handle_end = fields_source.index("\n  function ", handle_start + 3)
-        functions = fields_source[discard_start:discard_end] + fields_source[handle_start:handle_end]
+        settings_source = (WEB_ROOT / "modules" / "settings.js").read_text(encoding="utf-8")
+        self.assertIn("  function discardActiveDraft()", settings_source)
+        self.assertIn("  function handleLeaveResult(", settings_source)
+        discard_start = settings_source.index("  function discardActiveDraft()")
+        discard_end = settings_source.index("\n  function ", discard_start + 3)
+        handle_start = settings_source.index("  function handleLeaveResult(")
+        handle_end = settings_source.index("\n  function ", handle_start + 3)
+        functions = settings_source[discard_start:discard_end] + settings_source[handle_start:handle_end]
         output = self.run_node(f'''\
 const LEAVE_RESULT = Object.freeze({{ proceed: "proceed", save: "save", discard: "discard", cancel: "cancel" }});
 const preservedDrafts = new Map();
-let activeSection = {{ id: "customer-section" }};
+let activeSectionId = "customer-section";
 let settingsRenderer = {{ hasChanges: () => true }};
 {functions}
 function discardThenReenter(route) {{
-  preservedDrafts.set(activeSection.id, [{{ id: "duration", value: "20" }}]);
+  preservedDrafts.set(activeSectionId, [{{ id: "duration", value: "20" }}]);
   settingsRenderer = {{ hasChanges: () => true }};
   const mayLeave = handleLeaveResult(LEAVE_RESULT.discard);
   return {{ route, mayLeave, rendererCleared: settingsRenderer === null,
-    restored: preservedDrafts.get(activeSection.id) || null }};
+    restored: preservedDrafts.get(activeSectionId) || null }};
 }}
 console.log(JSON.stringify([
   discardThenReenter("home-settings"),
@@ -407,13 +428,87 @@ console.log(JSON.stringify([
             '[{"route":"home-settings","mayLeave":true,"rendererCleared":true,"restored":null},'
             '{"route":"files-settings","mayLeave":true,"rendererCleared":true,"restored":null}]',
         )
-        return_home = fields_source[
-            fields_source.index("  async function requestReturnHome()"):
-            fields_source.index("\n  function mountModule", fields_source.index("  async function requestReturnHome()"))
-        ]
-        self.assertLess(return_home.index("handleLeaveResult"), return_home.index("showHome()"))
         common_source = (WEB_ROOT / "common.js").read_text(encoding="utf-8")
         self.assertIn("fields.handleLeaveResult(await fields.confirmLeave(trigger))", common_source)
+
+    def test_discard_unmount_remount_returns_to_clean_home_dom(self):
+        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
+        output = self.run_node(f'''\
+class ClassList {{
+  constructor() {{ this.values = new Set(); }}
+  add(...names) {{ names.forEach((name) => this.values.add(name)); }}
+  remove(...names) {{ names.forEach((name) => this.values.delete(name)); }}
+  contains(name) {{ return this.values.has(name); }}
+  toggle(name, force) {{
+    const enabled = force === undefined ? !this.contains(name) : force;
+    if (enabled) this.add(name); else this.remove(name);
+    return enabled;
+  }}
+}}
+class Element {{
+  constructor(id = "") {{
+    this.id = id; this.children = []; this.listeners = {{}}; this.classList = new ClassList();
+    this.dataset = {{}}; this.textContent = ""; this.attributes = {{}};
+  }}
+  append(...items) {{ this.children.push(...items); }}
+  prepend(...items) {{ this.children.unshift(...items); }}
+  replaceChildren(...items) {{ this.children = [...items]; }}
+  addEventListener(type, handler) {{ (this.listeners[type] ||= []).push(handler); }}
+  async emit(type, event = {{}}) {{
+    for (const handler of this.listeners[type] || []) await handler({{
+      preventDefault() {{}}, key: "", state: null, ...event,
+    }});
+  }}
+  setAttribute(name, value) {{ this.attributes[name] = String(value); }}
+  removeAttribute(name) {{ delete this.attributes[name]; }}
+  focus() {{ document.activeElement = this; }}
+  querySelector() {{ return null; }}
+  querySelectorAll() {{ return []; }}
+}}
+const ids = ["settingsCenter", "settingsHome", "settingsDetail", "settingsDetailTitle",
+  "settingsDetailDescription", "settingsSectionList", "settingsHomeEmpty", "settingsLiveMessage",
+  "pendingResultCheck", "settingsBack", "settingsModuleHost", "statusModuleHost",
+  "actionsModuleHost", "settingsModule", "oldDetail"];
+const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
+elements.settingsCenter.classList.add("hidden"); elements.settingsDetail.classList.add("hidden");
+const document = {{
+  activeElement: null,
+  getElementById(id) {{ return elements[id] || null; }},
+  createElement() {{ return new Element(); }},
+  querySelectorAll() {{ return []; }},
+}};
+const window = {{
+  webConsole: {{ setNotice(target, text) {{ target.textContent = text; }} }},
+  addEventListener() {{}}, clearTimeout() {{}}, setTimeout() {{ return 1; }},
+}};
+const history = {{ pushState() {{}}, replaceState() {{}} }};
+{fields_source}
+let discarded = false;
+const controller = {{
+  async loadDetail() {{ elements.oldDetail.textContent = "旧详情"; return null; }},
+  confirmLeave() {{ return Promise.resolve("discard"); }},
+  handleLeaveResult(result) {{ discarded = result === "discard"; return true; }},
+  unmount() {{ elements.oldDetail.textContent = ""; }},
+}};
+const capability = {{ sections: [{{ id: "customer", label: "客户分组", description: "描述", fields: [] }}] }};
+(async () => {{
+window.webConsole.fields.mountModule("settings", capability, {{}}, controller);
+await elements.settingsSectionList.children[0].emit("click");
+window.webConsole.fields.handleLeaveResult("discard");
+window.webConsole.fields.unmountModule("settings");
+window.webConsole.fields.mountModule("settings", capability, {{}}, controller);
+console.log(JSON.stringify({{
+  discarded,
+  homeVisible: !elements.settingsHome.classList.contains("hidden"),
+  detailHidden: elements.settingsDetail.classList.contains("hidden"),
+  oldDetail: elements.oldDetail.textContent,
+}}));
+}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
+''')
+        self.assertEqual(
+            output,
+            '{"discarded":true,"homeVisible":true,"detailHidden":true,"oldDetail":""}',
+        )
 
     def test_generated_description_ids_are_unique_for_consecutive_read_only_fields(self):
         fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
@@ -443,11 +538,11 @@ console.log(JSON.stringify([first.children[0].children[1].id, second.children[0]
         )
 
     def test_action_submit_failure_states_are_distinct_and_inputs_stay_in_memory(self):
-        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
-        self.assertIn("  function actionFailureState(", fields_source)
-        start = fields_source.index("  function actionFailureState(")
-        end = fields_source.index("\n  function ", start + 3)
-        function_source = fields_source[start:end]
+        actions_source = (WEB_ROOT / "modules" / "actions.js").read_text(encoding="utf-8")
+        self.assertIn("  function actionFailureState(", actions_source)
+        start = actions_source.index("  function actionFailureState(")
+        end = actions_source.index("\n  function ", start + 3)
+        function_source = actions_source[start:end]
         output = self.run_node(f'''\
 const PAGE_STATE = Object.freeze({{
   sessionExpired: "session_expired", validationError: "validation_error",
@@ -465,13 +560,47 @@ console.log(JSON.stringify([
             output,
             '["session_expired","validation_error","owner_busy","network_unknown"]',
         )
-        submit_start = fields_source.index("  async function submitAction(")
-        submit_end = fields_source.index("\n  async function pollAction", submit_start)
-        submit_source = fields_source[submit_start:submit_end]
+        submit_start = actions_source.index("  async function submitAction(")
+        submit_end = actions_source.index("\n  async function pollAction", submit_start)
+        submit_source = actions_source[submit_start:submit_end]
         self.assertLess(submit_source.index("preservedActionInputs.set"), submit_source.index("adapter.submit"))
         self.assertIn("renderer.setErrors(error.payload && error.payload.errors)", submit_source)
         self.assertNotIn("sessionStorage", submit_source)
         self.assertNotIn("submitAction(section", submit_source[submit_source.index("catch (error)"):])
+
+    def test_save_and_leave_timeout_restores_dialog_without_navigation_or_resubmit(self):
+        settings_source = (WEB_ROOT / "modules" / "settings.js").read_text(encoding="utf-8")
+        self.assertIn("  async function pollSettings(", settings_source)
+        start = settings_source.index("  async function pollSettings(")
+        end = settings_source.index("\n  async function saveActive", start)
+        function_source = settings_source[start:end]
+        output = self.run_node(f'''\
+const PAGE_STATE = Object.freeze({{ networkUnknown: "network_unknown" }});
+const POLL_DEADLINE_MS = 30000;
+const messages = {{ deadline: "结果未知" }};
+let activeSectionId = "customer";
+let enabled = 0; let navigated = 0; let queried = 0; let submitted = 0; let state = "";
+const adapter = {{
+  getResult() {{ queried += 1; }},
+  submit() {{ submitted += 1; }},
+}};
+const view = {{ setPageState(next) {{ state = next; }} }};
+const activeContext = {{ view }};
+function enableDraftDialog() {{ enabled += 1; }}
+function closeDraftDialog() {{ navigated += 1; }}
+function moduleMessage(_part, key) {{ return messages[key]; }}
+const activePart = {{ adapter }};
+const Date = {{ now() {{ return 40000; }} }};
+{function_source}
+(async () => {{
+await pollSettings({{ section: "customer", action: "settings", request: "7", start: 0 }});
+console.log(JSON.stringify({{ state, enabled, navigated, queried, submitted }}));
+}})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
+''')
+        self.assertEqual(
+            output,
+            '{"state":"network_unknown","enabled":1,"navigated":0,"queried":0,"submitted":0}',
+        )
 
     def test_polling_is_bounded_and_does_not_persist_secret_payloads(self):
         html = build_html.assemble_html(
@@ -547,9 +676,9 @@ console.log(JSON.stringify([
         </script><pre>  keep
 space  </pre>'''
         result = build_html.minify_html(source)
-        self.assertIn('.sample{content:"a > b";color:red;}', result)
-        self.assertIn('const text = "a  b";', result)
-        self.assertIn("const template = `first\n    second  `;", result)
+        self.assertIn('.sample{content:"a > b";color:red}', result)
+        self.assertIn('const text="a  b";', result)
+        self.assertIn("const template=`first\n    second  `;", result)
         self.assertNotIn("构建产物不保留整行注释", result)
         self.assertIn("<pre>  keep\nspace  </pre>", result)
 
