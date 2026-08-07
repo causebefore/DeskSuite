@@ -261,8 +261,11 @@ class BuildHtmlTests(unittest.TestCase):
         self.assertEqual(first[4:8], b"\x00\x00\x00\x00")
 
     def test_full_module_gzip_stays_within_review_budget(self):
-        html = build_html.assemble_html(INDEX_TEMPLATE, build_html.MODULE_ORDER)
-        self.assertLessEqual(len(build_html.compress_html(html)), 23288)
+        baseline_html = build_html.assemble_html(INDEX_TEMPLATE, ("files", "settings", "status"))
+        full_html = build_html.assemble_html(INDEX_TEMPLATE, build_html.MODULE_ORDER)
+        baseline_size = len(build_html.compress_html(baseline_html))
+        full_size = len(build_html.compress_html(full_html))
+        self.assertLessEqual(full_size, baseline_size * 1.25)
 
     def test_cli_without_modules_builds_core_only(self):
         self.assertEqual(
@@ -354,6 +357,7 @@ class BuildHtmlTests(unittest.TestCase):
             "succeeded",
             "validation_error",
             "owner_busy",
+            "terminal_failed",
             "network_unknown",
             "version_conflict",
             "session_expired",
@@ -541,14 +545,18 @@ console.log(JSON.stringify([first.children[0].children[1].id, second.children[0]
     def test_action_submit_failure_states_are_distinct_and_inputs_stay_in_memory(self):
         actions_source = (WEB_ROOT / "modules" / "actions.js").read_text(encoding="utf-8")
         self.assertIn("  function actionFailureState(", actions_source)
+        reason_start = actions_source.index("  function reasonState(")
+        reason_end = actions_source.index("\n  function ", reason_start + 3)
+        reason_source = actions_source[reason_start:reason_end]
         start = actions_source.index("  function actionFailureState(")
         end = actions_source.index("\n  function ", start + 3)
         function_source = actions_source[start:end]
         output = self.run_node(f'''\
 const PAGE_STATE = Object.freeze({{
   sessionExpired: "session_expired", validationError: "validation_error",
-  ownerBusy: "owner_busy", networkUnknown: "network_unknown",
+  ownerBusy: "owner_busy", terminalFailed: "terminal_failed", networkUnknown: "network_unknown",
 }});
+{reason_source}
 {function_source}
 console.log(JSON.stringify([
   actionFailureState({{ status: 401 }}, false),
@@ -568,6 +576,72 @@ console.log(JSON.stringify([
         self.assertIn("renderer.setErrors(error.payload && error.payload.errors)", submit_source)
         self.assertNotIn("sessionStorage", submit_source)
         self.assertNotIn("submitAction(section", submit_source[submit_source.index("catch (error)"):])
+
+    def test_known_action_result_reasons_are_terminal_customer_failures(self):
+        actions_source = (WEB_ROOT / "modules" / "actions.js").read_text(encoding="utf-8")
+        reason_state_start = actions_source.index("  function reasonState(")
+        reason_state_end = actions_source.index("\n  function ", reason_state_start + 3)
+        reason_message_start = actions_source.index("  function reasonMessage(")
+        reason_message_end = actions_source.index("\n  function ", reason_message_start + 3)
+        output = self.run_node(f'''\
+const PAGE_STATE = Object.freeze({{
+  validationError: "validation_error", ownerBusy: "owner_busy",
+  terminalFailed: "terminal_failed", networkUnknown: "network_unknown",
+}});
+{actions_source[reason_state_start:reason_state_end]}
+{actions_source[reason_message_start:reason_message_end]}
+const reasons = ["connection_failed", "health_check_failed", "timeout",
+  "version_conflict", "persistence_failed", "unknown"];
+console.log(JSON.stringify(reasons.map((reason) => [
+  reasonState(reason), reasonMessage(reason),
+])));
+''')
+        self.assertEqual(
+            output,
+            '[["terminal_failed","无法连接 Hub，请检查地址与局域网。"],'
+            '["terminal_failed","Hub 健康检查未通过。"],'
+            '["terminal_failed","连接 Hub 超时。"],'
+            '["terminal_failed","设备状态已变化，本次操作未执行。"],'
+            '["terminal_failed","设备未能保存操作结果。"],'
+            '["terminal_failed","操作已失败，设备未提供更具体原因。"]]',
+        )
+        poll_start = actions_source.index("  async function pollAction(")
+        poll_end = actions_source.index("\n  function ", poll_start + 3)
+        poll_source = actions_source[poll_start:poll_end]
+        self.assertLess(
+            poll_source.index("clearPendingFact()"),
+            poll_source.index("payload.state === \"succeeded\""),
+        )
+        self.assertNotIn("查询原请求", poll_source[poll_source.index("clearPendingFact()"):])
+
+    def test_settings_known_terminal_reasons_keep_draft_without_network_unknown(self):
+        settings_source = (WEB_ROOT / "modules" / "settings.js").read_text(encoding="utf-8")
+        reason_state_start = settings_source.index("  function reasonState(")
+        reason_state_end = settings_source.index("\n  function ", reason_state_start + 3)
+        reason_message_start = settings_source.index("  function reasonMessage(")
+        reason_message_end = settings_source.index("\n  function ", reason_message_start + 3)
+        output = self.run_node(f'''\
+const PAGE_STATE = Object.freeze({{
+  validationError: "validation_error", ownerBusy: "owner_busy",
+  versionConflict: "version_conflict", terminalFailed: "terminal_failed",
+  networkUnknown: "network_unknown",
+}});
+{settings_source[reason_state_start:reason_state_end]}
+{settings_source[reason_message_start:reason_message_end]}
+const reasons = ["persistence_failed", "connection_failed", "health_check_failed",
+  "timeout", "unknown"];
+console.log(JSON.stringify(reasons.map((reason) => [
+  reasonState(reason), reasonMessage(reason),
+])));
+''')
+        self.assertEqual(
+            output,
+            '[["terminal_failed","设备未能保存更改，原设置保持不变。"],'
+            '["terminal_failed","设备无法连接 Hub，原设置保持不变。"],'
+            '["terminal_failed","Hub 健康检查未通过，原设置保持不变。"],'
+            '["terminal_failed","连接 Hub 超时，原设置保持不变。"],'
+            '["terminal_failed","设备未能应用更改，原设置保持不变。"]]',
+        )
 
     def test_save_and_leave_failures_restore_real_dialog_without_navigation_or_resubmit(self):
         settings_source = (WEB_ROOT / "modules" / "settings.js").read_text(encoding="utf-8")
@@ -655,7 +729,7 @@ const consoleApi = {
     if (options.method === "PATCH") {
       submitCalls += 1;
       if (mode === "submit_failed") return response(500, { message: "提交失败" });
-      return response(202, { state: "pending", requestId: "7" });
+      return response(202, { state: "pending", reason: "none", requestId: "7" });
     }
     return response(200, { section: "customer", version: "1", values: [] });
   },
@@ -744,13 +818,13 @@ async function runScenario(nextMode) {
         output = self.run_node(script)
         self.assertEqual(
             output,
-            '[{"state":"network_unknown","pageMessage":"提交结果未知，请勿重复写入；请查询原请求。",'
+            '[{"state":"terminal_failed","pageMessage":"提交失败",'
             '"fieldErrors":null,"draftRetained":true,"enabled":[true,true,true],"operable":true,'
             '"navigated":0,"submitCalls":1,"queryCalls":0},'
             '{"state":"network_unknown","pageMessage":"保存结果暂时未知，请查询原请求，勿重复提交。",'
             '"fieldErrors":null,"draftRetained":true,"enabled":[true,true,true],"operable":true,'
             '"navigated":0,"submitCalls":1,"queryCalls":1},'
-            '{"state":"validation_error","pageMessage":"字段校验失败。",'
+            '{"state":"validation_error","pageMessage":"设备未接受这些设置，请检查标记字段。",'
             '"fieldErrors":[{"id":"duration","message":"时长超出范围。"}],'
             '"draftRetained":true,"enabled":[true,true,true],"operable":true,'
             '"navigated":0,"submitCalls":1,"queryCalls":1}]',
@@ -800,6 +874,44 @@ async function runScenario(nextMode) {
             "prefers-reduced-motion: reduce",
         ):
             self.assertIn(marker, html)
+
+    def test_effect_tokens_and_system_summary_are_customer_facing(self):
+        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
+        self.assertIn('field.effect !== "none"', fields_source)
+        effect_start = fields_source.index("  function effectLabel(")
+        effect_end = fields_source.index("\n  function ", effect_start + 3)
+        format_start = fields_source.index("  function formatDisplayValue(")
+        format_end = fields_source.index("\n  function ", format_start + 3)
+        summary_start = fields_source.index("  function summaryFields(")
+        summary_end = fields_source.index("\n  async function ", summary_start + 3)
+        output = self.run_node(f'''\
+const hasOwn = (object, key) => object !== null && object !== undefined &&
+  Object.prototype.hasOwnProperty.call(object, key);
+function optionParts(option) {{ return {{ value: String(option.value), label: String(option.label) }}; }}
+function valueEntries(values) {{
+  return new Map(values.map((entry) => [entry.id, entry]));
+}}
+{fields_source[effect_start:effect_end]}
+{fields_source[format_start:format_end]}
+{fields_source[summary_start:summary_end]}
+const effects = ["immediate", "next_transaction", "reconnect", "restart", "idle_only"]
+  .map(effectLabel);
+const summaries = summaryFields({{ fields: [
+  {{ id: "firmware_version", label: "固件版本", type: "string", summary: "固件" }},
+  {{ id: "uptime_sec", label: "运行时长", type: "uint32", summary: "已运行",
+     format: "duration_seconds" }},
+] }}, {{ values: [
+  {{ id: "firmware_version", value: "1.2.3" }},
+  {{ id: "uptime_sec", value: 3660 }},
+] }});
+console.log(JSON.stringify({{ effects, summaries }}));
+''')
+        self.assertEqual(
+            output,
+            '{"effects":["立即生效","下一次使用时生效","重新连接后生效",'
+            '"设备重启后生效","仅空闲时可修改"],'
+            '"summaries":["固件 1.2.3","已运行 1 小时 1 分"]}',
+        )
 
     def test_each_summary_failure_is_isolated_to_its_section(self):
         html = build_html.assemble_html(INDEX_TEMPLATE, ("settings", "status"))

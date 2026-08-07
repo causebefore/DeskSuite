@@ -356,6 +356,16 @@ Assert-Contains $provider `
 Assert-Contains $provider `
     'POMODORO_FIELD_COMPLETION_AUDIO_PATH[\s\S]{0,520}data\.string_value' `
     '完成音乐路径未进入 Pomodoro Settings 快照'
+Assert-Contains $provider 'out_result->reason\s*=\s*map_hub_result_reason\s*\(\s*result\.reason\s*\)' `
+    'Hub Settings 结果未把 Network Application 稳定原因贯通到 Console'
+Assert-Contains $provider 'map_pomodoro_settings_result_reason\s*\(' `
+    'Pomodoro Settings 缺少明确的稳定结果原因映射 helper'
+Assert-Contains $provider 'map_pomodoro_settings_result_reason\s*\([\s\S]{0,1800}ESP_ERR_INVALID_VERSION[\s\S]{0,160}WEB_CONSOLE_RESULT_REASON_VERSION_CONFLICT[\s\S]{0,220}ESP_ERR_INVALID_STATE[\s\S]{0,160}WEB_CONSOLE_RESULT_REASON_OWNER_BUSY[\s\S]{0,220}ESP_ERR_INVALID_ARG[\s\S]{0,160}WEB_CONSOLE_RESULT_REASON_VALIDATION_FAILED' `
+    'Pomodoro Settings 未稳定区分版本冲突、Owner busy 与校验失败'
+Assert-Contains $provider 'map_pomodoro_settings_result_reason\s*\([\s\S]{0,2200}error\s*==\s*ESP_OK\s*\?\s*WEB_CONSOLE_RESULT_REASON_UNKNOWN[\s\S]{0,160}WEB_CONSOLE_RESULT_REASON_PERSISTENCE_FAILED' `
+    'Pomodoro Settings 未把无错误异常状态映射为 unknown、Store 失败映射为 persistence_failed'
+Assert-Contains $provider 'out_result->reason\s*=\s*map_pomodoro_settings_result_reason\s*\(' `
+    'Pomodoro Settings 结果未写入稳定 reason'
 Assert-Contains $ownerHeader 'char\s+completion_audio_path\[' `
     'Pomodoro 设置未保存完成音乐逻辑路径'
 Assert-Contains $storeHeader 'POMODORO_STORE_SCHEMA_VERSION\s+2U' `
@@ -400,6 +410,20 @@ Assert-MatchCount $provider '\.effect\s*=\s*WEB_CONSOLE_FIELD_EFFECT_NONE' 7 `
     '七项系统状态未全部声明无副作用'
 Assert-MatchCount $provider 'system_info_get_snapshot_copy\s*\(' 1 `
     'System Status 回调每次应只读取一份系统快照'
+Assert-Contains $provider '\.id\s*=\s*"firmware_version"[\s\S]{0,260}\.summary\s*=\s*"固件"' `
+    '固件版本未以“固件”进入设置首页摘要'
+Assert-Contains $provider '\.id\s*=\s*"uptime_sec"[\s\S]{0,300}\.label\s*=\s*"运行时长"[\s\S]{0,180}\.summary\s*=\s*"已运行"[\s\S]{0,180}\.format\s*=\s*"duration_seconds"' `
+    '运行时长未使用客户标签、首页摘要和 duration_seconds 格式'
+Assert-Contains $provider '\.id\s*=\s*"sram_free_kb"[\s\S]{0,300}\.label\s*=\s*"可用 SRAM"[\s\S]{0,180}\.unit\s*=\s*"KiB"' `
+    'SRAM 状态未把 KiB 作为结构化单位'
+Assert-Contains $provider '\.id\s*=\s*"psram_free_kb"[\s\S]{0,300}\.label\s*=\s*"可用 PSRAM"[\s\S]{0,180}\.unit\s*=\s*"KiB"' `
+    'PSRAM 状态未把 KiB 作为结构化单位'
+Assert-Contains $provider '\.id\s*=\s*"cpu_mhz"[\s\S]{0,300}\.label\s*=\s*"CPU 频率"[\s\S]{0,180}\.unit\s*=\s*"MHz"' `
+    'CPU 状态未把 MHz 作为结构化单位'
+Assert-Contains $provider 'map_reset_reason_for_customer\s*\([\s\S]{0,1600}"通电启动"[\s\S]{0,200}"软件重启"[\s\S]{0,200}"程序异常"[\s\S]{0,260}"看门狗复位"[\s\S]{0,200}"深度睡眠唤醒"[\s\S]{0,200}"电压过低复位"[\s\S]{0,200}"未知原因"' `
+    'System Status 未在产品 Provider 把底层重启原因映射为中文客户值'
+Assert-Contains $provider 'write_string_value\s*\(\s*&out_status->values\[SYSTEM_STATUS_FIELD_RESET_REASON\]\s*,\s*map_reset_reason_for_customer\s*\(\s*system_info_get_reset_reason_borrow\s*\(\s*\)\s*\)\s*\)' `
+    'System Status 仍直接呈现底层 reset reason token'
 
 Assert-Contains $provider '#include\s+"app_pomodoro\.h"' `
     '产品 Provider 未通过 Pomodoro 公共 API 适配设置'

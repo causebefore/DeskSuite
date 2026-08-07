@@ -109,7 +109,8 @@ Settings Provider 必须能够表达：
 
 - 稳定 section/field ID、类型、长度、范围和枚举约束。
 - section/field 的 UTF-8 标签与可选 `description`、`unit`、`summary`，以及 ASCII `format`。
-- STRING 值只能是可打印 ASCII，单值最多 127 bytes；显示元数据按各自上限使用有效 UTF-8。
+- STRING 值统一使用有效 UTF-8，单值同时受字段上限与全局 127 bytes 上限约束，并拒绝
+  embedded NUL；显示元数据按各自上限使用有效 UTF-8。
 - 普通可读写字符串可选声明文件扩展名；该元数据只在 Files 同时启用时合法，浏览器通过
   认证后的目录接口选择逻辑路径，Provider 回调不得为此访问文件系统。
 - `READ_ONLY`、`SECRET`、`WRITE_ONLY` 等访问属性。
@@ -128,6 +129,9 @@ GET  /api/actions/result?section=<id>&action=<id>&request=<uint64>
 ```
 
 POST 只完成有界输入校验和快速复制/排队，GET 查询 `pending/succeeded/failed` 与稳定 reason。
+Settings 与 Actions 共用 reason 集合；pending/succeeded 必须为 `none`，failed 必须为非
+`none`。浏览器把已知 reason 呈现为确定终态，只有网络异常或轮询期限耗尽仍无终态时才报告
+“结果未知”。
 删除、覆盖、恢复出厂设置、OTA 和重启不得借 Actions 绕过单独的产品授权与安全设计。Actions
 Provider 与 Settings/Status 一样在 `init_borrow()` 期间深复制元数据和回调，只长期借用
 `context` 到 `deinit()` 成功。
@@ -157,6 +161,10 @@ ASCII `http://` authority：IPv4 或主机名、可选 `1..65535` 端口；schem
 移除唯一末尾 `/`，并拒绝用户信息、业务 path、query、fragment、空白、非 ASCII 和超过
 127 bytes 的值。测试和保存共享一个 pending 槽，并与 Portal 的完整网络配置保存 reservation
 互斥，防止两个入口交错覆盖 `network_cfg`。
+
+上述 ASCII authority 是 Hub 产品字段的额外安全约束，由
+`app_network_hub_url_parse_copy()` 和产品所有者校验保证；共享 Web Console 的通用 STRING
+仍允许有效 UTF-8，例如番茄钟完成音乐逻辑路径 `/音乐/完成.mp3`。
 
 测试只对候选的 `/healthz` 执行无凭据有界 GET，不写持久化；保存不能复用旧测试结果，而由
 唯一 Network Task 对同一候选重测，然后读取完整 `network_cfg`、只替换 `service_url` 并一次性

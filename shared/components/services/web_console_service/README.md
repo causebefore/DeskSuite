@@ -154,14 +154,31 @@ Provider 回调运行在 HTTPD 普通 Task、Core 锁外，只能做有界内存
 排队；不得执行网络、文件、NVS 等长 I/O，不得长期等待，也不得回调 Console。Console 不创建
 轮询 Task，异步状态查询由已登录浏览器发起。
 
-STRING 字段值和 Actions 字符串输入只允许可打印 ASCII，单值最多 127 bytes；section/field/action
-标签、说明、单位、摘要和枚举标签必须是有效 UTF-8 并遵守各自字节上限，`format` 与
-`file_suffix` 使用有界 ASCII。显示元数据可以包含中文，但不能据此放宽协议值缓冲区。
+STRING 字段值、Settings 快照/更新、Status 输出和 Actions 字符串输入统一使用有效 UTF-8，
+单值同时受字段 `max_length_bytes` 与全局 127 bytes 上限约束；不得包含 embedded NUL，Provider
+写入短字符串时须保持终止 NUL 后的值缓冲区为零。原始 JSON 中会解码为 NUL 的 `\u0000` 被
+拒绝，表示字面反斜杠-u 的 `\\u0000` 不会被误判。section/field/action 标签、说明、单位、
+摘要和枚举标签同样使用有界 UTF-8；只有稳定 ID、`format` 与 `file_suffix` 使用有界 ASCII。
+
+Hub URL 的限制属于 DeskMate 产品校验，不是通用 STRING 契约：
+`app_network_hub_url_parse_copy()` 只接受安全的 ASCII `http://` authority，并由产品 Provider
+在同步校验和所有者执行点再次保证；其他 STRING 字段可以合法包含中文等 UTF-8 内容。
+
+`web_console_field_info_t`、`web_console_settings_provider_t` 与
+`web_console_status_provider_t` 的本次元数据扩展保持旧公开成员的声明顺序为完整前缀，新成员
+只追加在尾部，因此旧式位置初始化源码仍可按原类型编译。STRING 值缓冲区由 96 bytes 扩展到
+128 bytes，Settings 结果也追加稳定 `reason`；这些是同一固件构建内的明确契约变化，不承诺
+与旧固件对象文件保持二进制布局兼容。
 
 公共页面为 Settings、Status 与 Actions 创建同一个“设置”导航项；只启用其中之一时仍使用
 同一入口。不同类型可复用 section ID 形成一个客户分组，同一类型内部仍拒绝重复。这个聚合
 只属于浏览器导航，不改变 Capabilities 中的模块 ID、路由数量、只读/可写属性或 Provider
 所有权。
+
+Settings 与 Actions 共用同一组稳定 reason。查询结果必须满足：`pending/succeeded` 使用
+`NONE`（Settings 同时要求 `ESP_OK`），`failed` 使用非 `NONE`（Settings 同时要求非
+`ESP_OK`）；HTTP JSON 总是返回稳定 reason。已收到的稳定失败是确定终态，只有请求异常、
+查询异常或轮询期限耗尽仍没有终态时，浏览器才呈现“结果未知”。
 
 Actions 只用于非破坏性异步操作。POST 完成通用输入校验、调用无副作用领域校验，再由
 `request_copy` 快速复制并返回非零、单调、不回绕的请求 ID；GET 通过 action index 和请求 ID
@@ -407,6 +424,8 @@ CLEANUP_FAILED ── 后续 stop 成功 ─→ INITIALIZED
   Provider 元数据校验、按量深复制、发现与释放。
 - [`src/providers/web_console_provider_http.cpp`](src/providers/web_console_provider_http.cpp)：Capabilities、
   Settings/Status/Actions 的认证 HTTP/JSON 映射和 Provider 输出契约检查。
+- [`tests/check_web_console_provider_contract.ps1`](tests/check_web_console_provider_contract.ps1)：
+  旧 Provider 位置初始化器/成员前缀源兼容，以及通用 STRING UTF-8、长度、NUL escape host 回归。
 - [`scripts/build_html.py`](scripts/build_html.py) 与 [`scripts/test_build_html.py`](scripts/test_build_html.py)：
   确定性模块装配、gzip 生成及全部 16 种裁剪组合测试。
 - [`src/core/web_console_service_internal.hpp`](src/core/web_console_service_internal.hpp) 和
@@ -425,7 +444,7 @@ README 不记录某次任务的构建结果、固件大小或尚未执行的临�
 核查：
 
 - 静态与主机侧：覆盖路径解码、认证、单传输守卫、上传事务恢复、创建/移动/删除约束、16 种
-  模块网页组合、Provider 元数据/输出/JSON 边界和 C/C++ ABI。
+  模块网页组合、Provider 元数据/输出/JSON 边界、旧位置初始化器与公开成员前缀源兼容。
 - 固件：仅在用户明确要求时，从 DeskSuite 根目录执行统一命令
   `& .\ds.ps1 build deskmate`；不得绕过脚本调用下层构建工具。
 - 实机：覆盖登录/退出/重新登录、Capabilities 裁剪、“设置”单入口及状态/设置/操作联合呈现、文件

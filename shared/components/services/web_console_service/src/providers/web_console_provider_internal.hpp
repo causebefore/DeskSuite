@@ -8,46 +8,8 @@
 
 #include "esp_err.h"
 #include "web_console_provider.h"
+#include "web_console_provider_validation.hpp"
 #include "web_console_service_internal.hpp"
-
-/**
- * @brief 校验一段不含 NUL 的字节是否为规范 UTF-8
- *
- * @param[in] text 待校验字节；长度为零时可为空
- * @param[in] length 精确字节数
- * @return true UTF-8 有效且不存在过长编码、代理项或超出 Unicode 范围的码点
- */
-bool web_console_provider_utf8_is_valid(const char *text, size_t length);
-
-/**
- * @brief 校验字段字符串值是否为指定上限内的可打印 ASCII
- *
- * @param[in] text 待校验字节；长度为零时可为空
- * @param[in] length 精确字节数，不含结尾 NUL
- * @param[in] maximum_length 字段声明的字节上限
- * @return true 长度不超过字段上限和全局 127 字节上限，且每个字节均在 `0x20..0x7E`
- */
-constexpr bool web_console_provider_ascii_string_value_is_valid(
-    const char *text,
-    size_t length,
-    size_t maximum_length)
-{
-    if ((length > 0U && text == nullptr)
-        || length > maximum_length
-        || length > WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH)
-    {
-        return false;
-    }
-    for (size_t index = 0U; index < length; ++index)
-    {
-        const unsigned char value = static_cast<unsigned char>(text[index]);
-        if (value < 0x20U || value > 0x7EU)
-        {
-            return false;
-        }
-    }
-    return true;
-}
 
 /**
  * @brief 复制并校验初始化时装配的 Settings/Status/Actions Provider 集合

@@ -64,7 +64,10 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
   Hub Settings/连接测试 Actions、番茄钟 Settings 和“设备与系统” Status。产品不装配调试型
   Network Manager Status，不提供 Wi-Fi 分类、OTA 或重启动作。Hub 测试与保存由 `app_network`
   串行执行，番茄钟完成音乐通过 Files 支持的 `.mp3` 路径选择字段配置；页面返回必须等待
-  Service 完整停止后才释放租约。
+  Service 完整停止后才释放租约。通用字符串按有效 UTF-8 传输，Hub 地址另由 Network
+  Application 收紧为 ASCII `http://` authority；Settings/Actions 的已知稳定失败作为确定终态
+  呈现。“设备与系统”首页摘要显示“固件 … · 已运行 …”，详情把生效方式、单位和重启原因
+  映射为客户可读中文，不暴露 `idle_only`、`power_on` 等协议 token。
 - 呈现：Service、Communication 或 Application 报告事实，Presenter 更新 View Model 并发布呈现事件，
   UI Runtime 在唯一 LVGL 上下文读取并渲染。
 - 番茄钟：`app_pomodoro_task` 使用单调 deadline 串行推进专注、短休和长休；设置以独立版本

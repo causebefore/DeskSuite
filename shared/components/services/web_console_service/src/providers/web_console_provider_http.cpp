@@ -21,46 +21,6 @@
 #define WEB_CONSOLE_PROVIDER_JSON_ITEM_MAX_BYTES    4096U
 #define WEB_CONSOLE_PROVIDER_UINT64_TEXT_SIZE        21U
 
-/** @brief 线性扫描 JSON string，拒绝会被 cJSON 解码为 NUL 的 `\u0000` escape。 */
-static constexpr bool web_console_provider_json_strings_have_no_nul_escape(
-    const char *body,
-    size_t body_size)
-{
-    bool in_string = false;
-    bool escaped   = false;
-    for (size_t index = 0U; index < body_size; ++index)
-    {
-        const char value = body[index];
-        if (!in_string)
-        {
-            if (value == '"')
-            {
-                in_string = true;
-            }
-            continue;
-        }
-        if (escaped)
-        {
-            escaped = false;
-        }
-        else if (value == '\\')
-        {
-            if (index + 5U < body_size && body[index + 1U] == 'u'
-                && body[index + 2U] == '0' && body[index + 3U] == '0'
-                && body[index + 4U] == '0' && body[index + 5U] == '0')
-            {
-                return false;
-            }
-            escaped = true;
-        }
-        else if (value == '"')
-        {
-            in_string = false;
-        }
-    }
-    return true;
-}
-
 #define WEB_CONSOLE_ASCII_VALUE_16 "0123456789ABCDEF"
 static constexpr char k_ascii_value_127[] =
     WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
@@ -70,14 +30,19 @@ static constexpr char k_ascii_value_128[] =
     WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
         WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
             WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16;
-static_assert(web_console_provider_ascii_string_value_is_valid(
+static_assert(web_console_provider_utf8_string_value_is_valid(
                   k_ascii_value_127, sizeof(k_ascii_value_127) - 1U, 127U),
-              "127 字节 ASCII 字符串值必须有效");
-static_assert(!web_console_provider_ascii_string_value_is_valid(
+              "127 字节 UTF-8 字符串值必须有效");
+static_assert(!web_console_provider_utf8_string_value_is_valid(
                   k_ascii_value_128, sizeof(k_ascii_value_128) - 1U, 127U),
-              "128 字节 ASCII 字符串值必须无效");
-static_assert(!web_console_provider_ascii_string_value_is_valid("\xE4\xB8\xAD", 3U, 127U),
-              "非 ASCII 字符串值必须无效");
+              "128 字节 UTF-8 字符串值必须无效");
+static_assert(web_console_provider_utf8_string_value_is_valid(
+                  "/\xE9\x9F\xB3\xE4\xB9\x90/\xE5\xAE\x8C\xE6\x88\x90.mp3", 18U, 127U),
+              "中文 MP3 逻辑路径必须有效");
+static_assert(!web_console_provider_utf8_string_value_is_valid("\xE4\xB8", 2U, 127U),
+              "截断 UTF-8 字符串值必须无效");
+static_assert(!web_console_provider_utf8_string_value_is_valid("a\0b", 3U, 127U),
+              "STRING 值中的 NUL 必须无效");
 #undef WEB_CONSOLE_ASCII_VALUE_16
 
 static constexpr char k_json_decoded_nul[] = R"({"value":"ok\u0000tail"})";
@@ -165,7 +130,7 @@ static const char *web_console_field_effect_name(web_console_field_effect_t effe
     }
 }
 
-#if CONFIG_WEB_CONSOLE_ACTIONS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_ACTIONS
 /** @brief 返回稳定结果原因的 JSON 名称。 */
 static const char *web_console_result_reason_name(web_console_result_reason_t reason)
 {
@@ -825,8 +790,8 @@ static bool web_console_enum_value_is_valid(const web_console_field_info_t *fiel
     return false;
 }
 
-/** @brief 有界读取并校验一个 NUL 结尾的可打印 ASCII 字段字符串值。 */
-static bool web_console_provider_ascii_string_value_length(
+/** @brief 有界读取并校验一个 NUL 结尾的 UTF-8 字段字符串值。 */
+static bool web_console_provider_utf8_string_value_length(
     const char *text,
     uint32_t maximum_length,
     size_t *out_length)
@@ -836,7 +801,7 @@ static bool web_console_provider_ascii_string_value_length(
         return false;
     }
     const size_t length = strnlen(text, WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U);
-    if (!web_console_provider_ascii_string_value_is_valid(text, length, maximum_length))
+    if (!web_console_provider_utf8_string_value_is_valid(text, length, maximum_length))
     {
         return false;
     }
@@ -864,8 +829,21 @@ static bool web_console_field_value_is_valid(const web_console_field_info_t *fie
         case WEB_CONSOLE_FIELD_TYPE_STRING:
         {
             size_t length = 0U;
-            return web_console_provider_ascii_string_value_length(
-                value->data.string_value, field->max_length_bytes, &length);
+            if (!web_console_provider_utf8_string_value_length(
+                    value->data.string_value, field->max_length_bytes, &length))
+            {
+                return false;
+            }
+            for (size_t index = length + 1U;
+                 index < sizeof(value->data.string_value);
+                 ++index)
+            {
+                if (value->data.string_value[index] != '\0')
+                {
+                    return false;
+                }
+            }
+            return true;
         }
         case WEB_CONSOLE_FIELD_TYPE_ENUM:
             return web_console_enum_value_is_valid(field, value->data.int32_value);
@@ -1403,7 +1381,7 @@ static bool web_console_provider_parse_change_value(const web_console_field_info
                 return false;
             }
             size_t length = 0U;
-            if (!web_console_provider_ascii_string_value_length(
+            if (!web_console_provider_utf8_string_value_length(
                     item->valuestring, field->max_length_bytes, &length))
             {
                 return false;
@@ -1659,6 +1637,7 @@ static esp_err_t web_console_provider_handle_settings_patch(httpd_req_t *request
     if (!web_console_format_uint64(request_id, request_text) || response == NULL
         || cJSON_AddStringToObject(response, "section", provider->section_id) == NULL
         || cJSON_AddStringToObject(response, "state", "pending") == NULL
+        || cJSON_AddStringToObject(response, "reason", "none") == NULL
         || cJSON_AddStringToObject(response, "requestId", request_text) == NULL)
     {
         cJSON_Delete(response);
@@ -1675,16 +1654,8 @@ static esp_err_t web_console_provider_handle_settings_patch(httpd_req_t *request
 /** @brief 校验一次 Provider 异步更新结果。 */
 static bool web_console_update_result_is_valid(const web_console_settings_update_result_t *result)
 {
-    switch (result->state)
-    {
-        case WEB_CONSOLE_SETTINGS_UPDATE_STATE_PENDING:
-        case WEB_CONSOLE_SETTINGS_UPDATE_STATE_SUCCEEDED:
-            return result->error == ESP_OK;
-        case WEB_CONSOLE_SETTINGS_UPDATE_STATE_FAILED:
-            return result->error != ESP_OK;
-        default:
-            return false;
-    }
+    return web_console_provider_settings_result_is_valid(
+        result->state, result->error, result->reason);
 }
 
 /** @brief 返回异步 Settings update 当前或最终结果。 */
@@ -1752,10 +1723,12 @@ static esp_err_t web_console_provider_handle_settings_result_get(httpd_req_t *re
                             : result.state == WEB_CONSOLE_SETTINGS_UPDATE_STATE_SUCCEEDED
                                 ? "succeeded"
                                 : "failed";
+        const char *reason = web_console_result_reason_name(result.reason);
         if (!web_console_format_uint64(result.version, version_text) || response == NULL
             || cJSON_AddStringToObject(response, "section", provider->section_id) == NULL
             || cJSON_AddStringToObject(response, "request", request_text) == NULL
             || cJSON_AddStringToObject(response, "state", state) == NULL
+            || cJSON_AddStringToObject(response, "reason", reason) == NULL
             || cJSON_AddStringToObject(response, "version", version_text) == NULL
             || (result.state == WEB_CONSOLE_SETTINGS_UPDATE_STATE_FAILED
                 && cJSON_AddStringToObject(response, "error", "update_failed") == NULL))

@@ -40,6 +40,17 @@
     return entries;
   }
 
+  function effectLabel(effect) {
+    const labels = {
+      immediate: "立即生效",
+      next_transaction: "下一次使用时生效",
+      reconnect: "重新连接后生效",
+      restart: "设备重启后生效",
+      idle_only: "仅空闲时可修改",
+    };
+    return labels[effect] || "按设备规则生效";
+  }
+
   function formatDisplayValue(field, entry) {
     if (!hasOwn(entry, "value")) return "—";
     const value = entry.value;
@@ -262,7 +273,7 @@
     if (typeof field.effect === "string" && field.effect && field.effect !== "none") {
       const effect = document.createElement("span");
       effect.className = "field-effect";
-      effect.textContent = `生效方式：${field.effect}`;
+      effect.textContent = `生效方式：${effectLabel(field.effect)}`;
       heading.append(effect);
     }
     row.prepend(heading);

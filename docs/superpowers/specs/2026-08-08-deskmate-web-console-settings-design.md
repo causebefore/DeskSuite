@@ -155,8 +155,10 @@ Hub 地址
 - 第一版接受 LAN `http://` URL；主机可以是 IPv4 地址或可解析的主机名。
 - 地址只允许 scheme、host 和可选端口；拒绝用户信息、query、fragment 和业务路径。
 - 保存时把 scheme 和 host 规范化为小写，移除唯一的末尾 `/`，并保留用户显式填写的端口。
-- URL 使用 ASCII，最大 127 字节，与现有 `network_cfg.service_url[128]` 一致。通用 Provider 当前
-  95 字节的字符串值上限必须显式扩展并完成内存影响核查，禁止静默截断。
+- URL 作为 Hub 产品字段使用 ASCII，最大 127 字节，与现有 `network_cfg.service_url[128]`
+  一致；该限制由 `app_network_hub_url_parse_copy()` 和产品所有者保证。通用 Provider 字符串值
+  缓冲区显式扩展为 128 bytes（含终止 NUL），值使用有效 UTF-8 并受字段上限与全局 127 bytes
+  上限共同约束，禁止 embedded NUL 和静默截断。
 - “测试连接”由设备端对候选地址的 `/healthz` 发起有界请求，浏览器不直接跨域访问 Hub。
 - 健康请求不携带设备 API Token，避免把凭据发送给尚未信任的候选地址。
 - 测试不写入配置。地址变化后，旧的测试成功状态立即失效。

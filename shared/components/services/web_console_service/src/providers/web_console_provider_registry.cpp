@@ -65,66 +65,6 @@ struct web_console_provider_registry_t
 
 static web_console_provider_registry_t s_registry{};
 
-bool web_console_provider_utf8_is_valid(const char *text, size_t length)
-{
-    if (length > 0U && text == NULL)
-    {
-        return false;
-    }
-
-    size_t index = 0U;
-    while (index < length)
-    {
-        const uint8_t first = (uint8_t) text[index];
-        if (first <= 0x7FU)
-        {
-            ++index;
-            continue;
-        }
-
-        size_t sequence_length = 0U;
-        if (first >= 0xC2U && first <= 0xDFU)
-        {
-            sequence_length = 2U;
-        }
-        else if (first >= 0xE0U && first <= 0xEFU)
-        {
-            sequence_length = 3U;
-        }
-        else if (first >= 0xF0U && first <= 0xF4U)
-        {
-            sequence_length = 4U;
-        }
-        else
-        {
-            return false;
-        }
-        if (sequence_length > length - index)
-        {
-            return false;
-        }
-
-        const uint8_t second = (uint8_t) text[index + 1U];
-        if ((second & 0xC0U) != 0x80U
-            || (first == 0xE0U && second < 0xA0U)
-            || (first == 0xEDU && second > 0x9FU)
-            || (first == 0xF0U && second < 0x90U)
-            || (first == 0xF4U && second > 0x8FU))
-        {
-            return false;
-        }
-        for (size_t offset = 2U; offset < sequence_length; ++offset)
-        {
-            if (((uint8_t) text[index + offset] & 0xC0U) != 0x80U)
-            {
-                return false;
-            }
-        }
-        index += sequence_length;
-    }
-    return true;
-}
-
 /**
  * @brief 校验并计算调用方字符串长度
  *
@@ -337,8 +277,8 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
                 {
                     return false;
                 }
-                if (!web_console_provider_utf8_is_valid(field->enum_values[index].label,
-                                                        enum_label_length))
+                if (!web_console_provider_utf8_is_valid(
+                        field->enum_values[index].label, enum_label_length))
                 {
                     return false;
                 }

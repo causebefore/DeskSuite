@@ -13,6 +13,7 @@
     succeeded: "succeeded",
     validationError: "validation_error",
     ownerBusy: "owner_busy",
+    terminalFailed: "terminal_failed",
     networkUnknown: "network_unknown",
     versionConflict: "version_conflict",
     sessionExpired: "session_expired",
@@ -32,7 +33,7 @@
     failed: "设备未能应用更改。",
     sessionExpired: "登录已失效，内存草稿已保留。",
     submitting: "正在提交并等待设备确认…",
-    submitUnknown: "提交结果未知，请勿重复写入；请查询原请求。",
+    submitUnknown: "提交结果未知，请勿重复写入；请刷新确认设备设置。",
   });
   const consoleApi = window.webConsole;
   const preservedDrafts = new Map();
@@ -91,7 +92,7 @@
       if (response.status !== 202) {
         throw await responseError(response, payload, "设置提交失败");
       }
-      if (!payload || payload.state !== "pending" ||
+      if (!payload || payload.state !== "pending" || payload.reason !== "none" ||
           !UINT64_PATTERN.test(payload.requestId || "")) {
         throw new Error("设备返回的设置任务标识无效。");
       }
@@ -106,7 +107,13 @@
       if (!response.ok && response.status !== 202) {
         throw await responseError(response, payload, "无法查询设置结果");
       }
-      if (!payload || !["pending", "succeeded", "failed"].includes(payload.state)) {
+      const knownReasons = ["none", "version_conflict", "owner_busy", "validation_failed",
+        "persistence_failed", "connection_failed", "health_check_failed", "timeout", "unknown"];
+      if (!payload || !["pending", "succeeded", "failed"].includes(payload.state) ||
+          !knownReasons.includes(payload.reason) ||
+          ((payload.state === "pending" || payload.state === "succeeded") &&
+           payload.reason !== "none") ||
+          (payload.state === "failed" && payload.reason === "none")) {
         throw new Error("设备返回的设置任务结果无效。");
       }
       return payload;
@@ -155,7 +162,20 @@
     if (reason === "version_conflict") return PAGE_STATE.versionConflict;
     if (reason === "owner_busy") return PAGE_STATE.ownerBusy;
     if (reason === "validation_failed") return PAGE_STATE.validationError;
+    if (["persistence_failed", "connection_failed", "health_check_failed",
+      "timeout", "unknown"].includes(reason)) return PAGE_STATE.terminalFailed;
     return PAGE_STATE.networkUnknown;
+  }
+
+  function reasonMessage(reason) {
+    if (reason === "owner_busy") return "设备当前正忙，本次更改未应用。";
+    if (reason === "validation_failed") return "设备未接受这些设置，请检查标记字段。";
+    if (reason === "persistence_failed") return "设备未能保存更改，原设置保持不变。";
+    if (reason === "connection_failed") return "设备无法连接 Hub，原设置保持不变。";
+    if (reason === "health_check_failed") return "Hub 健康检查未通过，原设置保持不变。";
+    if (reason === "timeout") return "连接 Hub 超时，原设置保持不变。";
+    if (reason === "unknown") return "设备未能应用更改，原设置保持不变。";
+    return "";
   }
 
   function updateControls(state) {
@@ -287,7 +307,7 @@
       if (state === PAGE_STATE.versionConflict) {
         await refreshBaselinePreservingDraft();
       } else if (viewReady()) {
-        activeContext.view.setPageState(state, payload.message || messages.failed, "error");
+        activeContext.view.setPageState(state, reasonMessage(payload.reason) || messages.failed, "error");
       }
       enableDraftDialog();
     } catch (_) {
@@ -337,6 +357,13 @@
         await refreshBaselinePreservingDraft();
       } else if (error.status === 409) {
         activeContext.view.setPageState(PAGE_STATE.ownerBusy, error.message, "error");
+      } else if (Number.isInteger(error.status)) {
+        const state = reasonState(error.payload && error.payload.reason);
+        activeContext.view.setPageState(
+          state === PAGE_STATE.networkUnknown ? PAGE_STATE.terminalFailed : state,
+          reasonMessage(error.payload && error.payload.reason) || error.message,
+          "error",
+        );
       } else {
         activeContext.view.setPageState(PAGE_STATE.networkUnknown, messages.submitUnknown, "error");
       }

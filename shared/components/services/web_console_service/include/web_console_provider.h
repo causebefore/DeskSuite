@@ -54,7 +54,7 @@ extern "C"
 /** 可选字符串格式稳定 ID 最大 ASCII 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_FORMAT_MAX_LENGTH 31U
 
-/** 字符串字段值最大可打印 ASCII 字节数，不含结尾 NUL；与 128 字节 Hub URL 缓冲区对齐。 */
+/** 字符串字段值最大 UTF-8 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH 127U
 
 /** 文件选择型字符串字段的扩展名后缀最大 ASCII 字节数，不含结尾 NUL。 */
@@ -68,7 +68,7 @@ extern "C"
         WEB_CONSOLE_FIELD_TYPE_BOOL = 0, /**< 布尔值 */
         WEB_CONSOLE_FIELD_TYPE_INT32,    /**< 有符号 32 位整数 */
         WEB_CONSOLE_FIELD_TYPE_UINT32,   /**< 无符号 32 位整数 */
-        WEB_CONSOLE_FIELD_TYPE_STRING,   /**< 有界 NUL 结尾可打印 ASCII 字符串，最多 127 bytes */
+        WEB_CONSOLE_FIELD_TYPE_STRING,   /**< 有界 NUL 结尾有效 UTF-8 字符串，最多 127 bytes */
         WEB_CONSOLE_FIELD_TYPE_ENUM,     /**< 描述符枚举表中的一个有符号整数值 */
     } web_console_field_type_t;
 
@@ -118,27 +118,29 @@ extern "C"
     {
         const char                    *id;               /**< 分区内唯一的稳定字段 ID */
         const char                    *label;            /**< 面向用户的显示标签 */
-        const char                    *description;      /**< 可选详细说明；初始化期间复制 */
-        const char                    *unit;             /**< 可选显示单位；初始化期间复制 */
-        const char                    *summary;          /**< 可选设置首页摘要标签；初始化期间复制 */
-        const char                    *format;           /**< 可选字符串格式稳定 ID；初始化期间复制 */
         web_console_field_type_t       type;             /**< 字段值类型 */
         web_console_field_access_t     access;           /**< 访问属性位集合 */
         web_console_field_effect_t     effect;           /**< Settings 生效事实；Status 必须为 NONE */
         int64_t                        minimum;          /**< 整数最小值 */
         int64_t                        maximum;          /**< 整数最大值 */
         uint32_t                       step;             /**< 整数步长，必须非零 */
-        uint32_t                       max_length_bytes; /**< 字符串可打印 ASCII 字节上限，最多 127 bytes */
+        uint32_t                       max_length_bytes; /**< 字符串 UTF-8 字节上限，最多 127 bytes */
         const char                    *file_suffix;      /**< 可选文件后缀，如 `.mp3`；初始化期间复制 */
         const web_console_field_enum_value_t *enum_values; /**< 枚举值表 */
         size_t                         enum_value_count; /**< 枚举值数量 */
+        const char                    *description;      /**< 可选详细说明；追加字段，初始化期间复制 */
+        const char                    *unit;             /**< 可选显示单位；追加字段，初始化期间复制 */
+        const char                    *summary;          /**< 可选设置首页摘要标签；追加字段，初始化期间复制 */
+        const char                    *format;           /**< 可选字符串格式稳定 ID；追加字段，初始化期间复制 */
     } web_console_field_info_t;
 
     /**
      * @brief 一个字段的类型化值副本
      *
      * `type` 必须与同索引字段描述符一致。普通可读字段必须设置 `configured = true` 并写入
-     * 对应 union 成员；Secret 或 Write-only 字段只设置 `configured`，其 union 必须保持全零。
+     * 对应 union 成员；STRING 写入须先清零完整值缓冲区，再复制有效 UTF-8 与终止 NUL，避免
+     * embedded NUL 后仍残留数据。Secret 或 Write-only 字段只设置 `configured`，其 union
+     * 必须保持全零。
      */
     typedef struct
     {
@@ -149,7 +151,7 @@ extern "C"
             bool     boolean_value; /**< BOOL 值 */
             int32_t  int32_value;   /**< INT32 或 ENUM 值 */
             uint32_t uint32_value;  /**< UINT32 值 */
-            char     string_value[WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U]; /**< 可打印 ASCII STRING 值，最多 127 bytes */
+            char     string_value[WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH + 1U]; /**< 有效 UTF-8 STRING 值，最多 127 bytes */
         } data;
     } web_console_field_value_t;
 
@@ -200,6 +202,22 @@ extern "C"
     } web_console_settings_update_state_t;
 
     /**
+     * @brief Settings 与 Actions 共用、可跨版本稳定编码的结果原因
+     */
+    typedef enum
+    {
+        WEB_CONSOLE_RESULT_REASON_NONE = 0,       /**< 没有失败原因 */
+        WEB_CONSOLE_RESULT_REASON_VERSION_CONFLICT, /**< 权威版本已经变化 */
+        WEB_CONSOLE_RESULT_REASON_OWNER_BUSY,       /**< 领域所有者当前忙碌 */
+        WEB_CONSOLE_RESULT_REASON_VALIDATION_FAILED, /**< 输入或组合校验失败 */
+        WEB_CONSOLE_RESULT_REASON_PERSISTENCE_FAILED, /**< 持久化失败 */
+        WEB_CONSOLE_RESULT_REASON_CONNECTION_FAILED, /**< 连接目标失败 */
+        WEB_CONSOLE_RESULT_REASON_HEALTH_CHECK_FAILED, /**< 健康检查未通过 */
+        WEB_CONSOLE_RESULT_REASON_TIMEOUT,           /**< 操作在领域期限内超时 */
+        WEB_CONSOLE_RESULT_REASON_UNKNOWN,           /**< 已失败但没有更具体的稳定原因 */
+    } web_console_result_reason_t;
+
+    /**
      * @brief 一次异步 Settings 更新的最终或当前结果
      */
     typedef struct
@@ -207,6 +225,7 @@ extern "C"
         web_console_settings_update_state_t state;   /**< 当前请求状态 */
         uint64_t                            version; /**< 当前或最终设置版本 */
         esp_err_t                           error;   /**< PENDING/SUCCEEDED 时为 ESP_OK；FAILED 时为最终错误 */
+        web_console_result_reason_t          reason;  /**< 追加的稳定原因；非失败状态必须为 NONE */
     } web_console_settings_update_result_t;
 
     /**
@@ -226,7 +245,7 @@ extern "C"
     /**
      * @brief 由领域所有者同步校验一个完整语义 update
      *
-     * Console 已完成字段存在性、访问属性、类型、范围、步长、枚举和字符串可打印 ASCII/长度校验；本回调
+     * Console 已完成字段存在性、访问属性、类型、范围、步长、枚举和字符串 UTF-8/长度校验；本回调
      * 继续做早期版本、字段组合和领域状态校验，不得修改产品状态或执行 I/O。此结果不是提交
      * 保证：`request_update_copy` 或领域执行点仍必须原子地重新校验 `expected_version`，避免
      * 两次回调之间发生的设置变化被旧更新覆盖。版本冲突返回 `ESP_ERR_INVALID_VERSION`，
@@ -267,8 +286,8 @@ extern "C"
      * @brief 复制一次已接受 Settings 更新的当前结果
      *
      * 回调在 Console HTTPD 普通 Task 上下文、Core 锁外同步执行，只能进行有界内存读取和短时
-     * 所有者加锁。`PENDING` 和 `SUCCEEDED` 的 `error` 必须为 `ESP_OK`；`FAILED` 的 `error`
-     * 必须为非 `ESP_OK` 的最终事实。未知或按上述保留规则已淘汰的请求返回
+     * 所有者加锁。`PENDING` 和 `SUCCEEDED` 必须使用 `ESP_OK / NONE`；`FAILED` 必须使用非
+     * `ESP_OK` 错误和非 `NONE` 稳定原因。未知或按上述保留规则已淘汰的请求返回
      * `ESP_ERR_NOT_FOUND`。
      *
      * @param[in] context Provider 的长期借用上下文，可为空
@@ -291,7 +310,6 @@ extern "C"
     {
         const char                                          *section_id; /**< 全部 Settings Provider 中唯一的稳定 ID */
         const char                                          *label;      /**< 面向用户的分区标签 */
-        const char                                          *description; /**< 可选分区说明；初始化期间复制 */
         const web_console_field_info_t                       *fields;     /**< 固定字段描述符数组 */
         size_t                                               field_count; /**< 字段数量 */
         web_console_settings_get_snapshot_copy_cb_t          get_snapshot_copy; /**< 快照回调 */
@@ -299,6 +317,7 @@ extern "C"
         web_console_settings_request_update_copy_cb_t        request_update_copy; /**< 异步提交回调 */
         web_console_settings_get_update_result_copy_cb_t     get_update_result_copy; /**< 结果查询回调 */
         void                                                *context;    /**< 长期借用上下文 */
+        const char                                          *description; /**< 可选分区说明；追加字段，初始化期间复制 */
     } web_console_settings_provider_t;
 
     /**
@@ -339,11 +358,11 @@ extern "C"
     {
         const char                              *section_id; /**< 全部 Status Provider 中唯一的稳定 ID */
         const char                              *label;      /**< 面向用户的分区标签 */
-        const char                              *description; /**< 可选分区说明；初始化期间复制 */
         const web_console_field_info_t           *fields;     /**< 固定字段描述符数组 */
         size_t                                   field_count; /**< 字段数量 */
         web_console_status_get_status_copy_cb_t  get_status_copy; /**< 运行摘要回调 */
         void                                    *context;    /**< 长期借用上下文 */
+        const char                              *description; /**< 可选分区说明；追加字段，初始化期间复制 */
     } web_console_status_provider_t;
 
     /**
@@ -355,22 +374,6 @@ extern "C"
         WEB_CONSOLE_ACTION_STATE_SUCCEEDED,   /**< 操作成功完成 */
         WEB_CONSOLE_ACTION_STATE_FAILED,      /**< 操作已经失败，原因见 `reason` */
     } web_console_action_state_t;
-
-    /**
-     * @brief Actions 可跨版本稳定编码的结果原因
-     */
-    typedef enum
-    {
-        WEB_CONSOLE_RESULT_REASON_NONE = 0,       /**< 没有失败原因 */
-        WEB_CONSOLE_RESULT_REASON_VERSION_CONFLICT, /**< 权威版本已经变化 */
-        WEB_CONSOLE_RESULT_REASON_OWNER_BUSY,       /**< 领域所有者当前忙碌 */
-        WEB_CONSOLE_RESULT_REASON_VALIDATION_FAILED, /**< 输入或组合校验失败 */
-        WEB_CONSOLE_RESULT_REASON_PERSISTENCE_FAILED, /**< 持久化失败 */
-        WEB_CONSOLE_RESULT_REASON_CONNECTION_FAILED, /**< 连接目标失败 */
-        WEB_CONSOLE_RESULT_REASON_HEALTH_CHECK_FAILED, /**< 健康检查未通过 */
-        WEB_CONSOLE_RESULT_REASON_TIMEOUT,           /**< 操作在领域期限内超时 */
-        WEB_CONSOLE_RESULT_REASON_UNKNOWN,           /**< 已失败但没有更具体的稳定原因 */
-    } web_console_result_reason_t;
 
     /**
      * @brief 一个非破坏性管理操作的稳定元数据
@@ -421,7 +424,7 @@ extern "C"
     /**
      * @brief 由领域所有者同步校验一个完整管理操作请求
      *
-     * Console 已完成字段、类型、范围、步长、枚举、字符串可打印 ASCII/长度、重复和秘密字段校验。本回调
+     * Console 已完成字段、类型、范围、步长、枚举、字符串 UTF-8/长度、重复和秘密字段校验。本回调
      * 继续校验输入组合和领域状态，不得修改产品状态或执行 I/O。
      *
      * @param[in] context Provider 的长期借用上下文，可为空

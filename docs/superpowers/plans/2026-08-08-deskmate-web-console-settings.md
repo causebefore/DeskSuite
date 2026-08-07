@@ -380,3 +380,22 @@ Expected: 全部退出码为 0；仅本任务路径有改动，`services/hub/` �
 各任务提交前均执行 scoped `git diff --cached --check`，且未暂存 `services/hub/` 既有改动。
 最终 host/static 验证覆盖 Python 35 tests、产品 Providers、Hub URL、shared network provider、
 `py_compile`、源/组装 JS `node --check`、gzip 预算和 `git diff --check`；浏览器 QA 仍是独立待办。
+
+### Branch review 修复完成记录
+
+- [x] 通用 STRING 已恢复为有效 UTF-8：Settings/Status 输出、Settings PATCH 与 Actions 输入统一
+  受字段上限和全局 127 bytes 上限约束，并拒绝无效 UTF-8、embedded NUL/`\u0000` 与超长值；
+  Hub URL 的 ASCII authority 约束仍只属于 `app_network_hub_url_parse_copy()` 和产品校验。
+- [x] `web_console_field_info_t`、Settings Provider 与 Status Provider 保持 `341f3d3` 旧成员为
+  完整前缀，新增元数据追加尾部；旧式位置初始化器和全部旧成员偏移已有 `-fsyntax-only` 回归。
+  128-byte STRING union 是本功能的明确同构建变化，不作旧对象文件二进制兼容承诺。
+- [x] Settings/Actions 共用稳定 reason；共享 HTTP 严格验证状态组合并总是输出 reason。Hub 与
+  Pomodoro Settings 贯通领域终态；浏览器只把请求/查询异常或轮询期限耗尽视为结果未知，已知
+  reason 均作为确定终态，并保留 Settings 草稿与字段错误。
+- [x] 生效方式、System 首页摘要/单位/时长和重启原因均映射为客户可读中文，不显示
+  `idle_only`、`power_on`、`software`、`watchdog` 等协议 token。
+- [x] branch review fresh host/static 验证覆盖 Python 38 tests、产品 Provider、Hub URL、shared
+  network provider、通用 UTF-8/旧 Provider 兼容、Actions 开/关与消费者语法、`py_compile`、
+  源/组装 JS `node --check`。当前完整页面 gzip 24,044 bytes，相对同实现的
+  `files,settings,status` baseline 22,774 bytes 增长 1,270 bytes（5.58%），低于 25% 阈值。
+  仍未执行固件编译、OTA、设备安装、真实设备、真实 Hub 或浏览器视觉验收。

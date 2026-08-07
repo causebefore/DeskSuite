@@ -18,6 +18,35 @@
 #include "app_pomodoro.h"
 #endif
 
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_ACTIONS
+/** @brief 把 Network Application 稳定原因映射为 Console 共用稳定原因。 */
+static web_console_result_reason_t map_hub_result_reason(app_network_hub_result_reason_t reason)
+{
+    switch (reason)
+    {
+        case APP_NETWORK_HUB_RESULT_REASON_NONE:
+            return WEB_CONSOLE_RESULT_REASON_NONE;
+        case APP_NETWORK_HUB_RESULT_REASON_VERSION_CONFLICT:
+            return WEB_CONSOLE_RESULT_REASON_VERSION_CONFLICT;
+        case APP_NETWORK_HUB_RESULT_REASON_OWNER_BUSY:
+            return WEB_CONSOLE_RESULT_REASON_OWNER_BUSY;
+        case APP_NETWORK_HUB_RESULT_REASON_VALIDATION_FAILED:
+            return WEB_CONSOLE_RESULT_REASON_VALIDATION_FAILED;
+        case APP_NETWORK_HUB_RESULT_REASON_PERSISTENCE_FAILED:
+            return WEB_CONSOLE_RESULT_REASON_PERSISTENCE_FAILED;
+        case APP_NETWORK_HUB_RESULT_REASON_CONNECTION_FAILED:
+            return WEB_CONSOLE_RESULT_REASON_CONNECTION_FAILED;
+        case APP_NETWORK_HUB_RESULT_REASON_HEALTH_CHECK_FAILED:
+            return WEB_CONSOLE_RESULT_REASON_HEALTH_CHECK_FAILED;
+        case APP_NETWORK_HUB_RESULT_REASON_TIMEOUT:
+            return WEB_CONSOLE_RESULT_REASON_TIMEOUT;
+        case APP_NETWORK_HUB_RESULT_REASON_UNKNOWN:
+        default:
+            return WEB_CONSOLE_RESULT_REASON_UNKNOWN;
+    }
+}
+#endif
+
 #if CONFIG_WEB_CONSOLE_ACTIONS
 
 typedef enum
@@ -92,33 +121,6 @@ static esp_err_t request_hub_action_copy(
     char normalized[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U];
     const esp_err_t parse_error = get_hub_url_from_action_request(action_request, normalized);
     return parse_error == ESP_OK ? app_network_request_test_hub_url_copy(normalized, out_request_id) : parse_error;
-}
-
-/** @brief 把 Network Application 稳定原因映射为 Console Action 稳定原因。 */
-static web_console_result_reason_t map_hub_result_reason(app_network_hub_result_reason_t reason)
-{
-    switch (reason)
-    {
-        case APP_NETWORK_HUB_RESULT_REASON_NONE:
-            return WEB_CONSOLE_RESULT_REASON_NONE;
-        case APP_NETWORK_HUB_RESULT_REASON_VERSION_CONFLICT:
-            return WEB_CONSOLE_RESULT_REASON_VERSION_CONFLICT;
-        case APP_NETWORK_HUB_RESULT_REASON_OWNER_BUSY:
-            return WEB_CONSOLE_RESULT_REASON_OWNER_BUSY;
-        case APP_NETWORK_HUB_RESULT_REASON_VALIDATION_FAILED:
-            return WEB_CONSOLE_RESULT_REASON_VALIDATION_FAILED;
-        case APP_NETWORK_HUB_RESULT_REASON_PERSISTENCE_FAILED:
-            return WEB_CONSOLE_RESULT_REASON_PERSISTENCE_FAILED;
-        case APP_NETWORK_HUB_RESULT_REASON_CONNECTION_FAILED:
-            return WEB_CONSOLE_RESULT_REASON_CONNECTION_FAILED;
-        case APP_NETWORK_HUB_RESULT_REASON_HEALTH_CHECK_FAILED:
-            return WEB_CONSOLE_RESULT_REASON_HEALTH_CHECK_FAILED;
-        case APP_NETWORK_HUB_RESULT_REASON_TIMEOUT:
-            return WEB_CONSOLE_RESULT_REASON_TIMEOUT;
-        case APP_NETWORK_HUB_RESULT_REASON_UNKNOWN:
-        default:
-            return WEB_CONSOLE_RESULT_REASON_UNKNOWN;
-    }
 }
 
 /** @brief 把 Network Application 测试结果映射为 Console Action 结果。 */
@@ -320,6 +322,7 @@ static esp_err_t get_hub_settings_update_result_copy(
     }
     out_result->version = result.version;
     out_result->error   = result.error;
+    out_result->reason  = map_hub_result_reason(result.reason);
     return ESP_OK;
 }
 
@@ -557,6 +560,35 @@ static esp_err_t request_pomodoro_settings_update_copy(
     return error == ESP_OK ? app_pomodoro_request_update_settings_copy(&owner_update, out_request_id) : error;
 }
 
+/** @brief 把 Pomodoro 当前终态来源映射为 Console 共用稳定原因。 */
+static web_console_result_reason_t map_pomodoro_settings_result_reason(
+    app_pomodoro_settings_update_state_t state,
+    esp_err_t error)
+{
+    if (state == APP_POMODORO_SETTINGS_UPDATE_STATE_PENDING
+        || state == APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED)
+    {
+        return WEB_CONSOLE_RESULT_REASON_NONE;
+    }
+    if (state != APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED)
+    {
+        return WEB_CONSOLE_RESULT_REASON_UNKNOWN;
+    }
+    switch (error)
+    {
+        case ESP_ERR_INVALID_VERSION:
+            return WEB_CONSOLE_RESULT_REASON_VERSION_CONFLICT;
+        case ESP_ERR_INVALID_STATE:
+            return WEB_CONSOLE_RESULT_REASON_OWNER_BUSY;
+        case ESP_ERR_INVALID_ARG:
+            return WEB_CONSOLE_RESULT_REASON_VALIDATION_FAILED;
+        default:
+            /* 当前 Owner 的其余 FAILED 只可能来自锁外 Store 提交。 */
+            return error == ESP_OK ? WEB_CONSOLE_RESULT_REASON_UNKNOWN
+                                   : WEB_CONSOLE_RESULT_REASON_PERSISTENCE_FAILED;
+    }
+}
+
 /** @brief 把 Pomodoro 所有者请求结果映射为 Console 通用结果。 */
 static esp_err_t get_pomodoro_settings_update_result_copy(
     void *context,
@@ -592,6 +624,7 @@ static esp_err_t get_pomodoro_settings_update_result_copy(
     }
     out_result->version = result.version;
     out_result->error   = result.error;
+    out_result->reason  = map_pomodoro_settings_result_reason(result.state, result.error);
     return ESP_OK;
 }
 
@@ -645,6 +678,7 @@ static const web_console_field_info_t s_system_status_fields[SYSTEM_STATUS_FIELD
         {
             .id               = "firmware_version",
             .label            = "固件版本",
+            .summary          = "固件",
             .type             = WEB_CONSOLE_FIELD_TYPE_STRING,
             .access           = SYSTEM_STATUS_READ_ONLY,
             .effect           = WEB_CONSOLE_FIELD_EFFECT_NONE,
@@ -662,7 +696,9 @@ static const web_console_field_info_t s_system_status_fields[SYSTEM_STATUS_FIELD
     [SYSTEM_STATUS_FIELD_UPTIME_SEC] =
         {
             .id      = "uptime_sec",
-            .label   = "运行时长（秒）",
+            .label   = "运行时长",
+            .summary = "已运行",
+            .format  = "duration_seconds",
             .type    = WEB_CONSOLE_FIELD_TYPE_UINT32,
             .access  = SYSTEM_STATUS_READ_ONLY,
             .effect  = WEB_CONSOLE_FIELD_EFFECT_NONE,
@@ -673,7 +709,8 @@ static const web_console_field_info_t s_system_status_fields[SYSTEM_STATUS_FIELD
     [SYSTEM_STATUS_FIELD_SRAM_FREE_KB] =
         {
             .id      = "sram_free_kb",
-            .label   = "可用 SRAM（KiB）",
+            .label   = "可用 SRAM",
+            .unit    = "KiB",
             .type    = WEB_CONSOLE_FIELD_TYPE_UINT32,
             .access  = SYSTEM_STATUS_READ_ONLY,
             .effect  = WEB_CONSOLE_FIELD_EFFECT_NONE,
@@ -684,7 +721,8 @@ static const web_console_field_info_t s_system_status_fields[SYSTEM_STATUS_FIELD
     [SYSTEM_STATUS_FIELD_PSRAM_FREE_KB] =
         {
             .id      = "psram_free_kb",
-            .label   = "可用 PSRAM（KiB）",
+            .label   = "可用 PSRAM",
+            .unit    = "KiB",
             .type    = WEB_CONSOLE_FIELD_TYPE_UINT32,
             .access  = SYSTEM_STATUS_READ_ONLY,
             .effect  = WEB_CONSOLE_FIELD_EFFECT_NONE,
@@ -695,7 +733,8 @@ static const web_console_field_info_t s_system_status_fields[SYSTEM_STATUS_FIELD
     [SYSTEM_STATUS_FIELD_CPU_MHZ] =
         {
             .id      = "cpu_mhz",
-            .label   = "CPU 频率（MHz）",
+            .label   = "CPU 频率",
+            .unit    = "MHz",
             .type    = WEB_CONSOLE_FIELD_TYPE_UINT32,
             .access  = SYSTEM_STATUS_READ_ONLY,
             .effect  = WEB_CONSOLE_FIELD_EFFECT_NONE,
@@ -710,9 +749,43 @@ static const web_console_field_info_t s_system_status_fields[SYSTEM_STATUS_FIELD
             .type             = WEB_CONSOLE_FIELD_TYPE_STRING,
             .access           = SYSTEM_STATUS_READ_ONLY,
             .effect           = WEB_CONSOLE_FIELD_EFFECT_NONE,
-            .max_length_bytes = 15U,
+            .max_length_bytes = 31U,
         },
 };
+
+/** @brief 把 System 底层稳定协议事实映射为客户可读的中文重启原因。 */
+static const char *map_reset_reason_for_customer(const char *reason)
+{
+    if (reason == NULL)
+    {
+        return "未知原因";
+    }
+    if (strcmp(reason, "power_on") == 0)
+    {
+        return "通电启动";
+    }
+    if (strcmp(reason, "software") == 0)
+    {
+        return "软件重启";
+    }
+    if (strcmp(reason, "panic") == 0)
+    {
+        return "程序异常";
+    }
+    if (strcmp(reason, "watchdog") == 0)
+    {
+        return "看门狗复位";
+    }
+    if (strcmp(reason, "deep_sleep") == 0)
+    {
+        return "深度睡眠唤醒";
+    }
+    if (strcmp(reason, "brownout") == 0)
+    {
+        return "电压过低复位";
+    }
+    return "未知原因";
+}
 
 /** @brief 写入一个已配置的 Console 字符串字段。 */
 static void write_string_value(web_console_field_value_t *out_value, const char *text)
@@ -759,7 +832,7 @@ static esp_err_t get_system_status_copy(void *context, web_console_section_statu
     write_uint32_value(&out_status->values[SYSTEM_STATUS_FIELD_PSRAM_FREE_KB], snapshot.psram_free_kb);
     write_uint32_value(&out_status->values[SYSTEM_STATUS_FIELD_CPU_MHZ], snapshot.cpu_mhz);
     write_string_value(&out_status->values[SYSTEM_STATUS_FIELD_RESET_REASON],
-                       system_info_get_reset_reason_borrow());
+                       map_reset_reason_for_customer(system_info_get_reset_reason_borrow()));
     out_status->version     = 0U;
     out_status->value_count = SYSTEM_STATUS_FIELD_COUNT;
     return ESP_OK;

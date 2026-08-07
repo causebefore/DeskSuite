@@ -12,6 +12,7 @@
     succeeded: "succeeded",
     validationError: "validation_error",
     ownerBusy: "owner_busy",
+    terminalFailed: "terminal_failed",
     networkUnknown: "network_unknown",
     sessionExpired: "session_expired",
   });
@@ -57,7 +58,7 @@
       if (response.status !== 202) {
         throw await responseError(response, payload, "操作提交失败");
       }
-      if (!payload || payload.state !== "pending" ||
+      if (!payload || payload.state !== "pending" || payload.reason !== "none" ||
           !UINT64_PATTERN.test(payload.requestId || "")) {
         throw new Error("设备返回的操作请求标识无效。");
       }
@@ -73,7 +74,13 @@
       if (!response.ok && response.status !== 202) {
         throw await responseError(response, payload, "无法查询操作结果");
       }
-      if (!payload || !["pending", "succeeded", "failed"].includes(payload.state)) {
+      const knownReasons = ["none", "version_conflict", "owner_busy", "validation_failed",
+        "persistence_failed", "connection_failed", "health_check_failed", "timeout", "unknown"];
+      if (!payload || !["pending", "succeeded", "failed"].includes(payload.state) ||
+          !knownReasons.includes(payload.reason) ||
+          ((payload.state === "pending" || payload.state === "succeeded") &&
+           payload.reason !== "none") ||
+          (payload.state === "failed" && payload.reason === "none")) {
         throw new Error("设备返回的操作结果无效。");
       }
       return payload;
@@ -126,7 +133,21 @@
   function reasonState(reason) {
     if (reason === "owner_busy") return PAGE_STATE.ownerBusy;
     if (reason === "validation_failed") return PAGE_STATE.validationError;
+    if (["connection_failed", "health_check_failed", "timeout", "version_conflict",
+      "persistence_failed", "unknown"].includes(reason)) return PAGE_STATE.terminalFailed;
     return PAGE_STATE.networkUnknown;
+  }
+
+  function reasonMessage(reason) {
+    if (reason === "owner_busy") return "设备当前正忙，本次操作未执行。";
+    if (reason === "validation_failed") return "操作输入不满足设备约束。";
+    if (reason === "connection_failed") return "无法连接 Hub，请检查地址与局域网。";
+    if (reason === "health_check_failed") return "Hub 健康检查未通过。";
+    if (reason === "timeout") return "连接 Hub 超时。";
+    if (reason === "version_conflict") return "设备状态已变化，本次操作未执行。";
+    if (reason === "persistence_failed") return "设备未能保存操作结果。";
+    if (reason === "unknown") return "操作已失败，设备未提供更具体原因。";
+    return "";
   }
 
   function renderAction(section, action) {
@@ -177,9 +198,13 @@
 
   function actionFailureState(error, hasToken) {
     if (!hasToken) return PAGE_STATE.sessionExpired;
+    if (!Number.isInteger(error.status)) return PAGE_STATE.networkUnknown;
+    const reason = error.payload && error.payload.reason;
+    const stableState = reasonState(reason);
+    if (stableState !== PAGE_STATE.networkUnknown) return stableState;
     if (error.status === 422) return PAGE_STATE.validationError;
     if (error.status === 409) return PAGE_STATE.ownerBusy;
-    return PAGE_STATE.networkUnknown;
+    return PAGE_STATE.terminalFailed;
   }
 
   async function submitAction(section, action, renderer, button) {
@@ -213,7 +238,9 @@
       }
       const message = state === PAGE_STATE.sessionExpired
         ? messages.sessionExpired
-        : (state === PAGE_STATE.networkUnknown ? messages.unknown : error.message);
+        : (state === PAGE_STATE.networkUnknown
+          ? messages.unknown
+          : (reasonMessage(error.payload && error.payload.reason) || error.message));
       activeContext.view.setPageState(state, message, "error");
     }
   }
@@ -241,7 +268,7 @@
         activeContext.view.setPageState(PAGE_STATE.succeeded, messages.succeeded, "success");
       } else {
         activeContext.view.setPageState(
-          reasonState(payload.reason), payload.message || messages.failed, "error",
+          reasonState(payload.reason), reasonMessage(payload.reason) || messages.failed, "error",
         );
       }
     } catch (_) {
