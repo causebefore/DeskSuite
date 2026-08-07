@@ -24,13 +24,13 @@
     cancel: "cancel",
   });
   const messages = Object.freeze({
-    conflict: "设置已更新；刷新基线并保留草稿，请确认后保存。",
+    conflict: "基线已刷新，草稿已保留，请确认后保存。",
     dirty: "本地更改尚未保存。",
     succeeded: "保存成功，已重新读取设备设置。",
     deadline: "保存结果暂时未知，请查询原请求，勿重复提交。",
     pending: "原请求仍在处理中，请稍后查询。",
     failed: "设备未能应用更改。",
-    sessionExpired: "登录已失效，草稿仍保留在内存中。",
+    sessionExpired: "登录已失效，内存草稿已保留。",
     submitting: "正在提交并等待设备确认…",
     submitUnknown: "提交结果未知，请勿重复写入；请查询原请求。",
   });
@@ -279,6 +279,9 @@
         }
         if (leaveResolver) closeDraftDialog(LEAVE_RESULT.save);
         return;
+      }
+      if (payload.reason === "validation_failed" && settingsRenderer) {
+        settingsRenderer.setErrors(payload.errors);
       }
       const state = reasonState(payload.reason);
       if (state === PAGE_STATE.versionConflict) {

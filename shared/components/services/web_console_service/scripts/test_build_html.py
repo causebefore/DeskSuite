@@ -628,6 +628,7 @@ const sessionStorage = {
 let mode = "submit_failed";
 let submitCalls = 0;
 let queryCalls = 0;
+let fieldErrors = null;
 let registration;
 let controller;
 function response(status, payload) {
@@ -641,6 +642,14 @@ const consoleApi = {
   async apiFetch(url, options = {}) {
     if (url.includes("/result")) {
       queryCalls += 1;
+      if (mode === "validation_failed") {
+        return response(200, {
+          state: "failed",
+          reason: "validation_failed",
+          message: "字段校验失败。",
+          errors: [{ id: "duration", message: "时长超出范围。" }],
+        });
+      }
       throw new Error("network unavailable");
     }
     if (options.method === "PATCH") {
@@ -672,15 +681,16 @@ const renderer = {
   hasChanges() { return true; },
   readChanges() { return [{ id: "duration", value: 2 }]; },
   setDisabled() {},
-  setErrors() {},
+  setErrors(errors) { fieldErrors = errors; },
 };
 let state = "dirty";
+let pageMessage = "";
 const view = {
   getPageState() { return state; },
   isCurrent() { return true; },
   reload() {},
   renderFields() { return renderer; },
-  setPageState(next) { state = next; },
+  setPageState(next, message = "") { state = next; pageMessage = message; },
   setPendingCheck() {},
 };
 const part = { id: "customer", fields: [] };
@@ -688,10 +698,13 @@ const context = { section: { id: "customer" }, options: {}, view };
 
 async function runScenario(nextMode) {
   controller.resetDetail();
+  storage.clear();
   mode = nextMode;
   state = "dirty";
+  pageMessage = "";
   submitCalls = 0;
   queryCalls = 0;
+  fieldErrors = null;
   for (const button of dialogButtons) button.disabled = false;
   elements.draftDialog.classList.add("hidden");
   await controller.loadDetail(part, context);
@@ -705,6 +718,9 @@ async function runScenario(nextMode) {
   await Promise.resolve();
   const result = {
     state,
+    pageMessage,
+    fieldErrors,
+    draftRetained: controller.hasUnsaved(),
     enabled: dialogButtons.map((button) => !button.disabled),
     operable: !elements.draftDialog.classList.contains("hidden"),
     navigated,
@@ -721,15 +737,22 @@ async function runScenario(nextMode) {
   console.log(JSON.stringify([
     await runScenario("submit_failed"),
     await runScenario("network_unknown"),
+    await runScenario("validation_failed"),
   ]));
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 '''
         output = self.run_node(script)
         self.assertEqual(
             output,
-            '[{"state":"network_unknown","enabled":[true,true,true],"operable":true,'
+            '[{"state":"network_unknown","pageMessage":"提交结果未知，请勿重复写入；请查询原请求。",'
+            '"fieldErrors":null,"draftRetained":true,"enabled":[true,true,true],"operable":true,'
             '"navigated":0,"submitCalls":1,"queryCalls":0},'
-            '{"state":"network_unknown","enabled":[true,true,true],"operable":true,'
+            '{"state":"network_unknown","pageMessage":"保存结果暂时未知，请查询原请求，勿重复提交。",'
+            '"fieldErrors":null,"draftRetained":true,"enabled":[true,true,true],"operable":true,'
+            '"navigated":0,"submitCalls":1,"queryCalls":1},'
+            '{"state":"validation_error","pageMessage":"字段校验失败。",'
+            '"fieldErrors":[{"id":"duration","message":"时长超出范围。"}],'
+            '"draftRetained":true,"enabled":[true,true,true],"operable":true,'
             '"navigated":0,"submitCalls":1,"queryCalls":1}]',
         )
 
