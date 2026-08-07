@@ -7,7 +7,6 @@ $headerPath = Join-Path $componentRoot 'include\web_console_network_provider.h'
 $cmakePath = Join-Path $componentRoot 'CMakeLists.txt'
 $consoleRoot = Join-Path $repoRoot 'shared\components\services\web_console_service'
 $consoleCmakePath = Join-Path $consoleRoot 'CMakeLists.txt'
-$deskmateProjectPath = Join-Path $repoRoot 'devices\deskmate\CMakeLists.txt'
 $deskmateMainCmakePath = Join-Path $repoRoot 'devices\deskmate\main\CMakeLists.txt'
 $deskmateAppPath = Join-Path $repoRoot 'devices\deskmate\main\application\app_web_console.cpp'
 $photopainterProjectPath = Join-Path $repoRoot 'devices\photopainter\CMakeLists.txt'
@@ -17,7 +16,6 @@ $source = Get-Content -LiteralPath $sourcePath -Raw
 $header = Get-Content -LiteralPath $headerPath -Raw
 $cmake = Get-Content -LiteralPath $cmakePath -Raw
 $consoleCmake = Get-Content -LiteralPath $consoleCmakePath -Raw
-$deskmateProject = Get-Content -LiteralPath $deskmateProjectPath -Raw
 $deskmateMainCmake = Get-Content -LiteralPath $deskmateMainCmakePath -Raw
 $deskmateApp = Get-Content -LiteralPath $deskmateAppPath -Raw
 $photopainterProject = Get-Content -LiteralPath $photopainterProjectPath -Raw
@@ -33,6 +31,89 @@ function Assert-True {
 
     if (-not $Condition) {
         throw $Message
+    }
+}
+
+function Invoke-ProviderSyntaxCheck {
+    $compiler = Get-Command clang.exe -ErrorAction SilentlyContinue
+    if ($null -eq $compiler) {
+        $compiler = Get-Command gcc.exe -ErrorAction SilentlyContinue
+    }
+    Assert-True ($null -ne $compiler) '缺少可用的 clang.exe 或 gcc.exe，无法执行 Provider C 语法检查。'
+
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $tempDir = Join-Path $tempRoot ("web-console-network-provider-{0}" -f [guid]::NewGuid().ToString('N'))
+    $resolvedTempDir = [IO.Path]::GetFullPath($tempDir)
+    Assert-True (
+        $resolvedTempDir.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)
+    ) 'Provider 语法检查临时目录越出系统临时目录。'
+
+    New-Item -ItemType Directory -Path $resolvedTempDir | Out-Null
+    try {
+        @'
+#pragma once
+#define CONFIG_WEB_CONSOLE_STATUS 1
+'@ | Set-Content -LiteralPath (Join-Path $resolvedTempDir 'sdkconfig.h')
+        @'
+#pragma once
+typedef int esp_err_t;
+#define ESP_OK 0
+#define ESP_ERR_INVALID_ARG 0x102
+#define ESP_ERR_INVALID_STATE 0x103
+'@ | Set-Content -LiteralPath (Join-Path $resolvedTempDir 'esp_err.h')
+        @'
+#pragma once
+#include <stdbool.h>
+#include <stdint.h>
+#include "esp_err.h"
+
+typedef enum {
+    NETWORK_STATE_STOPPED = 0,
+    NETWORK_STATE_CONNECTING,
+    NETWORK_STATE_ONLINE,
+    NETWORK_STATE_RETRY_WAIT,
+    NETWORK_STATE_PROVISIONING,
+    NETWORK_STATE_VALIDATING,
+    NETWORK_STATE_ERROR,
+    NETWORK_STATE_STOPPING,
+} network_state_t;
+
+typedef struct {
+    network_state_t state;
+    esp_err_t last_error;
+} network_manager_status_t;
+
+typedef struct {
+    bool associated;
+    uint8_t bssid[6];
+    uint8_t primary_channel;
+    int8_t rssi_dbm;
+    char ip[16];
+    char gateway[16];
+    char dns_primary[16];
+} connect_link_info_t;
+
+typedef struct {
+    network_manager_status_t status;
+    esp_err_t link_snapshot_error;
+    connect_link_info_t link;
+    bool has_saved_config;
+    bool portal_active;
+} network_manager_diagnostics_t;
+
+esp_err_t network_manager_get_diagnostics_copy(network_manager_diagnostics_t *out_diagnostics);
+'@ | Set-Content -LiteralPath (Join-Path $resolvedTempDir 'network_manager.h')
+
+        $consoleInclude = Join-Path $consoleRoot 'include'
+        $providerInclude = Join-Path $componentRoot 'include'
+        & $compiler.Source '-std=c11' '-Wall' '-Wextra' '-Werror' '-fsyntax-only' `
+            "-I$resolvedTempDir" "-I$consoleInclude" "-I$providerInclude" $sourcePath
+        Assert-True ($LASTEXITCODE -eq 0) "Provider C 语法检查失败（退出码 $LASTEXITCODE）。"
+    }
+    finally {
+        if (Test-Path -LiteralPath $resolvedTempDir) {
+            Remove-Item -LiteralPath $resolvedTempDir -Recurse -Force
+        }
     }
 }
 
@@ -101,6 +182,15 @@ Assert-True (
     $header -match '(?s)#if\s+CONFIG_WEB_CONSOLE_STATUS.*web_console_network_provider_get_status_borrow\s*\(\s*void\s*\).*#endif'
 ) '公共接口必须与 Status 实现使用同一配置开关，避免裁剪构建出现无实现声明。'
 Assert-True (
+    [regex]::Matches($sourceWithoutComments, '\bweb_console_network_provider_get_status_borrow\s*\(\s*void\s*\)').Count -eq 1
+) 'Provider 源码必须且只能定义一次静态 Status Provider 借用接口。'
+Assert-True (
+    $sourceWithoutComments -match '\.section_id\s*=\s*"network"'
+) '共享网络 Provider 必须保持独立 network Status section。'
+Assert-True (
+    $sourceWithoutComments -notmatch '\bweb_console_(settings|action)_provider_t\b|/api/(settings|actions)'
+) '共享网络 Provider 只能适配只读 Status，不得引入 Settings、Actions 或 HTTP 路由。'
+Assert-True (
     $cmake -match '(?s)REQUIRES\s+web_console_service'
 ) 'Provider 的公共契约必须依赖 web_console_service。'
 Assert-True (
@@ -117,17 +207,14 @@ Assert-True (
 ) 'Console Core 源码不得包含 Communication 或网络 Provider 头文件。'
 
 Assert-True (
-    $deskmateProject -match 'shared/components/services/web_console_network_provider'
-) 'DeskMate 必须显式发现网络 Provider 组件。'
-Assert-True (
-    $deskmateMainCmake -match '(?s)PRIV_REQUIRES.*web_console_network_provider'
-) 'DeskMate main 必须显式依赖网络 Provider。'
-Assert-True (
     $cmake -match '(?s)if\(CONFIG_WEB_CONSOLE_STATUS\).*web_console_network_provider\.c.*endif\(\)'
 ) '关闭 Status 后不得编译网络 Provider 实现源码。'
 Assert-True (
-    $deskmateApp -match '\bweb_console_network_provider_get_status_borrow\s*\('
-) 'DeskMate 必须在产品装配点显式取得网络 Provider。'
+    $deskmateMainCmake -notmatch '\bweb_console_network_provider\b'
+) 'DeskMate main 不得私有依赖调试型网络 Status Provider。'
+Assert-True (
+    $deskmateApp -notmatch '#\s*include\s*[<"]web_console_network_provider\.h[>"]|\bweb_console_network_provider_get_status_borrow\s*\('
+) 'DeskMate 产品装配不得包含或取得调试型网络 Status Provider。'
 
 Assert-True (
     $photopainterProject -notmatch 'web_console_(service|network_provider)'
@@ -142,5 +229,7 @@ $communicationReferences = $communicationFiles |
 Assert-True (
     $null -eq $communicationReferences
 ) 'Communication 不得反向依赖 Web Console。'
+
+Invoke-ProviderSyntaxCheck
 
 Write-Output 'Web Console 网络 Provider 静态契约检查通过。'
