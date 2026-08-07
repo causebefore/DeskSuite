@@ -3,6 +3,7 @@ idf_component_register(SRCS
                            "app_main.c"
                            "application/app_environment_task.c"
                            "application/app_key.c"
+                           "application/app_network_hub_url.c"
                            "application/app_network_task.c"
                            "application/app_ota.c"
                            "application/app_page.c"
@@ -57,6 +58,7 @@ idf_component_register(SRCS
                            log
                            connect
                            network_manager
+                           transport
                            sys
                            protocols
                            deskmate_protocol
@@ -77,7 +79,7 @@ idf_component_register(SRCS
                           rtc_service
                           voice_service
                           web_console_service
-                          web_console_network_provider
+                          espressif__cjson
                            ui_platform
                            lvgl
                            dashboard_store

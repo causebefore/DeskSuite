@@ -3,9 +3,11 @@
  */
 #include "app_network.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "calendar_presenter.h"
+#include "cJSON.h"
 #include "dashboard_store.h"
 #include "deskmate_api.h"
 #include "esp_check.h"
@@ -27,6 +29,8 @@
 #include "settings_store.h"
 #include "status_bar_presenter.h"
 #include "system_clock.h"
+#include "system_storage.h"
+#include "transport_http.h"
 #include "weather_presenter.h"
 
 #define NETWORK_TASK_STACK                 8192U
@@ -40,6 +44,8 @@
 #define REMOTE_LOG_STOP_TIMEOUT_MS         5000U
 #define DESKMATE_REMOTE_LOG_QUEUE_CAPACITY 8U
 #define DESKMATE_REMOTE_LOG_BATCH_CAPACITY 4U
+#define APP_NETWORK_HUB_HEALTH_TIMEOUT_MS  3000
+#define APP_NETWORK_HUB_HEALTH_MAX_BYTES   256U
 
 #ifndef CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC
     #define CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC 60
@@ -57,6 +63,8 @@ typedef enum
     NETWORK_COMMAND_OTA_INSTALL,
     NETWORK_COMMAND_OTA_EVENT,
     NETWORK_COMMAND_SYNC_TIME,
+    NETWORK_COMMAND_HUB_TEST,
+    NETWORK_COMMAND_HUB_UPDATE,
     NETWORK_COMMAND_LEASE_ACQUIRE,
     NETWORK_COMMAND_LEASE_RELEASE,
     NETWORK_COMMAND_SUSPEND_FOR_POWER_SAVE,
@@ -73,6 +81,9 @@ typedef struct
     uint32_t                     lease_generation;
     int64_t                      deadline_us;
     firmware_ota_event_t         ota_event;
+    char                         hub_url[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U];
+    uint64_t                     hub_request_id;
+    uint64_t                     hub_candidate_version;
 } network_command_t;
 
 typedef enum
@@ -92,6 +103,30 @@ typedef struct
     esp_err_t                result;
     uint32_t                 generation;
 } control_response_slot_t;
+
+typedef enum
+{
+    APP_NETWORK_HUB_TEST_STATE_NONE = 0,
+    APP_NETWORK_HUB_TEST_STATE_SUCCEEDED,
+    APP_NETWORK_HUB_TEST_STATE_FAILED,
+    APP_NETWORK_HUB_TEST_STATE_INVALIDATED,
+} app_network_hub_test_state_t;
+
+typedef struct
+{
+    app_network_hub_test_state_t state;
+    char                         candidate_url[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U];
+    uint64_t                     candidate_version;
+} app_network_hub_test_result_t;
+
+typedef struct
+{
+    bool                             valid;
+    uint64_t                         request_id;
+    char                             candidate_url[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U];
+    uint64_t                         candidate_version;
+    app_network_hub_request_result_t result;
+} app_network_hub_request_record_t;
 
 static const char *TAG                                       = "app_network_task";
 
@@ -134,6 +169,11 @@ static network_manager_state_t            s_last_manager_state = NETWORK_STATE_S
 static control_response_slot_t            s_control_slots[NETWORK_CONTROL_RESPONSE_SLOTS];
 static app_network_link_change_callback_t s_link_change_callback;
 static void                              *s_link_change_callback_context;
+static app_network_hub_settings_snapshot_t s_hub_snapshot;
+static app_network_hub_request_record_t    s_hub_request;
+static app_network_hub_test_result_t       s_hub_test_result;
+static uint64_t                            s_next_hub_request_id;
+static bool                                s_hub_settings_initialized;
 
 static void on_network_manager_notify(void *ctx);
 
@@ -220,6 +260,189 @@ static esp_err_t stop_remote_log_upload(void)
     }
     const esp_err_t error = remote_log_stop(REMOTE_LOG_STOP_TIMEOUT_MS);
     return error == ESP_ERR_INVALID_STATE ? ESP_OK : error;
+}
+
+/**
+ * @brief 读取并规范化启动时的 Hub 设置
+ *
+ * @param[out] out_snapshot 启动快照输出
+ * @return ESP_OK 快照有效；其他值表示设置读取或既有地址无效
+ */
+static esp_err_t load_initial_hub_settings_snapshot(app_network_hub_settings_snapshot_t *out_snapshot)
+{
+    if (out_snapshot == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    device_settings_t settings;
+    ESP_RETURN_ON_ERROR(settings_store_load_copy(&settings), TAG, "读取 Hub 初始设置失败");
+    memset(out_snapshot, 0, sizeof(*out_snapshot));
+    ESP_RETURN_ON_ERROR(app_network_hub_url_parse_copy(settings.service_url, out_snapshot->service_url),
+                        TAG,
+                        "Hub 初始地址无效");
+    out_snapshot->version = 1U;
+    return ESP_OK;
+}
+
+/**
+ * @brief 在状态锁内使不同候选或版本对应的旧测试事实失效
+ *
+ * @param[in] candidate 新候选地址
+ * @param[in] candidate_version 新候选绑定的设置版本
+ */
+static void invalidate_hub_test_result_for_candidate(const char *candidate, uint64_t candidate_version)
+{
+    if (s_hub_test_result.state != APP_NETWORK_HUB_TEST_STATE_NONE
+        && (strcmp(s_hub_test_result.candidate_url, candidate) != 0
+            || s_hub_test_result.candidate_version != candidate_version))
+    {
+        settings_store_copy_string(
+            s_hub_test_result.candidate_url,
+            sizeof(s_hub_test_result.candidate_url),
+            candidate);
+        s_hub_test_result.candidate_version = candidate_version;
+        s_hub_test_result.state             = APP_NETWORK_HUB_TEST_STATE_INVALIDATED;
+    }
+}
+
+/** @brief 在状态锁内确认命令仍对应唯一 pending 槽，不比较设置版本 */
+static bool hub_command_matches_pending_locked(const network_command_t *command)
+{
+    if (command == NULL || !s_hub_request.valid || s_hub_request.request_id != command->hub_request_id
+        || s_hub_request.result.state != APP_NETWORK_HUB_REQUEST_STATE_PENDING
+        || s_hub_request.candidate_version != command->hub_candidate_version
+        || strcmp(s_hub_request.candidate_url, command->hub_url) != 0)
+    {
+        return false;
+    }
+    const app_network_hub_operation_t operation = command->type == NETWORK_COMMAND_HUB_TEST
+                                                       ? APP_NETWORK_HUB_OPERATION_TEST
+                                                       : APP_NETWORK_HUB_OPERATION_UPDATE;
+    return s_hub_request.result.operation == operation;
+}
+
+/** @brief 在状态锁内确认 pending 命令仍绑定当前设置版本 */
+static bool hub_command_version_is_current_locked(const network_command_t *command)
+{
+    return hub_command_matches_pending_locked(command)
+           && s_hub_snapshot.version == command->hub_candidate_version;
+}
+
+/** @brief 把当前 pending Hub 请求收敛为终态，陈旧命令不会覆盖新结果 */
+static void finish_hub_request(
+    const network_command_t *command,
+    app_network_hub_request_state_t state,
+    app_network_hub_result_reason_t reason,
+    esp_err_t error)
+{
+    taskENTER_CRITICAL(&s_state_lock);
+    if (hub_command_matches_pending_locked(command))
+    {
+        s_hub_request.result.state   = state;
+        s_hub_request.result.reason  = reason;
+        s_hub_request.result.error   = error;
+        s_hub_request.result.version = s_hub_snapshot.version;
+    }
+    taskEXIT_CRITICAL(&s_state_lock);
+}
+
+/**
+ * @brief 对同一规范化候选执行无凭据的有界健康检查
+ *
+ * @param[in] candidate 不含尾部斜杠的规范化候选地址
+ * @param[out] out_reason 失败时的稳定原因
+ * @return ESP_OK 取得 2xx 且 JSON `status` 严格为 `ok`；其他值表示健康失败
+ */
+static esp_err_t perform_hub_health_check(const char *candidate, app_network_hub_result_reason_t *out_reason)
+{
+    if (candidate == NULL || out_reason == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_reason = APP_NETWORK_HUB_RESULT_REASON_UNKNOWN;
+
+    char health_url[APP_NETWORK_HUB_URL_MAX_LENGTH + sizeof("/healthz")];
+    const int length = snprintf(health_url, sizeof(health_url), "%s/healthz", candidate);
+    if (length <= 0 || (size_t) length >= sizeof(health_url))
+    {
+        *out_reason = APP_NETWORK_HUB_RESULT_REASON_VALIDATION_FAILED;
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    const transport_http_request_t request = {
+        .url                  = health_url,
+        .method               = TRANSPORT_HTTP_GET,
+        .headers              = NULL,
+        .header_count         = 0U,
+        .body                 = NULL,
+        .body_len             = 0U,
+        .timeout_ms           = APP_NETWORK_HUB_HEALTH_TIMEOUT_MS,
+        .max_response_bytes   = APP_NETWORK_HUB_HEALTH_MAX_BYTES,
+        .suppress_success_log = true,
+    };
+    transport_http_response_t response = { 0 };
+    esp_err_t error = transport_http_perform_borrow(&request, &response);
+    if (error != ESP_OK)
+    {
+        *out_reason = error == ESP_ERR_TIMEOUT ? APP_NETWORK_HUB_RESULT_REASON_TIMEOUT
+                                               : APP_NETWORK_HUB_RESULT_REASON_CONNECTION_FAILED;
+        return error;
+    }
+
+    if (response.status_code < 200 || response.status_code >= 300)
+    {
+        *out_reason = APP_NETWORK_HUB_RESULT_REASON_HEALTH_CHECK_FAILED;
+        transport_http_response_release(&response);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    cJSON *root = cJSON_Parse(response.body);
+    const cJSON *status = root == NULL ? NULL : cJSON_GetObjectItemCaseSensitive(root, "status");
+    const bool healthy = cJSON_IsObject(root) && cJSON_IsString(status) && status->valuestring != NULL
+                         && strcmp(status->valuestring, "ok") == 0;
+    if (root != NULL)
+    {
+        cJSON_Delete(root);
+    }
+    transport_http_response_release(&response);
+    if (!healthy)
+    {
+        *out_reason = APP_NETWORK_HUB_RESULT_REASON_HEALTH_CHECK_FAILED;
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    *out_reason = APP_NETWORK_HUB_RESULT_REASON_NONE;
+    return ESP_OK;
+}
+
+/** @brief Hub 地址提交成功后最佳努力重配远端日志，不改变已提交设置 */
+static void reconfigure_remote_log_after_hub_update(void)
+{
+    esp_err_t error = stop_remote_log_upload();
+    if (error != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Hub 地址已保存，但停止旧远端日志上传失败: %s", esp_err_to_name(error));
+        return;
+    }
+
+    protocol_backend_context_t backend;
+    error = app_network_get_backend_context_copy(&backend);
+    if (error == ESP_OK)
+    {
+        error = initialize_remote_log_capture();
+    }
+    if (error == ESP_OK)
+    {
+        error = remote_log_configure_copy(&backend);
+    }
+    if (error == ESP_OK)
+    {
+        error = remote_log_start();
+    }
+    if (error != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Hub 地址已保存，但重配远端日志上传失败: %s", esp_err_to_name(error));
+    }
 }
 
 /** @brief 尝试投递一个按值复制的网络产品命令 */
@@ -567,6 +790,138 @@ esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_c
         .firmware_target = DESKSUITE_FIRMWARE_TARGET,
     };
     return protocol_backend_context_build_copy(&config, out_context);
+}
+
+esp_err_t app_network_get_hub_settings_snapshot_copy(app_network_hub_settings_snapshot_t *out_snapshot)
+{
+    if (out_snapshot == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    taskENTER_CRITICAL(&s_state_lock);
+    if (!s_hub_settings_initialized)
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    *out_snapshot = s_hub_snapshot;
+    taskEXIT_CRITICAL(&s_state_lock);
+    return ESP_OK;
+}
+
+/** @brief 规范化候选并原子占用 Hub 测试/更新共用的单 pending 槽 */
+static esp_err_t request_hub_url_copy(
+    app_network_hub_operation_t operation,
+    const char *candidate_url,
+    uint64_t expected_version,
+    uint64_t *out_request_id)
+{
+    if (candidate_url == NULL || out_request_id == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_request_id = 0U;
+
+    char normalized[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U];
+    const esp_err_t parse_error = app_network_hub_url_parse_copy(candidate_url, normalized);
+    if (parse_error != ESP_OK)
+    {
+        return parse_error;
+    }
+
+    taskENTER_CRITICAL(&s_state_lock);
+    if (!s_hub_settings_initialized || s_task == NULL || s_command_queue == NULL
+        || s_next_hub_request_id == UINT64_MAX
+        || (s_hub_request.valid && s_hub_request.result.state == APP_NETWORK_HUB_REQUEST_STATE_PENDING))
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (operation == APP_NETWORK_HUB_OPERATION_UPDATE
+        && (expected_version != s_hub_snapshot.version || s_hub_snapshot.version == UINT64_MAX))
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return expected_version != s_hub_snapshot.version ? ESP_ERR_INVALID_VERSION : ESP_ERR_INVALID_STATE;
+    }
+
+    const uint64_t request_id = s_next_hub_request_id + 1U;
+    const uint64_t candidate_version = operation == APP_NETWORK_HUB_OPERATION_TEST
+                                           ? s_hub_snapshot.version
+                                           : expected_version;
+    network_command_t command = {
+        .type = operation == APP_NETWORK_HUB_OPERATION_TEST ? NETWORK_COMMAND_HUB_TEST
+                                                            : NETWORK_COMMAND_HUB_UPDATE,
+        .hub_request_id       = request_id,
+        .hub_candidate_version = candidate_version,
+    };
+    settings_store_copy_string(command.hub_url, sizeof(command.hub_url), normalized);
+    const esp_err_t post_error = post_control_command(&command);
+    if (post_error != ESP_OK)
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return post_error;
+    }
+
+    invalidate_hub_test_result_for_candidate(normalized, candidate_version);
+    s_next_hub_request_id        = request_id;
+    s_hub_request.valid          = true;
+    s_hub_request.request_id     = request_id;
+    s_hub_request.candidate_version = candidate_version;
+    settings_store_copy_string(
+        s_hub_request.candidate_url,
+        sizeof(s_hub_request.candidate_url),
+        normalized);
+    s_hub_request.result = (app_network_hub_request_result_t) {
+        .operation = operation,
+        .state     = APP_NETWORK_HUB_REQUEST_STATE_PENDING,
+        .reason    = APP_NETWORK_HUB_RESULT_REASON_NONE,
+        .error     = ESP_OK,
+        .version   = s_hub_snapshot.version,
+    };
+    *out_request_id = request_id;
+    taskEXIT_CRITICAL(&s_state_lock);
+    return ESP_OK;
+}
+
+esp_err_t app_network_request_test_hub_url_copy(const char *candidate_url, uint64_t *out_request_id)
+{
+    return request_hub_url_copy(APP_NETWORK_HUB_OPERATION_TEST, candidate_url, 0U, out_request_id);
+}
+
+esp_err_t app_network_request_update_hub_url_copy(
+    const char *candidate_url,
+    uint64_t expected_version,
+    uint64_t *out_request_id)
+{
+    return request_hub_url_copy(
+        APP_NETWORK_HUB_OPERATION_UPDATE,
+        candidate_url,
+        expected_version,
+        out_request_id);
+}
+
+esp_err_t app_network_get_hub_request_result_copy(
+    uint64_t request_id,
+    app_network_hub_request_result_t *out_result)
+{
+    if (request_id == 0U || out_result == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    taskENTER_CRITICAL(&s_state_lock);
+    if (!s_hub_settings_initialized)
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_hub_request.valid || s_hub_request.request_id != request_id)
+    {
+        taskEXIT_CRITICAL(&s_state_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    *out_result = s_hub_request.result;
+    taskEXIT_CRITICAL(&s_state_lock);
+    return ESP_OK;
 }
 
 /** @brief 构造一次 Dashboard 请求客户端及其完整后端上下文 */
@@ -1326,6 +1681,133 @@ static void handle_maintenance_sync_command(const network_command_t *command)
     complete_control_response(command, error);
 }
 
+/** @brief 由唯一 Network Task 对同一候选执行一次不持久化健康测试 */
+static void handle_hub_test_command(const network_command_t *command)
+{
+    const char *candidate = command->hub_url;
+    taskENTER_CRITICAL(&s_state_lock);
+    invalidate_hub_test_result_for_candidate(candidate, command->hub_candidate_version);
+    const bool pending_matches = hub_command_matches_pending_locked(command);
+    const bool version_matches = hub_command_version_is_current_locked(command);
+    taskEXIT_CRITICAL(&s_state_lock);
+    if (!pending_matches)
+    {
+        return;
+    }
+    if (!version_matches)
+    {
+        finish_hub_request(command,
+                           APP_NETWORK_HUB_REQUEST_STATE_FAILED,
+                           APP_NETWORK_HUB_RESULT_REASON_VERSION_CONFLICT,
+                           ESP_ERR_INVALID_VERSION);
+        return;
+    }
+
+    app_network_hub_result_reason_t reason;
+    const esp_err_t error = perform_hub_health_check(candidate, &reason);
+    taskENTER_CRITICAL(&s_state_lock);
+    if (hub_command_version_is_current_locked(command))
+    {
+        settings_store_copy_string(
+            s_hub_test_result.candidate_url,
+            sizeof(s_hub_test_result.candidate_url),
+            candidate);
+        s_hub_test_result.candidate_version = command->hub_candidate_version;
+        s_hub_test_result.state = error == ESP_OK ? APP_NETWORK_HUB_TEST_STATE_SUCCEEDED
+                                                  : APP_NETWORK_HUB_TEST_STATE_FAILED;
+    }
+    taskEXIT_CRITICAL(&s_state_lock);
+    finish_hub_request(command,
+                       error == ESP_OK ? APP_NETWORK_HUB_REQUEST_STATE_SUCCEEDED
+                                       : APP_NETWORK_HUB_REQUEST_STATE_FAILED,
+                       reason,
+                       error);
+}
+
+/** @brief 由唯一 Network Task 重测同一候选并原子提交 network_cfg 单 Blob */
+static void handle_hub_update_command(const network_command_t *command)
+{
+    const char *candidate = command->hub_url;
+    taskENTER_CRITICAL(&s_state_lock);
+    invalidate_hub_test_result_for_candidate(candidate, command->hub_candidate_version);
+    const bool pending_matches = hub_command_matches_pending_locked(command);
+    const bool version_matches = hub_command_version_is_current_locked(command);
+    taskEXIT_CRITICAL(&s_state_lock);
+    if (!pending_matches)
+    {
+        return;
+    }
+    if (!version_matches)
+    {
+        finish_hub_request(command,
+                           APP_NETWORK_HUB_REQUEST_STATE_FAILED,
+                           APP_NETWORK_HUB_RESULT_REASON_VERSION_CONFLICT,
+                           ESP_ERR_INVALID_VERSION);
+        return;
+    }
+
+    app_network_hub_result_reason_t reason;
+    esp_err_t error = perform_hub_health_check(candidate, &reason);
+    if (error != ESP_OK)
+    {
+        finish_hub_request(command, APP_NETWORK_HUB_REQUEST_STATE_FAILED, reason, error);
+        return;
+    }
+
+    taskENTER_CRITICAL(&s_state_lock);
+    const bool still_current = hub_command_version_is_current_locked(command);
+    taskEXIT_CRITICAL(&s_state_lock);
+    if (!still_current)
+    {
+        finish_hub_request(command,
+                           APP_NETWORK_HUB_REQUEST_STATE_FAILED,
+                           APP_NETWORK_HUB_RESULT_REASON_VERSION_CONFLICT,
+                           ESP_ERR_INVALID_VERSION);
+        return;
+    }
+
+    system_storage_network_config_t network_cfg;
+    error = system_storage_get_network_config_copy(&network_cfg);
+    if (error == ESP_OK)
+    {
+        settings_store_copy_string(network_cfg.service_url, sizeof(network_cfg.service_url), candidate);
+        error = system_storage_set_network_config_borrow(&network_cfg);
+    }
+    if (error == ESP_OK)
+    {
+        bool published = false;
+        taskENTER_CRITICAL(&s_state_lock);
+        if (hub_command_version_is_current_locked(command) && s_hub_snapshot.version != UINT64_MAX)
+        {
+            settings_store_copy_string(
+                s_hub_snapshot.service_url,
+                sizeof(s_hub_snapshot.service_url),
+                candidate);
+            s_hub_snapshot.version++;
+            s_hub_request.result.state   = APP_NETWORK_HUB_REQUEST_STATE_SUCCEEDED;
+            s_hub_request.result.reason  = APP_NETWORK_HUB_RESULT_REASON_NONE;
+            s_hub_request.result.error   = ESP_OK;
+            s_hub_request.result.version = s_hub_snapshot.version;
+            published                    = true;
+        }
+        taskEXIT_CRITICAL(&s_state_lock);
+        if (published)
+        {
+            reconfigure_remote_log_after_hub_update();
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Hub 网络配置已提交，但内存所有权校验失败");
+        }
+        return;
+    }
+
+    finish_hub_request(command,
+                       APP_NETWORK_HUB_REQUEST_STATE_FAILED,
+                       APP_NETWORK_HUB_RESULT_REASON_PERSISTENCE_FAILED,
+                       error);
+}
+
 /** @brief 从 DeskMate 设置复制 OTA 服务身份到独立固件 OTA 工具 */
 static esp_err_t configure_firmware_ota(void)
 {
@@ -1782,6 +2264,16 @@ static void discard_command_while_suspended(const network_command_t *command)
         case NETWORK_COMMAND_OTA_INSTALL:
             s_ota_queued = false;
             break;
+        case NETWORK_COMMAND_HUB_TEST:
+        case NETWORK_COMMAND_HUB_UPDATE:
+            if (hub_command_matches_pending_locked(command))
+            {
+                s_hub_request.result.state   = APP_NETWORK_HUB_REQUEST_STATE_FAILED;
+                s_hub_request.result.reason  = APP_NETWORK_HUB_RESULT_REASON_OWNER_BUSY;
+                s_hub_request.result.error   = ESP_ERR_INVALID_STATE;
+                s_hub_request.result.version = s_hub_snapshot.version;
+            }
+            break;
         case NETWORK_COMMAND_LEASE_ACQUIRE:
         case NETWORK_COMMAND_LEASE_RELEASE:
             signal = complete_control_response_locked(command->response_slot,
@@ -1881,6 +2373,12 @@ static void app_network_task(void *arg)
 #ifdef CONFIG_DESKMATE_TIME_SNTP_ENABLED
                 sync_system_clock();
 #endif
+                break;
+            case NETWORK_COMMAND_HUB_TEST:
+                handle_hub_test_command(&command);
+                break;
+            case NETWORK_COMMAND_HUB_UPDATE:
+                handle_hub_update_command(&command);
                 break;
             case NETWORK_COMMAND_LEASE_ACQUIRE:
                 handle_lease_acquire_command(&command);
@@ -1992,6 +2490,9 @@ esp_err_t app_network_init(void)
         return ESP_OK;
     }
 
+    app_network_hub_settings_snapshot_t initial_hub_snapshot;
+    ESP_RETURN_ON_ERROR(load_initial_hub_settings_snapshot(&initial_hub_snapshot), TAG, "初始化 Hub 设置快照失败");
+
     ESP_RETURN_ON_ERROR(initialize_control_response_slots(), TAG, "初始化网络控制回执失败");
     s_command_queue = xQueueCreate(NETWORK_COMMAND_QUEUE_LENGTH, sizeof(network_command_t));
     ESP_RETURN_ON_FALSE(s_command_queue != NULL, ESP_ERR_NO_MEM, TAG, "创建网络命令队列失败");
@@ -2056,6 +2557,14 @@ esp_err_t app_network_init(void)
         s_command_queue = NULL;
         return ESP_ERR_NO_MEM;
     }
+
+    taskENTER_CRITICAL(&s_state_lock);
+    s_hub_snapshot             = initial_hub_snapshot;
+    memset(&s_hub_request, 0, sizeof(s_hub_request));
+    memset(&s_hub_test_result, 0, sizeof(s_hub_test_result));
+    s_next_hub_request_id    = 0U;
+    s_hub_settings_initialized = true;
+    taskEXIT_CRITICAL(&s_state_lock);
 
     const network_command_t start_command = {
         .type = NETWORK_COMMAND_START_SESSION,

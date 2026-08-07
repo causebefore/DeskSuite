@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "app_network_hub_url.h"
 #include "esp_err.h"
 #include "protocol_backend_context.h"
 
@@ -36,6 +37,52 @@ extern "C"
         bool                     active;     /*!< 是否正在持有 */
         uint32_t                 generation; /*!< 当前租约代次 */
     } app_network_lease_snapshot_t;
+
+    /** @brief Hub 地址测试或更新操作类型 */
+    typedef enum
+    {
+        APP_NETWORK_HUB_OPERATION_TEST = 0, /**< 只测试候选地址，不持久化 */
+        APP_NETWORK_HUB_OPERATION_UPDATE,  /**< 重新测试并持久化候选地址 */
+    } app_network_hub_operation_t;
+
+    /** @brief Hub 地址异步请求的当前阶段 */
+    typedef enum
+    {
+        APP_NETWORK_HUB_REQUEST_STATE_PENDING = 0, /**< 请求已接受，Network Task 尚未完成 */
+        APP_NETWORK_HUB_REQUEST_STATE_SUCCEEDED,   /**< 操作已经成功完成 */
+        APP_NETWORK_HUB_REQUEST_STATE_FAILED,      /**< 操作已经失败，原因见 reason */
+    } app_network_hub_request_state_t;
+
+    /** @brief Hub 地址请求的稳定结果原因 */
+    typedef enum
+    {
+        APP_NETWORK_HUB_RESULT_REASON_NONE = 0,       /**< 没有失败原因 */
+        APP_NETWORK_HUB_RESULT_REASON_VERSION_CONFLICT, /**< 设置版本已经变化 */
+        APP_NETWORK_HUB_RESULT_REASON_OWNER_BUSY,       /**< Network Application 当前有未完成请求 */
+        APP_NETWORK_HUB_RESULT_REASON_VALIDATION_FAILED, /**< 候选地址语法无效 */
+        APP_NETWORK_HUB_RESULT_REASON_PERSISTENCE_FAILED, /**< 网络配置未能持久化 */
+        APP_NETWORK_HUB_RESULT_REASON_CONNECTION_FAILED, /**< DNS、连接或传输失败 */
+        APP_NETWORK_HUB_RESULT_REASON_HEALTH_CHECK_FAILED, /**< HTTP 或健康 JSON 未通过 */
+        APP_NETWORK_HUB_RESULT_REASON_TIMEOUT,           /**< 健康请求超时 */
+        APP_NETWORK_HUB_RESULT_REASON_UNKNOWN,           /**< 没有更具体分类的失败 */
+    } app_network_hub_result_reason_t;
+
+    /** @brief Hub 用户设置的有界快照 */
+    typedef struct
+    {
+        char     service_url[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U]; /**< 当前已提交 Hub 地址 */
+        uint64_t version;                                         /**< 成功更新后严格递增的设置版本 */
+    } app_network_hub_settings_snapshot_t;
+
+    /** @brief 一次 Hub 地址异步请求的当前或最终结果 */
+    typedef struct
+    {
+        app_network_hub_operation_t     operation; /**< 本次请求类型 */
+        app_network_hub_request_state_t state;     /**< 当前请求阶段 */
+        app_network_hub_result_reason_t reason;    /**< 稳定结果原因 */
+        esp_err_t                       error;     /**< 具体执行错误；成功和 pending 时为 ESP_OK */
+        uint64_t                        version;   /**< 请求观察到或成功形成的设置版本 */
+    } app_network_hub_request_result_t;
 
     /**
  * @brief Network Manager 最新变化已由网络 Application Task 收敛后的借用通知回调
@@ -148,6 +195,63 @@ extern "C"
  *         或设置读取、配置校验、硬件身份错误码
  */
     esp_err_t app_network_get_backend_context_copy(protocol_backend_context_t *out_context);
+
+    /**
+     * @brief 复制 Network Application 当前 Hub 用户设置快照
+     *
+     * 本函数只在短临界区内复制内存，不访问存储或网络。返回后的副本与所有者没有共享生命期。
+     *
+     * @param[out] out_snapshot 调用方提供的快照输出
+     * @return ESP_OK 快照有效；ESP_ERR_INVALID_ARG 输出为空；ESP_ERR_INVALID_STATE 尚未初始化
+     */
+    esp_err_t app_network_get_hub_settings_snapshot_copy(app_network_hub_settings_snapshot_t *out_snapshot);
+
+    /**
+     * @brief 异步请求测试一个 Hub 候选地址副本
+     *
+     * 返回成功只表示规范化地址已经按值复制并进入 Network Application 的单 pending 槽；
+     * `/healthz` I/O 由唯一 Network Task 执行，最终结果需按请求 ID 查询。请求 ID 非零、严格
+     * 递增且不回绕。
+     *
+     * @param[in] candidate_url 调用期间借用的候选地址
+     * @param[out] out_request_id 成功时写入请求 ID
+     * @return ESP_OK 请求已接受；ESP_ERR_INVALID_ARG 参数或地址无效；ESP_ERR_INVALID_STATE
+     *         尚未初始化、已有 pending 请求或 ID 已耗尽；ESP_ERR_TIMEOUT 命令队列已满
+     */
+    esp_err_t app_network_request_test_hub_url_copy(const char *candidate_url, uint64_t *out_request_id);
+
+    /**
+     * @brief 异步请求重新测试并更新一个 Hub 候选地址副本
+     *
+     * 返回成功只表示带期望版本的候选已经复制入队；Network Task 会再次校验同一候选和版本，
+     * 重新执行健康检查，并仅在完整 `network_cfg` 单 Blob 提交成功后发布新快照。
+     *
+     * @param[in] candidate_url 调用期间借用的候选地址
+     * @param[in] expected_version 调用方读取候选时的设置版本
+     * @param[out] out_request_id 成功时写入请求 ID
+     * @return ESP_OK 请求已接受；ESP_ERR_INVALID_ARG 参数或地址无效；ESP_ERR_INVALID_VERSION
+     *         设置版本冲突；ESP_ERR_INVALID_STATE 尚未初始化、已有 pending 请求、版本或 ID
+     *         已耗尽；ESP_ERR_TIMEOUT 命令队列已满
+     */
+    esp_err_t app_network_request_update_hub_url_copy(
+        const char *candidate_url,
+        uint64_t expected_version,
+        uint64_t *out_request_id);
+
+    /**
+     * @brief 按请求 ID 复制 Hub 地址测试或更新的统一结果
+     *
+     * 本函数只读取所有者内存并短时加锁。当前结果至少保留到下一请求被接受；未知或已被下一
+     * 请求替换的 ID 返回 `ESP_ERR_NOT_FOUND`。
+     *
+     * @param[in] request_id 已接受的非零请求 ID
+     * @param[out] out_result 当前或最终结果副本
+     * @return ESP_OK 结果有效；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_INVALID_STATE 尚未初始化；
+     *         ESP_ERR_NOT_FOUND 请求未知或已淘汰
+     */
+    esp_err_t app_network_get_hub_request_result_copy(
+        uint64_t request_id,
+        app_network_hub_request_result_t *out_result);
 
     /**
  * @brief 同步暂停网络策略与底层连接，进入无网络低功耗状态

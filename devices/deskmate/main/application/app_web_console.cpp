@@ -23,9 +23,6 @@
 #endif
 #include "web_console_presenter.h"
 #include "web_console_service.h"
-#if CONFIG_WEB_CONSOLE_STATUS
-#include "web_console_network_provider.h"
-#endif
 
 static const char *TAG                    = "app_web_console";
 
@@ -498,32 +495,12 @@ esp_err_t app_web_console_internal_initialize_service(void)
     size_t status_provider_count   = 0U;
     const web_console_settings_provider_t *settings_providers =
         app_web_console_provider_get_settings_borrow(&settings_provider_count);
-    const web_console_status_provider_t *product_status_providers =
+    const web_console_status_provider_t *status_providers =
         app_web_console_provider_get_status_borrow(&status_provider_count);
-    const web_console_status_provider_t *status_providers = product_status_providers;
-#if CONFIG_WEB_CONSOLE_STATUS
-    web_console_status_provider_t composed_status_providers[WEB_CONSOLE_STATUS_PROVIDER_MAX_COUNT] = {};
-    if ((status_provider_count > 0U && product_status_providers == nullptr)
-        || status_provider_count >= WEB_CONSOLE_STATUS_PROVIDER_MAX_COUNT)
-    {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    if (status_provider_count > 0U)
-    {
-        memcpy(
-            composed_status_providers,
-            product_status_providers,
-            status_provider_count * sizeof(composed_status_providers[0]));
-    }
-    const web_console_status_provider_t *network_status_provider =
-        web_console_network_provider_get_status_borrow();
-    if (network_status_provider == nullptr)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-    composed_status_providers[status_provider_count] = *network_status_provider;
-    ++status_provider_count;
-    status_providers = composed_status_providers;
+#if CONFIG_WEB_CONSOLE_ACTIONS
+    size_t action_provider_count = 0U;
+    const web_console_action_provider_t *action_providers =
+        app_web_console_provider_get_actions_borrow(&action_provider_count);
 #endif
     const web_console_service_config_t config = {
         .server_port = 80U,
@@ -536,6 +513,10 @@ esp_err_t app_web_console_internal_initialize_service(void)
         .settings_provider_count = settings_provider_count,
         .status_providers        = status_providers,
         .status_provider_count   = status_provider_count,
+#if CONFIG_WEB_CONSOLE_ACTIONS
+        .action_providers        = action_providers,
+        .action_provider_count   = action_provider_count,
+#endif
     };
     return web_console_service_init_borrow(&config);
 }

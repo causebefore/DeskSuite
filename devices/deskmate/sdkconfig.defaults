@@ -70,10 +70,11 @@ CONFIG_DESKMATE_UI_TASK_STACK_SIZE=8192
 CONFIG_PM_ENABLE=y
 CONFIG_PM_DFS_INIT_AUTO=y
 
-# DeskMate 网页控制台显式组合 Files、Settings 和 Status 三个可裁剪模块
+# DeskMate 网页控制台显式组合 Files、Settings、Status 和 Actions 四个可裁剪模块
 CONFIG_WEB_CONSOLE_FILES=y
 CONFIG_WEB_CONSOLE_SETTINGS=y
 CONFIG_WEB_CONSOLE_STATUS=y
+CONFIG_WEB_CONSOLE_ACTIONS=y
 # Files 模块支持 UTF-8 长文件名，并为最坏百分号编码后的路径保留 URI 空间
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255

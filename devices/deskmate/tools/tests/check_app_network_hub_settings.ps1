@@ -199,23 +199,63 @@ $networkTask = 'main\application\app_network_task.c'
 $networkHeader = 'main\application\app_network.h'
 $hubUrlHeader = 'main\application\app_network_hub_url.h'
 $hubUrlHostTest = 'tools\tests\test_app_network_hub_url.c'
-$hubUrlHostRunner = Join-Path $PSScriptRoot 'run_app_network_hub_url_host_test.ps1'
 $provider = 'main\application\app_web_console_provider.c'
 
-if (-not (Test-Path -LiteralPath $hubUrlHostRunner)) {
-    $failures.Add('缺少 Hub URL host-test 执行入口')
-}
-else {
-    Assert-Contains $hubUrlHostRunner 'test_app_network_hub_url\.c' 'Hub URL host-test 执行入口未编译目标测试源'
-    Assert-Contains $hubUrlHostRunner '(?:cl|gcc|clang)[\s\S]{0,220}test_app_network_hub_url\.c' `
-        'Hub URL host-test 执行入口未实际编译目标测试'
-    Assert-Contains $hubUrlHostRunner '&\s+\$[A-Za-z_][A-Za-z0-9_]*' `
-        'Hub URL host-test 执行入口未实际运行 host 可执行文件'
-    & $hubUrlHostRunner
-    if ($LASTEXITCODE -ne 0) {
-        $failures.Add("Hub URL host-test 执行失败（退出码 $LASTEXITCODE）")
+function Invoke-HubUrlHostTest {
+    $compiler = Get-Command clang.exe -ErrorAction SilentlyContinue
+    if ($null -eq $compiler) {
+        $compiler = Get-Command gcc.exe -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $compiler) {
+        $failures.Add('缺少可用的 clang.exe 或 gcc.exe，无法编译 Hub URL host-test')
+        return
+    }
+
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $tempDir = Join-Path $tempRoot ("deskmate-hub-url-test-{0}" -f [guid]::NewGuid().ToString('N'))
+    $resolvedTempDir = [IO.Path]::GetFullPath($tempDir)
+    if (-not $resolvedTempDir.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        $failures.Add('Hub URL host-test 临时目录越出系统临时目录')
+        return
+    }
+
+    New-Item -ItemType Directory -Path $resolvedTempDir | Out-Null
+    try {
+        $espErrHeader = Join-Path $resolvedTempDir 'esp_err.h'
+        @'
+#pragma once
+typedef int esp_err_t;
+#define ESP_OK 0
+#define ESP_FAIL -1
+#define ESP_ERR_INVALID_ARG 0x102
+#define ESP_ERR_INVALID_SIZE 0x104
+'@ | Set-Content -LiteralPath $espErrHeader
+
+        $testSource = Join-Path $repoRoot $hubUrlHostTest
+        $implementationSource = Join-Path $repoRoot 'main\application\app_network_hub_url.c'
+        $applicationInclude = Join-Path $repoRoot 'main\application'
+        $executable = Join-Path $resolvedTempDir 'test_app_network_hub_url.exe'
+        & $compiler.Source '-std=c11' '-Wall' '-Wextra' '-Werror' `
+            "-I$resolvedTempDir" "-I$applicationInclude" `
+            $testSource $implementationSource '-o' $executable
+        if ($LASTEXITCODE -ne 0) {
+            $failures.Add("Hub URL host-test 编译失败（退出码 $LASTEXITCODE）")
+            return
+        }
+
+        & $executable
+        if ($LASTEXITCODE -ne 0) {
+            $failures.Add("Hub URL host-test 执行失败（退出码 $LASTEXITCODE）")
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $resolvedTempDir) {
+            Remove-Item -LiteralPath $resolvedTempDir -Recurse -Force
+        }
     }
 }
+
+Invoke-HubUrlHostTest
 
 Assert-Contains $hubUrlHeader 'APP_NETWORK_HUB_URL_MAX_LENGTH\s+127U' 'Hub URL 纯 helper 未声明 127 字节上限'
 Assert-Contains $hubUrlHeader 'app_network_hub_url_parse_copy\s*\(' 'Hub URL 纯 helper 未公开规范化入口'
@@ -246,6 +286,12 @@ Assert-Contains $networkHeader 'app_network_request_test_hub_url_copy\s*\(' `
     'Network Application 未公开 Hub 候选测试入口'
 Assert-Contains $networkHeader 'app_network_request_update_hub_url_copy\s*\(' `
     'Network Application 未公开 Hub 候选保存入口'
+Assert-Contains $networkHeader 'app_network_get_hub_request_result_copy\s*\(' `
+    'Network Application 未公开 Hub 测试/保存统一结果查询'
+Assert-Contains $networkTask 's_next_hub_request_id\s*==\s*UINT64_MAX' `
+    'Hub 请求 ID 未在最大值处拒绝回绕'
+Assert-Contains $networkTask 's_hub_request\.result\.state\s*==\s*APP_NETWORK_HUB_REQUEST_STATE_PENDING' `
+    'Hub 测试和保存未共享同一个 pending 请求槽'
 Assert-Contains $networkTask 'NETWORK_COMMAND_HUB_TEST' `
     '网络 Task 必须拥有 Hub 候选测试命令'
 Assert-Contains $networkTask 'NETWORK_COMMAND_HUB_UPDATE' `
@@ -263,7 +309,7 @@ Assert-TextInOrder $hubHealthCheck @(
     '"%s/healthz"\s*,\s*candidate',
     'transport_http_perform_borrow\s*\('
 ) 'Hub 健康检查必须对同一候选地址执行有界 /healthz 请求'
-Assert-TextContains $hubHealthCheck 'HTTP_METHOD_GET' `
+Assert-TextContains $hubHealthCheck 'TRANSPORT_HTTP_GET' `
     'Hub 健康检查必须使用 GET 请求'
 Assert-TextContains $hubHealthCheck 'APP_NETWORK_HUB_HEALTH_TIMEOUT_MS' `
     'Hub 健康检查必须使用独立的有界超时'
@@ -291,7 +337,7 @@ Assert-TextInOrder $hubTest @(
 Assert-TextNotContains $hubTest 'system_storage_(get|set)_network_config|settings_store_save|nvs_' 'Hub 候选测试不得持久化任何配置'
 
 $hubUpdate = Read-CFunction $networkTask 'handle_hub_update_command'
-Assert-TextNotContainsBefore $hubUpdate 'system_storage_set_network_config_borrow\s*\(' 'snapshot\.service_url\s*=|snapshot\.version\+\+|APP_NETWORK_HUB_UPDATE_STATE_SUCCEEDED' 'Hub 持久化成功前不得发布新的地址、版本或成功结果'
+Assert-TextNotContainsBefore $hubUpdate 'system_storage_set_network_config_borrow\s*\(' 'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url|s_hub_snapshot\.version\+\+|APP_NETWORK_HUB_REQUEST_STATE_SUCCEEDED' 'Hub 持久化成功前不得发布新的地址、版本或成功结果'
 Assert-TextInOrder $hubUpdate @(
     'const\s+char\s*\*\s*candidate\s*=\s*command->hub_url',
     'invalidate_hub_test_result_for_candidate\s*\(\s*candidate',
@@ -300,9 +346,9 @@ Assert-TextInOrder $hubUpdate @(
     'settings_store_copy_string\s*\(\s*network_cfg\.service_url[\s\S]{0,180}candidate',
     'system_storage_set_network_config_borrow\s*\(\s*&network_cfg\s*\)',
     'if\s*\(\s*error\s*==\s*ESP_OK\s*\)',
-    'snapshot\.service_url\s*=\s*candidate',
-    'snapshot\.version\+\+',
-    'APP_NETWORK_HUB_UPDATE_STATE_SUCCEEDED'
+    'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url[\s\S]{0,180}candidate',
+    's_hub_snapshot\.version\+\+',
+    'APP_NETWORK_HUB_REQUEST_STATE_SUCCEEDED'
 ) 'Hub 保存必须在同一路径重测同一候选地址，并仅在 network_cfg 成功后发布快照、版本与成功结果'
 Assert-TextMatchCount $hubUpdate 'system_storage_set_network_config_borrow\s*\(' 1 `
     'Hub 保存只能提交一次 network_cfg Blob'
@@ -315,9 +361,32 @@ Assert-Contains $provider '\.section_id\s*=\s*"hub"' '缺少 Hub 设置 Provider
 Assert-Contains $provider '\.id\s*=\s*"hub_url"' 'Hub 设置 Provider 未公开地址字段'
 Assert-NotContains $provider 'transport_http_perform_borrow|system_storage_set_network_config_borrow|Authorization|device_token' `
     'Hub Provider 越过 Network Application 直接访问传输、存储或凭据'
+Assert-TextMatchCount (Read-RepoFile $provider) '\.section_id\s*=\s*"hub"' 2 `
+    'Hub Settings 与 Hub Actions 必须分别使用同一个 hub 分区 ID'
+Assert-Contains $provider 'app_network_request_test_hub_url_copy\s*\(' `
+    'Hub Action 未通过 Network Application 异步测试候选地址'
+Assert-Contains $provider 'app_network_request_update_hub_url_copy\s*\(' `
+    'Hub Settings 未通过 Network Application 异步保存候选地址'
 
-Assert-TextMatchCount $hubUpdate 'snapshot\.service_url\s*=\s*candidate' 1 'Hub 新地址只能在 network_cfg 成功分支发布一次'
-Assert-TextMatchCount $hubUpdate 'snapshot\.version\+\+' 1 'Hub 设置版本只能在 network_cfg 成功分支递增一次'
+$remoteLogReconfigure = Read-CFunction $networkTask 'reconfigure_remote_log_after_hub_update'
+Assert-TextInOrder $remoteLogReconfigure @(
+    'stop_remote_log_upload\s*\(',
+    'app_network_get_backend_context_copy\s*\(',
+    'remote_log_configure_copy\s*\(',
+    'remote_log_start\s*\('
+) 'Hub 成功提交后必须按停止、重配、启动顺序最佳努力切换远端日志'
+Assert-TextNotContains $remoteLogReconfigure 'settings_store_save\s*\(|system_storage_set_network_config|service_url|device_token' `
+    '远端日志重配失败不得回滚设置或记录地址、令牌'
+
+Assert-Contains 'main\application\app_web_console.cpp' 'app_web_console_provider_get_actions_borrow\s*\(' `
+    'DeskMate 网页控制台未装配 Hub Actions Provider'
+Assert-NotContains 'main\application\app_web_console.cpp' 'web_console_network_provider' `
+    'DeskMate 产品设置中心仍装配调试型 Network Status Provider'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_WEB_CONSOLE_ACTIONS=y' `
+    'DeskMate 默认构建未启用 Actions 模块'
+
+Assert-TextMatchCount $hubUpdate 'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url' 1 'Hub 新地址只能在 network_cfg 成功分支发布一次'
+Assert-TextMatchCount $hubUpdate 's_hub_snapshot\.version\+\+' 1 'Hub 设置版本只能在 network_cfg 成功分支递增一次'
 Assert-TextNotContains $hubUpdate '(?:latest|last).*hub.*test.*(?:result|success)' 'Hub 地址变化后不得复用旧候选测试结果替代当前地址重测'
 
 if ($failures.Count -gt 0) {
