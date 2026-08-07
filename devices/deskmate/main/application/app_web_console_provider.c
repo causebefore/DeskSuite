@@ -166,7 +166,7 @@ static esp_err_t get_hub_action_result_copy(
 static const web_console_action_provider_t s_action_providers[] = {
     {
         .section_id       = "hub",
-        .label            = "Hub",
+        .label            = "DeskSuite Hub",
         .description      = "测试候选 DeskSuite Hub，不会修改当前设置。",
         .actions          = s_hub_actions,
         .action_count     = HUB_ACTION_COUNT,
@@ -631,7 +631,7 @@ static esp_err_t get_pomodoro_settings_update_result_copy(
 static const web_console_settings_provider_t s_settings_providers[] = {
     {
         .section_id             = "hub",
-        .label                  = "Hub",
+        .label                  = "DeskSuite Hub",
         .description            = "配置 DeskSuite Hub，并在保存前由设备验证连接。",
         .fields                 = s_hub_fields,
         .field_count            = HUB_FIELD_COUNT,

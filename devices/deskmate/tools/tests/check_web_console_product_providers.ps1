@@ -429,8 +429,8 @@ Assert-Contains $provider '#include\s+"app_pomodoro\.h"' `
     '产品 Provider 未通过 Pomodoro 公共 API 适配设置'
 Assert-Contains $provider '#include\s+"system_info\.h"' `
     '产品 Provider 未通过 System 公共 API 适配状态'
-Assert-Contains $provider '\.section_id\s*=\s*"hub"[\s\S]{0,160}\.label\s*=\s*"Hub"' `
-    '设置首页缺少 Hub 分组'
+Assert-Contains $provider '\.section_id\s*=\s*"hub"[\s\S]{0,160}\.label\s*=\s*"DeskSuite Hub"' `
+    '设置首页缺少 DeskSuite Hub 分组'
 Assert-Contains $provider '\.section_id\s*=\s*"pomodoro"[\s\S]{0,160}\.label\s*=\s*"番茄钟"' `
     '设置首页缺少番茄钟分组'
 Assert-Contains $provider '\.section_id\s*=\s*"system"[\s\S]{0,160}\.label\s*=\s*"设备与系统"' `
