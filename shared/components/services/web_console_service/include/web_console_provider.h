@@ -77,7 +77,7 @@ extern "C"
      */
     typedef enum
     {
-        WEB_CONSOLE_FIELD_EFFECT_NONE = 0,        /**< 仅供 Status 字段使用，不描述设置生效方式 */
+        WEB_CONSOLE_FIELD_EFFECT_NONE = 0,        /**< 供 Status 字段和 Actions 输入字段使用，不描述设置生效方式 */
         WEB_CONSOLE_FIELD_EFFECT_IMMEDIATE,       /**< 所有者完成更新时立即生效 */
         WEB_CONSOLE_FIELD_EFFECT_NEXT_TRANSACTION, /**< 下一次领域事务开始时生效 */
         WEB_CONSOLE_FIELD_EFFECT_RECONNECT,       /**< 下次重连后生效 */

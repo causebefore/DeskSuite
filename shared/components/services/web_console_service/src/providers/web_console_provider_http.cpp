@@ -21,6 +21,46 @@
 #define WEB_CONSOLE_PROVIDER_JSON_ITEM_MAX_BYTES    4096U
 #define WEB_CONSOLE_PROVIDER_UINT64_TEXT_SIZE        21U
 
+/** @brief 线性扫描 JSON string，拒绝会被 cJSON 解码为 NUL 的 `\u0000` escape。 */
+static constexpr bool web_console_provider_json_strings_have_no_nul_escape(
+    const char *body,
+    size_t body_size)
+{
+    bool in_string = false;
+    bool escaped   = false;
+    for (size_t index = 0U; index < body_size; ++index)
+    {
+        const char value = body[index];
+        if (!in_string)
+        {
+            if (value == '"')
+            {
+                in_string = true;
+            }
+            continue;
+        }
+        if (escaped)
+        {
+            escaped = false;
+        }
+        else if (value == '\\')
+        {
+            if (index + 5U < body_size && body[index + 1U] == 'u'
+                && body[index + 2U] == '0' && body[index + 3U] == '0'
+                && body[index + 4U] == '0' && body[index + 5U] == '0')
+            {
+                return false;
+            }
+            escaped = true;
+        }
+        else if (value == '"')
+        {
+            in_string = false;
+        }
+    }
+    return true;
+}
+
 #define WEB_CONSOLE_ASCII_VALUE_16 "0123456789ABCDEF"
 static constexpr char k_ascii_value_127[] =
     WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16 WEB_CONSOLE_ASCII_VALUE_16
@@ -39,6 +79,19 @@ static_assert(!web_console_provider_ascii_string_value_is_valid(
 static_assert(!web_console_provider_ascii_string_value_is_valid("\xE4\xB8\xAD", 3U, 127U),
               "非 ASCII 字符串值必须无效");
 #undef WEB_CONSOLE_ASCII_VALUE_16
+
+static constexpr char k_json_decoded_nul[] = R"({"value":"ok\u0000tail"})";
+static constexpr char k_json_literal_nul_escape[] = R"({"value":"ok\\u0000tail"})";
+static constexpr char k_json_normal_ascii[] = R"({"value":"normal-ascii"})";
+static_assert(!web_console_provider_json_strings_have_no_nul_escape(
+                  k_json_decoded_nul, sizeof(k_json_decoded_nul) - 1U),
+              "解码为 NUL 的 JSON string 必须被拒绝");
+static_assert(web_console_provider_json_strings_have_no_nul_escape(
+                  k_json_literal_nul_escape, sizeof(k_json_literal_nul_escape) - 1U),
+              "字面反斜杠-u 不得被 NUL scanner 误拒绝");
+static_assert(web_console_provider_json_strings_have_no_nul_escape(
+                  k_json_normal_ascii, sizeof(k_json_normal_ascii) - 1U),
+              "正常 ASCII JSON string 必须通过 NUL scanner");
 
 enum web_console_update_parse_result_t
 {
@@ -1157,12 +1210,6 @@ static bool web_console_provider_json_depth_is_bounded(const char *body, size_t 
             }
             else if (value == '\\')
             {
-                if (index + 5U < body_size && body[index + 1U] == 'u'
-                    && body[index + 2U] == '0' && body[index + 3U] == '0'
-                    && body[index + 4U] == '0' && body[index + 5U] == '0')
-                {
-                    return false;
-                }
                 escaped = true;
             }
             else if (value == '"')
@@ -1222,7 +1269,8 @@ static cJSON *web_console_provider_receive_json(httpd_req_t *request, bool *out_
     body[body_size] = '\0';
 
     cJSON *root = NULL;
-    if (web_console_provider_json_depth_is_bounded(body, body_size))
+    if (web_console_provider_json_depth_is_bounded(body, body_size)
+        && web_console_provider_json_strings_have_no_nul_escape(body, body_size))
     {
         root = cJSON_ParseWithLengthOpts(body, body_size + 1U, NULL, true);
     }
