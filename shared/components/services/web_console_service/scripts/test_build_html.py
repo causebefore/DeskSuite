@@ -118,6 +118,27 @@ class BuildHtmlTests(unittest.TestCase):
         self.assertNotIn("设备管理", html)
         self.assertNotIn('navigation: { id: "management"', html)
 
+    def test_actions_keep_the_same_top_level_navigation(self):
+        try:
+            html = build_html.assemble_html(
+                INDEX_TEMPLATE,
+                ("files", "settings", "status", "actions"),
+            )
+        except ValueError as error:
+            self.fail(f"Actions 启用态必须保持唯一顶部导航：{error}")
+        navigation_descriptors = re.findall(
+            r'navigation: \{ id: "([^"]+)", label: "([^"]+)" \}',
+            html,
+        )
+        self.assertEqual(
+            navigation_descriptors,
+            [
+                ("files", "文件管理"),
+                ("settings", "设置"),
+            ],
+        )
+        self.assertEqual(html.count('id="logoutButton"'), 1)
+
     def test_settings_home_has_only_customer_groups(self):
         html = build_html.assemble_html(
             INDEX_TEMPLATE,
