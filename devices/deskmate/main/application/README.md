@@ -90,13 +90,15 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 可信系统时间只用于把完成数归入本地日期、安排午夜 one-shot Timer，以及生成预计结束时间。
 阶段状态、暂停剩余和当前轮次不写 NVS，设备重启固定回到 `IDLE`。Power Application 的同步
 补算命令返回前已经更新状态和 Presenter，因此睡眠后恢复 UI 的首帧可直接显示 `DONE`。
-番茄钟设置版本独立于阶段 `generation`，从 1 开始且只在 Task 采用新内存设置时递增。本机 UI
-草稿与浏览器稀疏更新都携带读取时版本；请求接受点和 Task 执行点再次检查版本与 `IDLE`，从而
-拒绝陈旧提交。一次只允许一个 pending 设置请求，请求 ID 单调且不回绕，终态可按 ID 查询。
-内存和版本先原子采用，再在锁外写 NVS；保存失败不回滚已经采用的设置，结果返回 `FAILED`、
-真实存储错误和新版本，同时快照中的 `settings_saved` 为 false。本机 UI 意图的同步接受结果
-返回同一个请求 ID；Application Task 把最新 ID 与结果按值推送给 Presenter，UI 只消费匹配
-ID 的终态，不能把“已入队”当成“已保存”。
+番茄钟设置版本独立于阶段 `generation`，从 1 开始且只在 NVS 成功后递增。本机 UI 草稿与
+浏览器稀疏更新都携带读取时版本；请求接受点和 Task 执行点在状态锁内再次检查请求 ID、单
+pending、版本与 `IDLE`，从而拒绝陈旧提交。Task 按值复制候选设置和 Store 结构后释放状态锁
+写 NVS；原请求在锁外 I/O 期间保持 `PENDING`，新的设置请求仍被单 pending 门拒绝。
+重新持锁后，只有保存成功才一次性公开候选设置、递增版本、更新空闲阶段派生字段并将
+`settings_saved` 置为 true；保存失败保留旧设置、版本、派生字段和原 `settings_saved`，只把
+原请求收敛为 `FAILED` 并记录真实存储错误。本机 UI 意图的同步接受结果返回同一个请求 ID；
+Application Task 把最新 ID 与结果按值推送给 Presenter，UI 只消费匹配 ID 的终态，不能把
+“已入队”当成“已保存”。
 
 阶段完成后，Pomodoro Task 在释放状态锁并发布快照后，把持久化的 `.mp3` 逻辑路径映射到
 `/sdcard`，再以非零 `completion_generation` 向 Audio Service 提交绝对路径。旧 schema 自动

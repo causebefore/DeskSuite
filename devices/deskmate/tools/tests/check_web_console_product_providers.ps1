@@ -275,10 +275,12 @@ Assert-Contains $pomodoroTask 'run_state\s*!=\s*APP_POMODORO_RUN_STATE_IDLE' `
 $pomodoroUpdate = Read-CFunction $pomodoroTask 'update_settings_locked'
 Assert-TextNotContainsBefore $pomodoroUpdate `
     'pomodoro_store_save_settings_copy\s*\(' `
-    'state->snapshot\.settings\s*=|state->snapshot\.settings_version\+\+|APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED' `
-    '番茄钟在持久化前不得发布设置、递增版本或完成成功结果'
+    'state->snapshot\.(?:settings|settings_version|settings_saved|phase_duration_seconds|remaining_seconds|generation)\s*=(?!=)|state->snapshot\.settings_version\+\+|APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED' `
+    '番茄钟在持久化前不得改变设置快照、阶段派生字段、代次或完成成功结果'
 Assert-TextInOrder $pomodoroUpdate @(
     'const\s+app_pomodoro_settings_t\s+candidate\s*=\s*update->settings',
+    'pomodoro_store_settings_t\s+stored\s*=\s*\{[\s\S]{0,320}candidate\.focus_minutes[\s\S]{0,160}candidate\.short_break_minutes[\s\S]{0,160}candidate\.long_break_minutes[\s\S]{0,160}candidate\.long_break_interval',
+    'memcpy\s*\(\s*stored\.completion_audio_path\s*,\s*candidate\.completion_audio_path',
     'xSemaphoreGive\s*\(\s*g_app_pomodoro_runtime\.state_lock\s*\)',
     'pomodoro_store_save_settings_copy\s*\(',
     'xSemaphoreTake\s*\(\s*g_app_pomodoro_runtime\.state_lock\s*,\s*portMAX_DELAY\s*\)',
@@ -289,16 +291,25 @@ Assert-TextInOrder $pomodoroUpdate @(
     'finish_settings_update_locked\s*\(\s*command->settings_request_id'
 ) '番茄钟必须在同一路径中先锁外持久化候选，成功后才锁内发布设置、版本与成功结果'
 Assert-TextContains $pomodoroUpdate `
-    'if\s*\(\s*error\s*==\s*ESP_OK\s*\)\s*\{[\s\S]{0,640}state->snapshot\.settings\s*=\s*candidate[\s\S]{0,240}state->snapshot\.settings_version\+\+[\s\S]{0,240}state->snapshot\.settings_saved\s*=\s*true' `
-    '番茄钟只可在持久化成功分支公开候选设置、版本与已保存事实'
+    'if\s*\(\s*error\s*==\s*ESP_OK\s*\)\s*\{[\s\S]{0,640}state->snapshot\.settings\s*=\s*candidate[\s\S]{0,240}state->snapshot\.settings_version\+\+[\s\S]{0,240}state->snapshot\.phase_duration_seconds\s*=[\s\S]{0,240}state->snapshot\.remaining_seconds\s*=[\s\S]{0,240}state->snapshot\.settings_saved\s*=\s*true[\s\S]{0,240}state->snapshot\.last_error\s*=\s*ESP_OK[\s\S]{0,240}state->snapshot\.generation\s*=' `
+    '番茄钟只可在持久化成功分支公开候选设置、版本、阶段派生字段、已保存事实与新代次'
 Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.settings\s*=\s*candidate' 1 `
     '番茄钟候选设置只能在持久化成功分支发布一次'
 Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.settings_version\+\+' 1 `
     '番茄钟设置版本只能在持久化成功分支递增一次'
+Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.phase_duration_seconds\s*=' 1 `
+    '番茄钟阶段总时长只能在持久化成功分支更新一次'
+Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.remaining_seconds\s*=' 1 `
+    '番茄钟剩余时长只能在持久化成功分支更新一次'
+Assert-TextMatchCount $pomodoroUpdate 'state->snapshot\.generation\s*=' 1 `
+    '番茄钟代次只能在持久化成功分支更新一次'
 Assert-TextNotContains $pomodoroUpdate 'state->snapshot\.settings\s*=\s*update->settings' `
     '番茄钟不得在持久化前直接公开 update 设置'
 Assert-TextNotContains $pomodoroUpdate 'state->snapshot\.settings_saved\s*=\s*false' `
     '番茄钟持久化失败不得覆盖旧的已保存事实'
+Assert-TextContains $pomodoroUpdate `
+    'else\s*\{\s*state->snapshot\.last_error\s*=\s*error\s*;\s*\}\s*finish_settings_update_locked\s*\(\s*command->settings_request_id' `
+    '番茄钟持久化失败只可更新 last_error 并收敛原请求终态'
 Assert-TextContains $pomodoroUpdate `
     'finish_settings_update_locked\s*\(\s*command->settings_request_id\s*,\s*error\s*==\s*ESP_OK\s*\?\s*APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED\s*:\s*APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED\s*,\s*error\s*\)' `
     'Pomodoro 持久化失败路径未在同一事务中完成 FAILED 结果'

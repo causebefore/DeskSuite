@@ -609,10 +609,11 @@ static void finish_settings_update_locked(uint64_t request_id, app_pomodoro_sett
 }
 
 /**
- * @brief 原子重检并应用一个已接受的设置请求，再在状态锁外提交 NVS
+ * @brief 原子重检一个已接受的设置请求，在锁外提交候选后再发布
  *
- * 调用方进入和返回时都持有 state_lock。内存采用时先递增设置版本；NVS 失败只形成 FAILED
- * 终态，不回滚已经公开的新设置和新版本。
+ * 调用方进入和返回时都持有 state_lock。请求保持 PENDING 跨越锁外 NVS 写入，因此新的设置
+ * 请求仍受单 pending 门约束；只有保存成功才一次性公开候选设置、版本和派生快照。保存失败
+ * 保留旧设置、版本和 settings_saved，只收敛原请求的 FAILED 终态与 last_error。
  *
  * @param[in] command 已接受并按值复制的设置命令
  */
@@ -649,35 +650,40 @@ static void update_settings_locked(const app_pomodoro_command_t *command)
         return;
     }
 
-    state->snapshot.settings = update->settings;
-    state->snapshot.settings_version++;
-    state->snapshot.phase_duration_seconds = duration_seconds_for(state, APP_POMODORO_PHASE_FOCUS);
-    state->snapshot.remaining_seconds      = state->snapshot.phase_duration_seconds;
+    const app_pomodoro_settings_t candidate = update->settings;
     pomodoro_store_settings_t stored = {
-        .focus_minutes       = update->settings.focus_minutes,
-        .short_break_minutes = update->settings.short_break_minutes,
-        .long_break_minutes  = update->settings.long_break_minutes,
-        .long_break_interval = update->settings.long_break_interval,
+        .focus_minutes       = candidate.focus_minutes,
+        .short_break_minutes = candidate.short_break_minutes,
+        .long_break_minutes  = candidate.long_break_minutes,
+        .long_break_interval = candidate.long_break_interval,
     };
     memcpy(stored.completion_audio_path,
-           update->settings.completion_audio_path,
+           candidate.completion_audio_path,
            sizeof(stored.completion_audio_path));
-    state->snapshot.settings_saved                               = false;
-    state->snapshot.last_error                                   = ESP_OK;
-    g_app_pomodoro_runtime.latest_settings_update_result.version = state->snapshot.settings_version;
     xSemaphoreGive(g_app_pomodoro_runtime.state_lock);
     const esp_err_t error = pomodoro_store_save_settings_copy(&stored);
     xSemaphoreTake(g_app_pomodoro_runtime.state_lock, portMAX_DELAY);
-    state->snapshot.settings_saved = error == ESP_OK;
-    state->snapshot.last_error     = error;
-    state->snapshot.generation     = next_generation(state->snapshot.generation);
+    if (error == ESP_OK)
+    {
+        state->snapshot.settings               = candidate;
+        state->snapshot.settings_version++;
+        state->snapshot.phase_duration_seconds = duration_seconds_for(state, APP_POMODORO_PHASE_FOCUS);
+        state->snapshot.remaining_seconds      = state->snapshot.phase_duration_seconds;
+        state->snapshot.settings_saved         = true;
+        state->snapshot.last_error             = ESP_OK;
+        state->snapshot.generation             = next_generation(state->snapshot.generation);
+    }
+    else
+    {
+        state->snapshot.last_error = error;
+    }
     finish_settings_update_locked(command->settings_request_id,
                                   error == ESP_OK ? APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED
                                                   : APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED,
                                   error);
     if (error != ESP_OK)
     {
-        ESP_LOGW(TAG, "保存番茄钟设置失败，继续使用内存值: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "保存番茄钟设置失败，保留原设置: %s", esp_err_to_name(error));
     }
 }
 

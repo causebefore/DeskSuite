@@ -52,7 +52,7 @@ extern "C"
     typedef struct
     {
         app_pomodoro_settings_t  settings;               /**< 当前完整设置 */
-        uint64_t                 settings_version;       /**< 当前设置版本，非零且只在采用内存设置时递增 */
+        uint64_t                 settings_version;       /**< 当前设置版本，非零且只在设置持久化成功后递增 */
         app_pomodoro_phase_t     phase;                  /**< 当前阶段 */
         app_pomodoro_phase_t     next_phase;             /**< DONE 确认后进入的阶段 */
         app_pomodoro_run_state_t run_state;              /**< 当前运行状态 */
@@ -62,7 +62,7 @@ extern "C"
         uint8_t                  today_focus_count;      /**< 已归入可信日期的今日完成数 */
         uint8_t                  pending_focus_count;    /**< 尚未归入可信日期的完成数 */
         bool                     date_verified;          /**< 今日计数是否已有可信本地日期 */
-        bool                     settings_saved;         /**< 最近设置和计数写入是否成功 */
+        bool                     settings_saved;         /**< 已公开设置与计数的持久化事实；设置更新失败保留旧值 */
         bool                     completion_latched;     /**< 完成提示尚未确认或取消 */
         uint64_t                 completion_generation;  /**< 当前完成提示的非零代次 */
         uint64_t                 generation;             /**< 当前阶段状态代次 */
@@ -86,8 +86,8 @@ extern "C"
     typedef enum
     {
         APP_POMODORO_SETTINGS_UPDATE_STATE_PENDING = 0, /**< 已接受，尚未形成最终结果 */
-        APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED,   /**< 内存设置已采用且 NVS 已保存 */
-        APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED,      /**< 已形成失败结果，详情见 error */
+        APP_POMODORO_SETTINGS_UPDATE_STATE_SUCCEEDED,   /**< NVS 已保存并原子公开新设置和版本 */
+        APP_POMODORO_SETTINGS_UPDATE_STATE_FAILED,      /**< 已失败且保留旧设置、版本和保存事实 */
     } app_pomodoro_settings_update_state_t;
 
     /** @brief 一次异步番茄钟设置更新的当前或最终结果 */
@@ -182,7 +182,8 @@ extern "C"
      *
      * 本函数在设置状态锁内重新校验版本、IDLE 和单 pending 约束，并以零等待方式把命令复制
      * 入队。返回成功只表示请求已接受；最终 NVS 结果必须通过
-     * `app_pomodoro_get_settings_update_result_copy()` 查询。
+     * `app_pomodoro_get_settings_update_result_copy()` 查询。请求在锁外持久化期间保持 PENDING，
+     * 此时新的设置请求仍会被单 pending 门拒绝。
      *
      * 请求 ID 在一次 Application 生命周期内从 1 严格递增，不回绕或复用。每个终态至少保留
      * 到下一请求成功接受；同步拒绝不产生请求 ID。
@@ -200,8 +201,8 @@ extern "C"
     /**
      * @brief 复制一次已接受番茄钟设置更新的当前结果
      *
-     * 同一时刻只保留当前 pending 或最近一个终态。NVS 失败不会回滚已经采用的内存设置，
-     * 此时返回 FAILED、真实 NVS 错误和已经递增的新设置版本。
+     * 同一时刻只保留当前 pending 或最近一个终态。只有 NVS 成功才会原子公开新设置并递增版本；
+     * NVS 失败返回 FAILED 和真实错误，同时保留旧设置、旧版本与原 `settings_saved`。
      *
      * @param[in] request_id 请求接受时返回的非零 ID
      * @param[out] out_result 当前或最终结果副本
