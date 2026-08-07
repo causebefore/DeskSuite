@@ -18,7 +18,7 @@
 #if CONFIG_WEB_CONSOLE_FILES
 #include "web_console_files_internal.hpp"
 #endif
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
 #include "web_console_provider_internal.hpp"
 #endif
 
@@ -188,7 +188,6 @@ esp_err_t web_console_service_init_borrow(const web_console_service_config_t *co
         return ESP_ERR_INVALID_ARG;
     }
 #endif
-
     if (s_context.state != WEB_CONSOLE_SERVICE_STATE_UNINITIALIZED || s_context.lock != NULL
         || s_context.handlers_drained != NULL || s_context.ingress_closed != NULL
         || s_context.httpd_stop_completed != NULL)
@@ -232,13 +231,21 @@ esp_err_t web_console_service_init_borrow(const web_console_service_config_t *co
     s_context.server_port            = config->server_port;
     s_context.last_error             = ESP_OK;
     s_context.ingress_close_error    = ESP_OK;
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
     web_console_provider_registry_reset();
     const esp_err_t provider_configure_error =
         web_console_provider_registry_configure_copy(config->settings_providers,
                                                      config->settings_provider_count,
                                                      config->status_providers,
-                                                     config->status_provider_count);
+                                                     config->status_provider_count,
+#if CONFIG_WEB_CONSOLE_ACTIONS
+                                                     config->action_providers,
+                                                     config->action_provider_count
+#else
+                                                     NULL,
+                                                     0U
+#endif
+        );
     if (provider_configure_error != ESP_OK)
     {
         web_console_provider_registry_reset();
@@ -257,7 +264,7 @@ esp_err_t web_console_service_init_borrow(const web_console_service_config_t *co
     if (configure_error != ESP_OK)
     {
         web_console_files_reset_context();
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
         web_console_provider_registry_reset();
 #endif
         memset(&s_context, 0, sizeof(s_context));
@@ -733,7 +740,7 @@ esp_err_t web_console_service_deinit(void)
 #if CONFIG_WEB_CONSOLE_FILES
     web_console_files_reset_context();
 #endif
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
     web_console_provider_registry_reset();
 #endif
     return ESP_OK;

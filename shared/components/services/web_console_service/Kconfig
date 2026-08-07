@@ -24,4 +24,12 @@ menu "Web Console Service"
             snapshot routes. Product owners must still explicitly assemble
             Providers at initialization.
 
+    config WEB_CONSOLE_ACTIONS
+        bool "Enable Web Console Actions module"
+        default n
+        help
+            Enable authenticated discovery, bounded asynchronous submission
+            and result routes for explicitly assembled non-destructive device
+            management Actions.
+
 endmenu

@@ -17,7 +17,7 @@
 #if CONFIG_WEB_CONSOLE_FILES
 #include "web_console_files_internal.hpp"
 #endif
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
 #include "web_console_provider_internal.hpp"
 #endif
 
@@ -461,7 +461,7 @@ static esp_err_t handle_session_delete(httpd_req_t *request)
 /** @brief 返回本次构建及实际装配的网页模块描述。 */
 static esp_err_t handle_capabilities_get(httpd_req_t *request)
 {
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
     return web_console_provider_handle_capabilities_get(request);
 #else
     const web_console_http_auth_result_t auth_result =
@@ -561,7 +561,7 @@ static esp_err_t web_console_prepare_route_slots(void)
         return ESP_ERR_INVALID_STATE;
     }
 #endif
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
     size_t provider_route_count = 0U;
     const web_console_route_t *provider_routes =
         web_console_provider_get_routes(&provider_route_count);
@@ -585,7 +585,7 @@ static esp_err_t web_console_prepare_route_slots(void)
         s_route_slots[slot_index].registered = false;
     }
 #endif
-#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS
+#if CONFIG_WEB_CONSOLE_SETTINGS || CONFIG_WEB_CONSOLE_STATUS || CONFIG_WEB_CONSOLE_ACTIONS
     for (size_t index = 0U; index < provider_route_count; ++index)
     {
         const size_t slot_index =

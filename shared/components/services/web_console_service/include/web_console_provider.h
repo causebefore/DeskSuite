@@ -1,6 +1,6 @@
 /**
  * @file web_console_provider.h
- * @brief 网页控制台 Settings 与 Status 模块的可移植 Provider 契约
+ * @brief 网页控制台 Settings、Status 与 Actions 模块的可移植 Provider 契约
  */
 #pragma once
 
@@ -21,8 +21,14 @@ extern "C"
 /** 单次构建最多装配的 Status 分区数。 */
 #define WEB_CONSOLE_STATUS_PROVIDER_MAX_COUNT 8U
 
+/** 单次构建最多装配的 Actions 分区数。 */
+#define WEB_CONSOLE_ACTION_PROVIDER_MAX_COUNT 8U
+
 /** 单个分区最多公开的字段数。 */
 #define WEB_CONSOLE_PROVIDER_MAX_FIELDS_PER_SECTION 12U
+
+/** 单个 Actions 分区最多公开的操作数。 */
+#define WEB_CONSOLE_PROVIDER_MAX_ACTIONS_PER_SECTION 8U
 
 /** 单个枚举字段最多公开的候选值数。 */
 #define WEB_CONSOLE_PROVIDER_MAX_ENUM_VALUES 8U
@@ -36,8 +42,20 @@ extern "C"
 /** 分区、字段或枚举值显示标签最大 UTF-8 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_LABEL_MAX_LENGTH 63U
 
-/** 字符串字段值最大 UTF-8 字节数，不含结尾 NUL。 */
-#define WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH 95U
+/** 可选说明文字最大 UTF-8 字节数，不含结尾 NUL。 */
+#define WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH 255U
+
+/** 可选摘要文字最大 UTF-8 字节数，不含结尾 NUL。 */
+#define WEB_CONSOLE_PROVIDER_SUMMARY_MAX_LENGTH 127U
+
+/** 可选单位文字最大 UTF-8 字节数，不含结尾 NUL。 */
+#define WEB_CONSOLE_PROVIDER_UNIT_MAX_LENGTH 31U
+
+/** 可选字符串格式稳定 ID 最大 ASCII 字节数，不含结尾 NUL。 */
+#define WEB_CONSOLE_PROVIDER_FORMAT_MAX_LENGTH 31U
+
+/** 字符串字段值最大字节数，不含结尾 NUL；与 128 字节 Hub URL 缓冲区对齐。 */
+#define WEB_CONSOLE_PROVIDER_STRING_MAX_LENGTH 127U
 
 /** 文件选择型字符串字段的扩展名后缀最大 ASCII 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_FILE_SUFFIX_MAX_LENGTH 15U
@@ -100,6 +118,10 @@ extern "C"
     {
         const char                    *id;               /**< 分区内唯一的稳定字段 ID */
         const char                    *label;            /**< 面向用户的显示标签 */
+        const char                    *description;      /**< 可选详细说明；初始化期间复制 */
+        const char                    *unit;             /**< 可选显示单位；初始化期间复制 */
+        const char                    *summary;          /**< 可选设置首页摘要标签；初始化期间复制 */
+        const char                    *format;           /**< 可选字符串格式稳定 ID；初始化期间复制 */
         web_console_field_type_t       type;             /**< 字段值类型 */
         web_console_field_access_t     access;           /**< 访问属性位集合 */
         web_console_field_effect_t     effect;           /**< Settings 生效事实；Status 必须为 NONE */
@@ -269,6 +291,7 @@ extern "C"
     {
         const char                                          *section_id; /**< 全部 Settings Provider 中唯一的稳定 ID */
         const char                                          *label;      /**< 面向用户的分区标签 */
+        const char                                          *description; /**< 可选分区说明；初始化期间复制 */
         const web_console_field_info_t                       *fields;     /**< 固定字段描述符数组 */
         size_t                                               field_count; /**< 字段数量 */
         web_console_settings_get_snapshot_copy_cb_t          get_snapshot_copy; /**< 快照回调 */
@@ -316,11 +339,152 @@ extern "C"
     {
         const char                              *section_id; /**< 全部 Status Provider 中唯一的稳定 ID */
         const char                              *label;      /**< 面向用户的分区标签 */
+        const char                              *description; /**< 可选分区说明；初始化期间复制 */
         const web_console_field_info_t           *fields;     /**< 固定字段描述符数组 */
         size_t                                   field_count; /**< 字段数量 */
         web_console_status_get_status_copy_cb_t  get_status_copy; /**< 运行摘要回调 */
         void                                    *context;    /**< 长期借用上下文 */
     } web_console_status_provider_t;
+
+    /**
+     * @brief 异步管理操作的当前阶段
+     */
+    typedef enum
+    {
+        WEB_CONSOLE_ACTION_STATE_PENDING = 0, /**< 已接受，领域所有者尚未形成最终结果 */
+        WEB_CONSOLE_ACTION_STATE_SUCCEEDED,   /**< 操作成功完成 */
+        WEB_CONSOLE_ACTION_STATE_FAILED,      /**< 操作已经失败，原因见 `reason` */
+    } web_console_action_state_t;
+
+    /**
+     * @brief Settings 与 Actions 可跨版本稳定编码的结果原因
+     */
+    typedef enum
+    {
+        WEB_CONSOLE_RESULT_REASON_NONE = 0,       /**< 没有失败原因 */
+        WEB_CONSOLE_RESULT_REASON_VERSION_CONFLICT, /**< 权威版本已经变化 */
+        WEB_CONSOLE_RESULT_REASON_OWNER_BUSY,       /**< 领域所有者当前忙碌 */
+        WEB_CONSOLE_RESULT_REASON_VALIDATION_FAILED, /**< 输入或组合校验失败 */
+        WEB_CONSOLE_RESULT_REASON_PERSISTENCE_FAILED, /**< 持久化失败 */
+        WEB_CONSOLE_RESULT_REASON_CONNECTION_FAILED, /**< 连接目标失败 */
+        WEB_CONSOLE_RESULT_REASON_HEALTH_CHECK_FAILED, /**< 健康检查未通过 */
+        WEB_CONSOLE_RESULT_REASON_TIMEOUT,           /**< 操作在领域期限内超时 */
+        WEB_CONSOLE_RESULT_REASON_UNKNOWN,           /**< 已失败但没有更具体的稳定原因 */
+    } web_console_result_reason_t;
+
+    /**
+     * @brief 一个非破坏性管理操作的稳定元数据
+     *
+     * 输入字段只描述一次操作请求，不表示持久化 Settings；其 `effect` 必须为 `NONE`。
+     * 所有字符串、输入字段和描述符数组只在初始化期间读取并深复制。
+     */
+    typedef struct
+    {
+        const char                     *id;          /**< 分区内唯一的稳定操作 ID */
+        const char                     *label;       /**< 面向用户的操作标签 */
+        const char                     *description; /**< 可选操作说明 */
+        const web_console_field_info_t *input_fields; /**< 固定输入字段描述符数组 */
+        size_t                          input_field_count; /**< 输入字段数量，可为零 */
+    } web_console_action_info_t;
+
+    /**
+     * @brief Actions request 中一个已经校验的输入值
+     */
+    typedef struct
+    {
+        size_t                    field_index; /**< Action 输入描述符数组中的字段索引 */
+        web_console_field_value_t value;       /**< 已通过通用类型和元数据校验的输入值 */
+    } web_console_action_input_t;
+
+    /**
+     * @brief 一次非破坏性管理操作请求
+     *
+     * `inputs` 只在回调期间有效；异步提交回调必须在返回前复制所需内容。`action_index`
+     * 对应 Provider 初始化时的 `actions` 数组索引。
+     */
+    typedef struct
+    {
+        size_t                            action_index; /**< Provider 中的操作索引 */
+        const web_console_action_input_t *inputs;      /**< 不重复的输入值数组 */
+        size_t                            input_count;  /**< 输入值数量，可为零 */
+    } web_console_action_request_t;
+
+    /**
+     * @brief 一次异步管理操作的当前或最终结果
+     */
+    typedef struct
+    {
+        web_console_action_state_t state;  /**< 当前操作阶段 */
+        web_console_result_reason_t reason; /**< 稳定结果原因 */
+    } web_console_action_result_t;
+
+    /**
+     * @brief 由领域所有者同步校验一个完整管理操作请求
+     *
+     * Console 已完成字段、类型、范围、步长、枚举、字符串长度、重复和秘密字段校验。本回调
+     * 继续校验输入组合和领域状态，不得修改产品状态或执行 I/O。
+     *
+     * @param[in] context Provider 的长期借用上下文，可为空
+     * @param[in] action_request 调用期间借用的完整操作请求
+     * @return ESP_OK 可以提交；其他值表示同步拒绝
+     */
+    typedef esp_err_t (*web_console_action_validate_request_cb_t)(
+        void *context,
+        const web_console_action_request_t *action_request);
+
+    /**
+     * @brief 向领域所有者异步提交管理操作副本
+     *
+     * 返回 ESP_OK 只表示请求已在返回前复制并接受；不得在 HTTPD Task 中执行操作或长期阻塞。
+     * 请求 ID 在同一 Provider context 生命周期内必须非零、单调递增且不得复用或回绕。
+     *
+     * @param[in] context Provider 的长期借用上下文，可为空
+     * @param[in] action_request 调用期间借用的完整操作请求
+     * @param[out] out_request_id 成功时写入非零请求 ID
+     * @return ESP_OK 请求已接受；其他值表示同步拒绝
+     */
+    typedef esp_err_t (*web_console_action_request_copy_cb_t)(
+        void *context,
+        const web_console_action_request_t *action_request,
+        uint64_t *out_request_id);
+
+    /**
+     * @brief 复制一次已接受管理操作的当前结果
+     *
+     * PENDING/SUCCEEDED 必须使用 `NONE`；FAILED 必须使用一个非 `NONE` 稳定原因。未知或已淘汰
+     * 的请求返回 `ESP_ERR_NOT_FOUND`。回调只能做有界内存读取和短时所有者加锁。
+     *
+     * @param[in] context Provider 的长期借用上下文，可为空
+     * @param[in] action_index Provider 中的操作索引
+     * @param[in] request_id `request_copy` 返回的非零请求 ID
+     * @param[out] out_result 当前结果副本
+     * @return ESP_OK 结果有效；ESP_ERR_NOT_FOUND 请求未知；其他值由领域所有者定义
+     */
+    typedef esp_err_t (*web_console_action_get_result_copy_cb_t)(
+        void *context,
+        size_t action_index,
+        uint64_t request_id,
+        web_console_action_result_t *out_result);
+
+    /**
+     * @brief 一个可移植的非破坏性 Actions 分区 Provider
+     *
+     * 初始化深复制分区、操作和输入字段元数据以及回调函数；仅 `context` 长期借用到 Service
+     * 成功反初始化。实际异步提交和结果仍使用 `request/result` 契约，`action` 只描述控制台
+     * 能力，不得承载删除、覆盖或恢复出厂设置等破坏性操作。
+     */
+    typedef struct
+    {
+        const char                               *section_id; /**< 全部 Actions Provider 中唯一的稳定 ID */
+        const char                               *label;      /**< 面向用户的分区标签 */
+        const char                               *description; /**< 可选分区说明 */
+        const web_console_action_info_t           *actions;    /**< 固定操作描述符数组 */
+        size_t                                    action_count; /**< 操作数量 */
+        web_console_action_validate_request_cb_t  validate_request; /**< 领域校验回调 */
+        web_console_action_request_copy_cb_t      request_copy; /**< 异步提交回调 */
+        web_console_action_get_result_copy_cb_t   get_result_copy; /**< 结果查询回调 */
+        void                                     *context;     /**< 长期借用上下文 */
+    } web_console_action_provider_t;
 
 #ifdef __cplusplus
 }

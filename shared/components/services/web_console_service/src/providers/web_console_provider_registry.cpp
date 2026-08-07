@@ -1,6 +1,6 @@
 /**
  * @file web_console_provider_registry.cpp
- * @brief Settings/Status Provider 元数据校验、深复制与固定发现实现
+ * @brief Settings/Status/Actions Provider 元数据校验、深复制与固定发现实现
  */
 #include "web_console_provider_internal.hpp"
 
@@ -16,6 +16,7 @@ struct web_console_settings_provider_storage_t
     web_console_settings_provider_t provider;
     char                           *section_id;
     char                           *label;
+    char                           *description;
     web_console_field_info_t       *fields;
 };
 
@@ -24,15 +25,42 @@ struct web_console_status_provider_storage_t
     web_console_status_provider_t provider;
     char                         *section_id;
     char                         *label;
+    char                         *description;
     web_console_field_info_t     *fields;
 };
+
+#if CONFIG_WEB_CONSOLE_ACTIONS
+struct web_console_action_info_storage_t
+{
+    char                     *id;
+    char                     *label;
+    char                     *description;
+    web_console_field_info_t *input_fields;
+};
+
+struct web_console_action_provider_storage_t
+{
+    web_console_action_provider_t       provider;
+    char                               *section_id;
+    char                               *label;
+    char                               *description;
+    web_console_action_info_t          *actions;
+    web_console_action_info_storage_t  *action_storage;
+};
+#endif
 
 struct web_console_provider_registry_t
 {
     web_console_settings_provider_storage_t settings[WEB_CONSOLE_SETTINGS_PROVIDER_MAX_COUNT];
     web_console_status_provider_storage_t   status[WEB_CONSOLE_STATUS_PROVIDER_MAX_COUNT];
+#if CONFIG_WEB_CONSOLE_ACTIONS
+    web_console_action_provider_storage_t   action[WEB_CONSOLE_ACTION_PROVIDER_MAX_COUNT];
+#endif
     size_t                                  settings_count;
     size_t                                  status_count;
+#if CONFIG_WEB_CONSOLE_ACTIONS
+    size_t                                  action_count;
+#endif
 };
 
 static web_console_provider_registry_t s_registry{};
@@ -139,6 +167,25 @@ static bool web_console_id_is_valid(const char *id, size_t maximum)
     return true;
 }
 
+/** @brief 校验可选 UTF-8 元数据；空指针表示未提供，非空时不得为空串。 */
+static bool web_console_optional_utf8_is_valid(const char *text, size_t maximum)
+{
+    if (text == NULL)
+    {
+        return true;
+    }
+    size_t length = 0U;
+    return web_console_get_bounded_string_length(text, maximum, &length)
+           && web_console_provider_utf8_is_valid(text, length);
+}
+
+enum web_console_field_usage_t
+{
+    WEB_CONSOLE_FIELD_USAGE_SETTINGS = 0,
+    WEB_CONSOLE_FIELD_USAGE_STATUS,
+    WEB_CONSOLE_FIELD_USAGE_ACTION_INPUT,
+};
+
 /** @brief 校验文件选择字段使用点号开头的小写 ASCII 扩展名。 */
 #if CONFIG_WEB_CONSOLE_FILES
 static bool web_console_file_suffix_is_valid(const char *suffix)
@@ -163,7 +210,8 @@ static bool web_console_file_suffix_is_valid(const char *suffix)
 #endif
 
 /** @brief 校验一个字段访问属性及类型专属约束。 */
-static bool web_console_field_info_is_valid(const web_console_field_info_t *field, bool status_field)
+static bool web_console_field_info_is_valid(const web_console_field_info_t *field,
+                                            web_console_field_usage_t usage)
 {
     if (field == NULL || !web_console_id_is_valid(field->id, WEB_CONSOLE_PROVIDER_FIELD_ID_MAX_LENGTH))
     {
@@ -176,6 +224,17 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
         return false;
     }
     if (!web_console_provider_utf8_is_valid(field->label, label_length))
+    {
+        return false;
+    }
+    if (!web_console_optional_utf8_is_valid(
+            field->description, WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH)
+        || !web_console_optional_utf8_is_valid(field->unit, WEB_CONSOLE_PROVIDER_UNIT_MAX_LENGTH)
+        || !web_console_optional_utf8_is_valid(
+            field->summary, WEB_CONSOLE_PROVIDER_SUMMARY_MAX_LENGTH)
+        || (field->format != NULL
+            && !web_console_id_is_valid(
+                field->format, WEB_CONSOLE_PROVIDER_FORMAT_MAX_LENGTH)))
     {
         return false;
     }
@@ -194,9 +253,19 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
     {
         return false;
     }
-    if (status_field)
+    if (usage == WEB_CONSOLE_FIELD_USAGE_STATUS)
     {
         if (field->access != WEB_CONSOLE_FIELD_ACCESS_READ_ONLY || field->effect != WEB_CONSOLE_FIELD_EFFECT_NONE)
+        {
+            return false;
+        }
+    }
+    else if (usage == WEB_CONSOLE_FIELD_USAGE_ACTION_INPUT)
+    {
+        if ((field->access & (WEB_CONSOLE_FIELD_ACCESS_READ_ONLY
+                              | WEB_CONSOLE_FIELD_ACCESS_WRITE_ONLY))
+                != 0U
+            || field->effect != WEB_CONSOLE_FIELD_EFFECT_NONE)
         {
             return false;
         }
@@ -213,7 +282,8 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
 #if !CONFIG_WEB_CONSOLE_FILES
         return false;
 #else
-        if (status_field || field->type != WEB_CONSOLE_FIELD_TYPE_STRING || field->access != 0U
+        if (usage == WEB_CONSOLE_FIELD_USAGE_STATUS
+            || field->type != WEB_CONSOLE_FIELD_TYPE_STRING || field->access != 0U
             || !web_console_file_suffix_is_valid(field->file_suffix))
         {
             return false;
@@ -226,19 +296,22 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
         case WEB_CONSOLE_FIELD_TYPE_BOOL:
             return field->minimum == 0 && field->maximum == 0 && field->step == 0U
                    && field->max_length_bytes == 0U && field->enum_values == NULL
-                   && field->enum_value_count == 0U && field->file_suffix == NULL;
+                   && field->enum_value_count == 0U && field->file_suffix == NULL
+                   && field->format == NULL;
 
         case WEB_CONSOLE_FIELD_TYPE_INT32:
             return field->minimum >= INT32_MIN && field->maximum <= INT32_MAX
                    && field->minimum <= field->maximum && field->step > 0U
                    && field->max_length_bytes == 0U && field->enum_values == NULL
-                   && field->enum_value_count == 0U && field->file_suffix == NULL;
+                   && field->enum_value_count == 0U && field->file_suffix == NULL
+                   && field->format == NULL;
 
         case WEB_CONSOLE_FIELD_TYPE_UINT32:
             return field->minimum >= 0 && field->maximum <= UINT32_MAX
                    && field->minimum <= field->maximum && field->step > 0U
                    && field->max_length_bytes == 0U && field->enum_values == NULL
-                   && field->enum_value_count == 0U && field->file_suffix == NULL;
+                   && field->enum_value_count == 0U && field->file_suffix == NULL
+                   && field->format == NULL;
 
         case WEB_CONSOLE_FIELD_TYPE_STRING:
             return field->minimum == 0 && field->maximum == 0 && field->step == 0U
@@ -251,7 +324,7 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
                 || field->max_length_bytes != 0U || field->enum_values == NULL
                 || field->enum_value_count == 0U
                 || field->enum_value_count > WEB_CONSOLE_PROVIDER_MAX_ENUM_VALUES
-                || field->file_suffix != NULL)
+                || field->file_suffix != NULL || field->format != NULL)
             {
                 return false;
             }
@@ -317,6 +390,10 @@ static void web_console_free_field(web_console_field_info_t *field)
     }
     free(const_cast<char *>(field->id));
     free(const_cast<char *>(field->label));
+    free(const_cast<char *>(field->description));
+    free(const_cast<char *>(field->unit));
+    free(const_cast<char *>(field->summary));
+    free(const_cast<char *>(field->format));
     free(const_cast<char *>(field->file_suffix));
     memset(field, 0, sizeof(*field));
 }
@@ -342,6 +419,10 @@ static esp_err_t web_console_copy_field(web_console_field_info_t *destination,
     *destination             = *source;
     destination->id          = NULL;
     destination->label       = NULL;
+    destination->description = NULL;
+    destination->unit        = NULL;
+    destination->summary     = NULL;
+    destination->format      = NULL;
     destination->file_suffix = NULL;
     destination->enum_values = NULL;
 
@@ -353,6 +434,29 @@ static esp_err_t web_console_copy_field(web_console_field_info_t *destination,
         char *label_copy = NULL;
         error            = web_console_copy_string(source->label, &label_copy);
         destination->label = label_copy;
+    }
+    const char *optional_sources[] = {
+        source->description,
+        source->unit,
+        source->summary,
+        source->format,
+    };
+    const char **optional_destinations[] = {
+        &destination->description,
+        &destination->unit,
+        &destination->summary,
+        &destination->format,
+    };
+    for (size_t index = 0U;
+         error == ESP_OK && index < sizeof(optional_sources) / sizeof(optional_sources[0]);
+         ++index)
+    {
+        if (optional_sources[index] != NULL)
+        {
+            char *copy = NULL;
+            error = web_console_copy_string(optional_sources[index], &copy);
+            *optional_destinations[index] = copy;
+        }
     }
     if (error == ESP_OK && source->file_suffix != NULL)
     {
@@ -390,15 +494,18 @@ static esp_err_t web_console_copy_field(web_console_field_info_t *destination,
 /** @brief 校验同一分区中的字段 ID 唯一性。 */
 static bool web_console_fields_are_valid(const web_console_field_info_t *fields,
                                          size_t field_count,
-                                         bool status_fields)
+                                         web_console_field_usage_t usage,
+                                         bool allow_empty)
 {
-    if (fields == NULL || field_count == 0U || field_count > WEB_CONSOLE_PROVIDER_MAX_FIELDS_PER_SECTION)
+    if ((field_count == 0U) != (fields == NULL)
+        || (!allow_empty && field_count == 0U)
+        || field_count > WEB_CONSOLE_PROVIDER_MAX_FIELDS_PER_SECTION)
     {
         return false;
     }
     for (size_t index = 0U; index < field_count; ++index)
     {
-        if (!web_console_field_info_is_valid(&fields[index], status_fields))
+        if (!web_console_field_info_is_valid(&fields[index], usage))
         {
             return false;
         }
@@ -429,13 +536,18 @@ static bool web_console_settings_providers_are_valid(const web_console_settings_
             || !web_console_get_bounded_string_length(provider->label,
                                                       WEB_CONSOLE_PROVIDER_LABEL_MAX_LENGTH,
                                                       &label_length)
-            || !web_console_fields_are_valid(provider->fields, provider->field_count, false)
+            || !web_console_fields_are_valid(provider->fields,
+                                              provider->field_count,
+                                              WEB_CONSOLE_FIELD_USAGE_SETTINGS,
+                                              false)
             || provider->get_snapshot_copy == NULL || provider->validate_update == NULL
             || provider->request_update_copy == NULL || provider->get_update_result_copy == NULL)
         {
             return false;
         }
-        if (!web_console_provider_utf8_is_valid(provider->label, label_length))
+        if (!web_console_provider_utf8_is_valid(provider->label, label_length)
+            || !web_console_optional_utf8_is_valid(
+                provider->description, WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH))
         {
             return false;
         }
@@ -466,12 +578,17 @@ static bool web_console_status_providers_are_valid(const web_console_status_prov
             || !web_console_get_bounded_string_length(provider->label,
                                                       WEB_CONSOLE_PROVIDER_LABEL_MAX_LENGTH,
                                                       &label_length)
-            || !web_console_fields_are_valid(provider->fields, provider->field_count, true)
+            || !web_console_fields_are_valid(provider->fields,
+                                              provider->field_count,
+                                              WEB_CONSOLE_FIELD_USAGE_STATUS,
+                                              false)
             || provider->get_status_copy == NULL)
         {
             return false;
         }
-        if (!web_console_provider_utf8_is_valid(provider->label, label_length))
+        if (!web_console_provider_utf8_is_valid(provider->label, label_length)
+            || !web_console_optional_utf8_is_valid(
+                provider->description, WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH))
         {
             return false;
         }
@@ -485,6 +602,71 @@ static bool web_console_status_providers_are_valid(const web_console_status_prov
     }
     return true;
 }
+
+#if CONFIG_WEB_CONSOLE_ACTIONS
+/** @brief 校验 Actions Provider 集合中的分区、操作、输入字段和回调契约。 */
+static bool web_console_action_providers_are_valid(const web_console_action_provider_t *providers,
+                                                   size_t count)
+{
+    if ((count == 0U) != (providers == NULL) || count > WEB_CONSOLE_ACTION_PROVIDER_MAX_COUNT)
+    {
+        return false;
+    }
+    for (size_t index = 0U; index < count; ++index)
+    {
+        const web_console_action_provider_t *provider = &providers[index];
+        size_t label_length = 0U;
+        if (!web_console_id_is_valid(provider->section_id, WEB_CONSOLE_PROVIDER_SECTION_ID_MAX_LENGTH)
+            || !web_console_get_bounded_string_length(provider->label,
+                                                      WEB_CONSOLE_PROVIDER_LABEL_MAX_LENGTH,
+                                                      &label_length)
+            || !web_console_provider_utf8_is_valid(provider->label, label_length)
+            || !web_console_optional_utf8_is_valid(
+                provider->description, WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH)
+            || provider->actions == NULL || provider->action_count == 0U
+            || provider->action_count > WEB_CONSOLE_PROVIDER_MAX_ACTIONS_PER_SECTION
+            || provider->validate_request == NULL || provider->request_copy == NULL
+            || provider->get_result_copy == NULL)
+        {
+            return false;
+        }
+        for (size_t action_index = 0U; action_index < provider->action_count; ++action_index)
+        {
+            const web_console_action_info_t *action = &provider->actions[action_index];
+            size_t action_label_length = 0U;
+            if (!web_console_id_is_valid(action->id, WEB_CONSOLE_PROVIDER_FIELD_ID_MAX_LENGTH)
+                || !web_console_get_bounded_string_length(action->label,
+                                                          WEB_CONSOLE_PROVIDER_LABEL_MAX_LENGTH,
+                                                          &action_label_length)
+                || !web_console_provider_utf8_is_valid(action->label, action_label_length)
+                || !web_console_optional_utf8_is_valid(
+                    action->description, WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH)
+                || !web_console_fields_are_valid(action->input_fields,
+                                                  action->input_field_count,
+                                                  WEB_CONSOLE_FIELD_USAGE_ACTION_INPUT,
+                                                  true))
+            {
+                return false;
+            }
+            for (size_t compared = 0U; compared < action_index; ++compared)
+            {
+                if (strcmp(action->id, provider->actions[compared].id) == 0)
+                {
+                    return false;
+                }
+            }
+        }
+        for (size_t compared = 0U; compared < index; ++compared)
+        {
+            if (strcmp(provider->section_id, providers[compared].section_id) == 0)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+#endif
 
 /** @brief 深复制一个分区的字段描述符数组。 */
 static esp_err_t web_console_copy_fields(const web_console_field_info_t *source,
@@ -516,6 +698,7 @@ static void web_console_free_settings_provider(web_console_settings_provider_sto
     web_console_free_fields(storage->fields, storage->provider.field_count);
     free(storage->section_id);
     free(storage->label);
+    free(storage->description);
     memset(storage, 0, sizeof(*storage));
 }
 
@@ -525,17 +708,118 @@ static void web_console_free_status_provider(web_console_status_provider_storage
     web_console_free_fields(storage->fields, storage->provider.field_count);
     free(storage->section_id);
     free(storage->label);
+    free(storage->description);
     memset(storage, 0, sizeof(*storage));
 }
+
+#if CONFIG_WEB_CONSOLE_ACTIONS
+/** @brief 释放一个 Actions Provider 的全部深复制元数据。 */
+static void web_console_free_action_provider(web_console_action_provider_storage_t *storage)
+{
+    if (storage->actions != NULL)
+    {
+        for (size_t index = 0U; index < storage->provider.action_count; ++index)
+        {
+            web_console_action_info_storage_t *action = &storage->action_storage[index];
+            web_console_free_fields(action->input_fields,
+                                    storage->actions[index].input_field_count);
+            free(action->id);
+            free(action->label);
+            free(action->description);
+        }
+        free(storage->actions);
+        free(storage->action_storage);
+    }
+    free(storage->section_id);
+    free(storage->label);
+    free(storage->description);
+    memset(storage, 0, sizeof(*storage));
+}
+
+/** @brief 深复制一个已经校验的 Actions 描述符数组。 */
+static esp_err_t web_console_copy_actions(const web_console_action_info_t *source,
+                                          size_t action_count,
+                                          web_console_action_info_t **out_actions,
+                                          web_console_action_info_storage_t **out_storage)
+{
+    web_console_action_info_t *actions = static_cast<web_console_action_info_t *>(
+        calloc(action_count, sizeof(web_console_action_info_t)));
+    web_console_action_info_storage_t *storage =
+        static_cast<web_console_action_info_storage_t *>(
+            calloc(action_count, sizeof(web_console_action_info_storage_t)));
+    if (actions == NULL || storage == NULL)
+    {
+        free(actions);
+        free(storage);
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t error = ESP_OK;
+    for (size_t index = 0U; error == ESP_OK && index < action_count; ++index)
+    {
+        web_console_action_info_storage_t *destination = &storage[index];
+        actions[index] = source[index];
+        actions[index].id = NULL;
+        actions[index].label = NULL;
+        actions[index].description = NULL;
+        actions[index].input_fields = NULL;
+
+        error = web_console_copy_string(source[index].id, &destination->id);
+        if (error == ESP_OK)
+        {
+            error = web_console_copy_string(source[index].label, &destination->label);
+        }
+        if (error == ESP_OK && source[index].description != NULL)
+        {
+            error = web_console_copy_string(source[index].description, &destination->description);
+        }
+        if (error == ESP_OK && source[index].input_field_count > 0U)
+        {
+            error = web_console_copy_fields(source[index].input_fields,
+                                            source[index].input_field_count,
+                                            &destination->input_fields);
+        }
+        actions[index].id = destination->id;
+        actions[index].label = destination->label;
+        actions[index].description = destination->description;
+        actions[index].input_fields = destination->input_fields;
+    }
+    if (error != ESP_OK)
+    {
+        for (size_t index = 0U; index < action_count; ++index)
+        {
+            web_console_free_fields(storage[index].input_fields,
+                                    actions[index].input_field_count);
+            free(storage[index].id);
+            free(storage[index].label);
+            free(storage[index].description);
+        }
+        free(actions);
+        free(storage);
+        return error;
+    }
+    *out_actions = actions;
+    *out_storage = storage;
+    return ESP_OK;
+}
+#endif
 
 esp_err_t web_console_provider_registry_configure_copy(
     const web_console_settings_provider_t *settings_providers,
     size_t settings_provider_count,
     const web_console_status_provider_t *status_providers,
-    size_t status_provider_count)
+    size_t status_provider_count,
+    const web_console_action_provider_t *action_providers,
+    size_t action_provider_count)
 {
     if (!web_console_settings_providers_are_valid(settings_providers, settings_provider_count)
-        || !web_console_status_providers_are_valid(status_providers, status_provider_count))
+        || !web_console_status_providers_are_valid(status_providers, status_provider_count)
+#if CONFIG_WEB_CONSOLE_ACTIONS
+        || !web_console_action_providers_are_valid(action_providers, action_provider_count)
+#else
+        || action_providers != NULL || action_provider_count != 0U
+#endif
+    )
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -548,12 +832,17 @@ esp_err_t web_console_provider_registry_configure_copy(
         destination->provider = *source;
         destination->provider.section_id = NULL;
         destination->provider.label      = NULL;
+        destination->provider.description = NULL;
         destination->provider.fields     = NULL;
 
         esp_err_t error = web_console_copy_string(source->section_id, &destination->section_id);
         if (error == ESP_OK)
         {
             error = web_console_copy_string(source->label, &destination->label);
+        }
+        if (error == ESP_OK && source->description != NULL)
+        {
+            error = web_console_copy_string(source->description, &destination->description);
         }
         if (error == ESP_OK)
         {
@@ -566,6 +855,7 @@ esp_err_t web_console_provider_registry_configure_copy(
         }
         destination->provider.section_id = destination->section_id;
         destination->provider.label      = destination->label;
+        destination->provider.description = destination->description;
         destination->provider.fields     = destination->fields;
         s_registry.settings_count        = index + 1U;
     }
@@ -576,12 +866,17 @@ esp_err_t web_console_provider_registry_configure_copy(
         destination->provider = *source;
         destination->provider.section_id = NULL;
         destination->provider.label      = NULL;
+        destination->provider.description = NULL;
         destination->provider.fields     = NULL;
 
         esp_err_t error = web_console_copy_string(source->section_id, &destination->section_id);
         if (error == ESP_OK)
         {
             error = web_console_copy_string(source->label, &destination->label);
+        }
+        if (error == ESP_OK && source->description != NULL)
+        {
+            error = web_console_copy_string(source->description, &destination->description);
         }
         if (error == ESP_OK)
         {
@@ -594,9 +889,49 @@ esp_err_t web_console_provider_registry_configure_copy(
         }
         destination->provider.section_id = destination->section_id;
         destination->provider.label      = destination->label;
+        destination->provider.description = destination->description;
         destination->provider.fields     = destination->fields;
         s_registry.status_count          = index + 1U;
     }
+#if CONFIG_WEB_CONSOLE_ACTIONS
+    for (size_t index = 0U; index < action_provider_count; ++index)
+    {
+        const web_console_action_provider_t *source = &action_providers[index];
+        web_console_action_provider_storage_t *destination = &s_registry.action[index];
+        destination->provider = *source;
+        destination->provider.section_id = NULL;
+        destination->provider.label = NULL;
+        destination->provider.description = NULL;
+        destination->provider.actions = NULL;
+
+        esp_err_t error = web_console_copy_string(source->section_id, &destination->section_id);
+        if (error == ESP_OK)
+        {
+            error = web_console_copy_string(source->label, &destination->label);
+        }
+        if (error == ESP_OK && source->description != NULL)
+        {
+            error = web_console_copy_string(source->description, &destination->description);
+        }
+        if (error == ESP_OK)
+        {
+            error = web_console_copy_actions(source->actions,
+                                             source->action_count,
+                                             &destination->actions,
+                                             &destination->action_storage);
+        }
+        if (error != ESP_OK)
+        {
+            web_console_provider_registry_reset();
+            return error;
+        }
+        destination->provider.section_id = destination->section_id;
+        destination->provider.label = destination->label;
+        destination->provider.description = destination->description;
+        destination->provider.actions = destination->actions;
+        s_registry.action_count = index + 1U;
+    }
+#endif
     return ESP_OK;
 }
 
@@ -610,6 +945,12 @@ void web_console_provider_registry_reset(void)
     {
         web_console_free_status_provider(&s_registry.status[index]);
     }
+#if CONFIG_WEB_CONSOLE_ACTIONS
+    for (size_t index = 0U; index < WEB_CONSOLE_ACTION_PROVIDER_MAX_COUNT; ++index)
+    {
+        web_console_free_action_provider(&s_registry.action[index]);
+    }
+#endif
     memset(&s_registry, 0, sizeof(s_registry));
 }
 
@@ -664,3 +1005,31 @@ const web_console_status_provider_t *web_console_provider_registry_find_status(c
     }
     return NULL;
 }
+
+#if CONFIG_WEB_CONSOLE_ACTIONS
+size_t web_console_provider_registry_get_action_count(void)
+{
+    return s_registry.action_count;
+}
+
+const web_console_action_provider_t *web_console_provider_registry_get_action(size_t index)
+{
+    return index < s_registry.action_count ? &s_registry.action[index].provider : NULL;
+}
+
+const web_console_action_provider_t *web_console_provider_registry_find_action(const char *section_id)
+{
+    if (section_id == NULL)
+    {
+        return NULL;
+    }
+    for (size_t index = 0U; index < s_registry.action_count; ++index)
+    {
+        if (strcmp(section_id, s_registry.action[index].provider.section_id) == 0)
+        {
+            return &s_registry.action[index].provider;
+        }
+    }
+    return NULL;
+}
+#endif

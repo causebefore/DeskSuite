@@ -42,7 +42,7 @@ if(CONFIG_WEB_CONSOLE_FILES)
     )
 endif()
 
-if(CONFIG_WEB_CONSOLE_SETTINGS OR CONFIG_WEB_CONSOLE_STATUS)
+if(CONFIG_WEB_CONSOLE_SETTINGS OR CONFIG_WEB_CONSOLE_STATUS OR CONFIG_WEB_CONSOLE_ACTIONS)
     list(APPEND web_console_sources
         "src/providers/web_console_provider_registry.cpp"
         "src/providers/web_console_provider_http.cpp"
@@ -52,6 +52,14 @@ if(CONFIG_WEB_CONSOLE_SETTINGS OR CONFIG_WEB_CONSOLE_STATUS)
     list(APPEND web_console_web_dependencies
         "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/fields.css"
         "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/fields.js"
+    )
+endif()
+
+if(CONFIG_WEB_CONSOLE_ACTIONS)
+    list(APPEND web_console_web_modules --module actions)
+    list(APPEND web_console_web_dependencies
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/actions.html"
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/modules/actions.js"
     )
 endif()
 

@@ -153,9 +153,10 @@
 | `playback` | 音频领域对象 | 播放事务 | 由 Audio Service 独占的一次文件或 PCM 输出事务及其状态 | 用于 `playback_state`、播放结果和取消操作；不表示解码步骤、底层 `write` I/O 或 Service 生命周期 |
 | `console` | 本地管理领域对象 | 管理控制台 | 通过本地 Web UI 与 HTTP API 聚合可裁剪设备管理能力的交互表面 | 只以 `web_console` 组合使用；不表示 UART/REPL 终端、配网 Portal、命令行或产品策略所有者 |
 | `provider` | 架构领域对象 | 能力提供者 | 通过类型化回调集合转接领域事实或操作入口，不转移原领域状态与持久化所有权 | 用于 `<feature>_provider_t` 等可替换装配契约；不表示资源 `owner`，不得借此让使用方直接访问提供者内部存储或运行时 |
-| `section` | 管理领域对象 | 管理分区 | 一个 Provider 向管理控制台公开的一组同领域 Settings 或 Status 字段 | 以稳定 ID 标识；不表示网页页面、HTTP 路由、NVS namespace 或 C/C++ 链接段 |
-| `field` | 管理领域对象 | 管理字段 | 管理分区内具有稳定 ID、类型和约束的最小公开值 | 用于 `web_console_field_*`；不泛化替代普通结构体成员、数据库列或表单控件 |
+| `section` | 管理领域对象 | 管理分区 | 一个 Provider 向管理控制台公开的一组同领域 Settings、Status 字段或 Actions | 以稳定 ID 标识；不同 Provider 类型可以复用同一 ID；不表示网页页面、HTTP 路由、NVS namespace 或 C/C++ 链接段 |
+| `field` | 管理领域对象 | 管理字段 | 管理分区内具有稳定 ID、类型和约束的最小公开值或操作输入 | 用于 `web_console_field_*`；不泛化替代普通结构体成员、数据库列或表单控件 |
 | `effect` | 设置领域事实 | 生效方式 | 设置更新成功后，新值影响产品运行时所需的时机或前置条件 | 只描述立即、下一事务、重连、重启或空闲态等事实；不表示更新结果、错误恢复动作或产品策略 |
+| `action` | 管理领域对象 | 管理操作 | 管理控制台向用户公开的一项非破坏性、可显式提交并查询结果的设备管理能力描述 | 用于 `web_console_action_*` 元数据和 HTTP 能力发现；不替代异步提交 `request`、最终 `result`、内部 `command`，也不得用于删除、覆盖或恢复出厂设置等破坏性操作 |
 
 ## 6. 状态与数据形态
 
