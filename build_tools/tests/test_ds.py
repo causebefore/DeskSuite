@@ -532,3 +532,116 @@ def test_publish_firmware_rejects_stale_target_version(tmp_path):
             sha,
             len(b"fw-bytes"),
         )
+
+
+def test_load_ota_publish_config_accepts_ubuntu_ssh_docker_profile(tmp_path):
+    config_path = tmp_path / "products.toml"
+    config_path.write_text(
+        """
+[ota_publish]
+mode = "ssh_docker"
+ssh_host = "ubuntu"
+remote_service_root = "/opt/appdata/desksuite-hub"
+container_name = "desksuite-hub"
+container_firmware_root = "/app/firmwares"
+runtime_uid = 10001
+runtime_gid = 10001
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ds.load_ota_publish_config(config_path)
+
+    assert config == ds.OtaPublishConfig(
+        mode="ssh_docker",
+        ssh_host="ubuntu",
+        remote_service_root="/opt/appdata/desksuite-hub",
+        container_name="desksuite-hub",
+        container_firmware_root="/app/firmwares",
+        runtime_uid=10001,
+        runtime_gid=10001,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("ssh_host", "ubuntu;echo-bad"),
+        ("container_name", "../hub"),
+        ("remote_service_root", "relative/hub"),
+        ("container_firmware_root", "/app/../etc"),
+        ("runtime_uid", -1),
+        ("runtime_gid", True),
+    ),
+)
+def test_load_ota_publish_config_rejects_unsafe_fields(tmp_path, field, value):
+    values = {
+        "mode": "ssh_docker",
+        "ssh_host": "ubuntu",
+        "remote_service_root": "/opt/appdata/desksuite-hub",
+        "container_name": "desksuite-hub",
+        "container_firmware_root": "/app/firmwares",
+        "runtime_uid": 10001,
+        "runtime_gid": 10001,
+    }
+    values[field] = value
+    config_path = tmp_path / "products.toml"
+    config_path.write_text(
+        "\n".join(
+            (
+                "[ota_publish]",
+                f'mode = "{values["mode"]}"',
+                f'ssh_host = "{values["ssh_host"]}"',
+                f'remote_service_root = "{values["remote_service_root"]}"',
+                f'container_name = "{values["container_name"]}"',
+                f'container_firmware_root = "{values["container_firmware_root"]}"',
+                f'runtime_uid = {str(values["runtime_uid"]).lower()}',
+                f'runtime_gid = {str(values["runtime_gid"]).lower()}',
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit):
+        ds.load_ota_publish_config(config_path)
+
+
+def test_ota_minimum_from_manifest_text_treats_missing_as_first_publish():
+    assert ds.ota_minimum_from_manifest_text(None, ds.PRODUCTS["deskmate"]) == 1
+
+
+def test_ota_minimum_from_manifest_text_returns_next_remote_version():
+    manifest = ds.build_manifest(
+        ds.PRODUCTS["deskmate"], "1.0.2", 42, ARTIFACT_ID, "b" * 64, 1024
+    )
+
+    assert (
+        ds.ota_minimum_from_manifest_text(
+            json.dumps(manifest), ds.PRODUCTS["deskmate"]
+        )
+        == 43
+    )
+
+
+def test_ota_minimum_from_manifest_text_rejects_wrong_identity():
+    manifest = ds.build_manifest(
+        ds.PRODUCTS["photopainter"], "1.0.2", 42, ARTIFACT_ID, "b" * 64, 1024
+    )
+
+    with pytest.raises(SystemExit):
+        ds.ota_minimum_from_manifest_text(
+            json.dumps(manifest), ds.PRODUCTS["deskmate"]
+        )
+
+
+@pytest.mark.parametrize("ota_version", (True, ds.MAX_SAFE_JSON_INTEGER))
+def test_ota_minimum_from_manifest_text_rejects_invalid_version(ota_version):
+    manifest = ds.build_manifest(
+        ds.PRODUCTS["deskmate"], "1.0.2", 42, ARTIFACT_ID, "b" * 64, 1024
+    )
+    manifest["artifacts"]["app"]["ota_version"] = ota_version
+
+    with pytest.raises(SystemExit):
+        ds.ota_minimum_from_manifest_text(
+            json.dumps(manifest), ds.PRODUCTS["deskmate"]
+        )

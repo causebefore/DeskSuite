@@ -1,3 +1,12 @@
+[ota_publish]
+mode = "ssh_docker"
+ssh_host = "ubuntu"
+remote_service_root = "/opt/appdata/desksuite-hub"
+container_name = "desksuite-hub"
+container_firmware_root = "/app/firmwares"
+runtime_uid = 10001
+runtime_gid = 10001
+
 [products.photopainter]
 product_id = 1
 firmware_target = "photopainter_esp32s3_v1"

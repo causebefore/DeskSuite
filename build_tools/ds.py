@@ -19,7 +19,7 @@ import tomllib
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # ── 固定编译环境（DeskSuite 仓库硬约束）──────────────────────────────────
 EXPECTED_IDF_PATH = Path(r"C:\esp\v6.0.1\esp-idf")
@@ -50,8 +50,79 @@ class ProductConfig:
     default_port: str
 
 
+@dataclass(frozen=True)
+class OtaPublishConfig:
+    """生产 Hub 的非秘密 OTA 发布配置。"""
+
+    mode: str
+    ssh_host: str
+    remote_service_root: str
+    container_name: str
+    container_firmware_root: str
+    runtime_uid: int
+    runtime_gid: int
+
+
 _PRODUCT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _FIRMWARE_TARGET_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_REMOTE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_REMOTE_PATH_RE = re.compile(r"^/[A-Za-z0-9._/-]+$")
+
+
+def _validated_remote_path(raw: object, field: str) -> str:
+    """返回不含 shell 元字符或路径回退的规范 POSIX 绝对路径。"""
+    if not isinstance(raw, str) or _REMOTE_PATH_RE.fullmatch(raw) is None:
+        fail(f"OTA 发布配置 {field} 必须是安全的 POSIX 绝对路径")
+    parsed = PurePosixPath(raw)
+    if raw == "/" or str(parsed) != raw or any(part in (".", "..") for part in parsed.parts):
+        fail(f"OTA 发布配置 {field} 不是规范路径")
+    return raw
+
+
+def load_ota_publish_config(path: Path = PRODUCTS_PATH) -> OtaPublishConfig:
+    """读取并严格校验受版本控制的远端 OTA 发布配置。"""
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = data.get("ota_publish")
+    if not isinstance(raw, dict):
+        fail(f"产品配置缺少 [ota_publish]：{path}")
+    try:
+        mode = raw["mode"]
+        ssh_host = raw["ssh_host"]
+        remote_service_root = raw["remote_service_root"]
+        container_name = raw["container_name"]
+        container_firmware_root = raw["container_firmware_root"]
+        runtime_uid = raw["runtime_uid"]
+        runtime_gid = raw["runtime_gid"]
+    except KeyError as exc:
+        fail(f"OTA 发布配置缺少字段：{exc.args[0]}")
+    if mode != "ssh_docker":
+        fail("OTA 发布配置 mode 仅支持 ssh_docker")
+    if not isinstance(ssh_host, str) or _REMOTE_NAME_RE.fullmatch(ssh_host) is None:
+        fail("OTA 发布配置 ssh_host 非法")
+    if not isinstance(container_name, str) or _REMOTE_NAME_RE.fullmatch(container_name) is None:
+        fail("OTA 发布配置 container_name 非法")
+    if (
+        isinstance(runtime_uid, bool)
+        or not isinstance(runtime_uid, int)
+        or runtime_uid < 0
+        or isinstance(runtime_gid, bool)
+        or not isinstance(runtime_gid, int)
+        or runtime_gid < 0
+    ):
+        fail("OTA 发布配置 runtime_uid/runtime_gid 必须是非负整数")
+    return OtaPublishConfig(
+        mode=mode,
+        ssh_host=ssh_host,
+        remote_service_root=_validated_remote_path(
+            remote_service_root, "remote_service_root"
+        ),
+        container_name=container_name,
+        container_firmware_root=_validated_remote_path(
+            container_firmware_root, "container_firmware_root"
+        ),
+        runtime_uid=runtime_uid,
+        runtime_gid=runtime_gid,
+    )
 
 
 def load_products(path: Path = PRODUCTS_PATH) -> dict[str, ProductConfig]:
@@ -645,23 +716,35 @@ def _read_existing_ota_version(service_root: Path, product: ProductConfig) -> in
         / "manifests"
         / f"{product.firmware_target}.json"
     )
-    if not manifest.exists():
+    try:
+        text = manifest.read_text(encoding="utf-8") if manifest.exists() else None
+    except OSError as exc:
+        fail(f"无法读取服务端现有 OTA 版本：{exc}")
+    return ota_minimum_from_manifest_text(text, product)
+
+
+def ota_minimum_from_manifest_text(
+    text: str | None,
+    product: ProductConfig,
+) -> int:
+    """校验现有 manifest 并返回下一次发布允许的最小 OTA 版本。"""
+    if text is None:
         return 1
     try:
-        data = json.loads(manifest.read_text(encoding="utf-8"))
-        if (
-            data.get("protocol_version") != 2
-            or data.get("product_id") != product.product_id
-            or data.get("firmware_target") != product.firmware_target
-        ):
-            fail(f"服务端 OTA 清单身份与产品配置不一致：{manifest}")
-        existing = data.get("artifacts", {}).get("app", {}).get("ota_version")
-    except (json.JSONDecodeError, OSError) as exc:
-        fail(f"无法读取服务端现有 OTA 版本：{exc}")
-    if existing is None:
-        return 1
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        fail(f"服务端 OTA 清单 JSON 无效：{exc}")
+    if not isinstance(data, dict) or (
+        data.get("protocol_version") != 2
+        or data.get("product_id") != product.product_id
+        or data.get("firmware_target") != product.firmware_target
+    ):
+        fail("服务端 OTA 清单身份与产品配置不一致")
+    artifacts = data.get("artifacts")
+    app = artifacts.get("app") if isinstance(artifacts, dict) else None
+    existing = app.get("ota_version") if isinstance(app, dict) else None
     if isinstance(existing, bool) or not isinstance(existing, int) or existing < 0:
-        fail(f"服务端 OTA 清单的 ota_version 无效：{manifest}")
+        fail("服务端 OTA 清单的 ota_version 无效")
     if existing >= MAX_SAFE_JSON_INTEGER:
         fail("服务端 OTA 版本已达到 JSON 安全整数上限")
     return existing + 1
