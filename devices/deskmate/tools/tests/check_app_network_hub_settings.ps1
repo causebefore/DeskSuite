@@ -432,6 +432,14 @@ Assert-NotContains 'main\application\app_web_console.cpp' 'web_console_network_p
     'DeskMate 产品设置中心仍装配调试型 Network Status Provider'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_WEB_CONSOLE_ACTIONS=y' `
     'DeskMate 默认构建未启用 Actions 模块'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_SERVER_URL="http://192\.168\.6\.13:8765"' `
+    'DeskMate 产品设置默认 Hub 地址未指向 Ubuntu 生产 Hub'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_CONNECT_PORTAL_DEFAULT_SERVICE_URL="http://192\.168\.6\.13:8765"' `
+    'DeskMate 配网页默认 Hub 地址未指向 Ubuntu 生产 Hub'
+Assert-Contains 'sdkconfig.defaults' 'CONFIG_NETWORK_MANAGER_DEFAULT_SERVICE_URL="http://192\.168\.6\.13:8765"' `
+    'DeskMate Network Manager 默认 Hub 地址未指向 Ubuntu 生产 Hub'
+Assert-NotContains 'sdkconfig.defaults' '192\.168\.6\.248:8765' `
+    'DeskMate 默认配置仍引用已停用的旧 Hub 地址'
 
 Assert-TextMatchCount $hubUpdate 'settings_store_copy_string\s*\(\s*s_hub_snapshot\.service_url' 1 'Hub 新地址只能在 network_cfg 成功分支发布一次'
 Assert-TextMatchCount $hubUpdate 's_hub_snapshot\.version\+\+' 1 'Hub 设置版本只能在 network_cfg 成功分支递增一次'
