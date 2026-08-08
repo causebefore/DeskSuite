@@ -1,5 +1,6 @@
 # DeskSuite 统一设备构建入口。
 # 用法：.\ds.ps1 <命令> <产品> [选项]
+# ota 默认发布到 products.toml 配置的 Ubuntu Hub；-ServiceRoot 显式改为本地发布。
 
 param(
     [Parameter(Position = 0)]

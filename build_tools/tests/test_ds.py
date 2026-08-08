@@ -645,3 +645,151 @@ def test_ota_minimum_from_manifest_text_rejects_invalid_version(ota_version):
         ds.ota_minimum_from_manifest_text(
             json.dumps(manifest), ds.PRODUCTS["deskmate"]
         )
+
+
+def test_resolve_ota_publish_target_defaults_to_remote_profile():
+    mode, target = ds.resolve_ota_publish_target(None)
+
+    assert mode == "remote"
+    assert target == ds.load_ota_publish_config()
+
+
+def test_resolve_ota_publish_target_uses_explicit_local_service_root(tmp_path):
+    service_root = tmp_path / "hub"
+    (service_root / "app").mkdir(parents=True)
+    (service_root / "app" / "main.py").write_text("ok", encoding="utf-8")
+
+    mode, target = ds.resolve_ota_publish_target(str(service_root))
+
+    assert mode == "local"
+    assert target == service_root.resolve()
+
+
+class _RemoteRunner:
+    def __init__(self, manifest_text, *, fail_scp=False, mount_source=None):
+        self.manifest_text = manifest_text
+        self.fail_scp = fail_scp
+        self.mount_source = mount_source or "/opt/appdata/desksuite-hub/firmwares"
+        self.calls = []
+
+    def __call__(self, argv, *, capture_output=False, input_text=None):
+        call = tuple(str(value) for value in argv)
+        self.calls.append(call)
+        stdout = ""
+        returncode = 0
+        if call[:4] == ("ssh", "ubuntu", "docker", "inspect"):
+            stdout = json.dumps(
+                [
+                    {
+                        "State": {
+                            "Status": "running",
+                            "Health": {"Status": "healthy"},
+                        },
+                        "Mounts": [
+                            {
+                                "Source": self.mount_source,
+                                "Destination": "/app/firmwares",
+                                "RW": True,
+                            }
+                        ],
+                    }
+                ]
+            )
+        elif call[0] == "scp" and self.fail_scp:
+            returncode = 1
+        elif "test" in call and "-f" in call:
+            returncode = 0
+        elif "cat" in call and call[-1].endswith(".json"):
+            stdout = self.manifest_text
+        elif "sha256sum" in call:
+            manifest = json.loads(self.manifest_text)
+            stdout = manifest["artifacts"]["app"]["file_sha256"] + "  artifact.bin\n"
+        elif "stat" in call and "-c" in call:
+            manifest = json.loads(self.manifest_text)
+            stdout = str(manifest["artifacts"]["app"]["size"]) + "\n"
+        return subprocess.CompletedProcess(call, returncode, stdout=stdout, stderr="")
+
+
+def _remote_publish_fixture(tmp_path, *, ota_version=43):
+    firmware = tmp_path / "firmware.bin"
+    firmware.write_bytes(b"remote-firmware")
+    file_sha = hashlib.sha256(firmware.read_bytes()).hexdigest()
+    manifest = ds.build_manifest(
+        ds.PRODUCTS["deskmate"],
+        "1.0.2",
+        ota_version,
+        ARTIFACT_ID,
+        file_sha,
+        firmware.stat().st_size,
+    )
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return firmware, manifest_path, manifest
+
+
+def test_remote_ota_publisher_reads_minimum_from_running_mounted_container():
+    manifest = ds.build_manifest(
+        ds.PRODUCTS["deskmate"], "1.0.2", 42, ARTIFACT_ID, "b" * 64, 1024
+    )
+    runner = _RemoteRunner(json.dumps(manifest))
+    publisher = ds.RemoteOtaPublisher(ds.load_ota_publish_config(), runner=runner)
+
+    minimum = publisher.minimum_ota_version(ds.PRODUCTS["deskmate"])
+
+    assert minimum == 43
+    assert runner.calls[0] == ("ssh", "ubuntu", "docker", "inspect", "desksuite-hub")
+    assert any("cat" in call for call in runner.calls)
+
+
+def test_remote_ota_publisher_rejects_unexpected_firmware_mount():
+    runner = _RemoteRunner("", mount_source="/wrong/firmwares")
+    publisher = ds.RemoteOtaPublisher(ds.load_ota_publish_config(), runner=runner)
+
+    with pytest.raises(ds.OtaPublishError):
+        publisher.minimum_ota_version(ds.PRODUCTS["deskmate"])
+
+
+def test_remote_ota_publisher_uploads_runs_helper_verifies_and_cleans(tmp_path):
+    firmware, manifest_path, manifest = _remote_publish_fixture(tmp_path)
+    runner = _RemoteRunner(json.dumps(manifest))
+    publisher = ds.RemoteOtaPublisher(ds.load_ota_publish_config(), runner=runner)
+
+    published = publisher.publish(
+        firmware,
+        manifest_path,
+        ds.PRODUCTS["deskmate"],
+    )
+
+    assert published.endswith(f"/artifacts/{ARTIFACT_ID}.bin")
+    scp_indexes = [index for index, call in enumerate(runner.calls) if call[0] == "scp"]
+    helper_index = next(
+        index
+        for index, call in enumerate(runner.calls)
+        if "remote_ota_publish.py" in " ".join(call) and "--firmware-root" in call
+    )
+    verify_index = next(
+        index for index, call in enumerate(runner.calls) if "sha256sum" in call
+    )
+    assert len(scp_indexes) == 3
+    assert max(scp_indexes) < helper_index < verify_index
+    assert any(call[:3] == ("ssh", "ubuntu", "rm") and "-f" in call for call in runner.calls)
+    assert any(
+        call[:6] == ("ssh", "ubuntu", "docker", "exec", "--user", "0")
+        and "rm" in call
+        for call in runner.calls
+    )
+
+
+def test_remote_ota_publisher_cleans_staging_when_scp_fails(tmp_path):
+    firmware, manifest_path, manifest = _remote_publish_fixture(tmp_path)
+    runner = _RemoteRunner(json.dumps(manifest), fail_scp=True)
+    publisher = ds.RemoteOtaPublisher(ds.load_ota_publish_config(), runner=runner)
+
+    with pytest.raises(ds.OtaPublishError):
+        publisher.publish(
+            firmware,
+            manifest_path,
+            ds.PRODUCTS["deskmate"],
+        )
+
+    assert any(call[:3] == ("ssh", "ubuntu", "rm") and "-f" in call for call in runner.calls)

@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from contextlib import contextmanager
@@ -61,6 +62,10 @@ class OtaPublishConfig:
     container_firmware_root: str
     runtime_uid: int
     runtime_gid: int
+
+
+class OtaPublishError(RuntimeError):
+    """远程 OTA 发布前置条件、传输或复核失败。"""
 
 
 _PRODUCT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -705,6 +710,18 @@ def _resolve_service_root(service_root_arg: str | None) -> Path:
     return DEFAULT_SERVICE_ROOT.resolve()
 
 
+def resolve_ota_publish_target(
+    service_root_arg: str | None,
+) -> tuple[str, Path | OtaPublishConfig]:
+    """解析 OTA 目标；显式 ServiceRoot 保留本地发布，否则使用生产远端。"""
+    if service_root_arg:
+        service_root = Path(service_root_arg).resolve()
+        if not (service_root / "app" / "main.py").exists():
+            fail(f"服务端仓库不存在或结构无效：{service_root}")
+        return "local", service_root
+    return "remote", load_ota_publish_config()
+
+
 def _read_existing_ota_version(service_root: Path, product: ProductConfig) -> int:
     """读目标现有清单的 ota_version，返回 minimum = ota_version + 1；无则 1。
 
@@ -792,6 +809,322 @@ def fail(msg: str) -> None:
     """输出中文错误并以失败状态结束。"""
     print(f"\n❌ {msg}")
     sys.exit(1)
+
+
+def run_external(
+    argv: list[str] | tuple[str, ...],
+    *,
+    capture_output: bool = False,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess:
+    """无 shell 执行 SSH/SCP 等外部命令，并统一使用 UTF-8 解码。"""
+    return subprocess.run(
+        [str(value) for value in argv],
+        input=input_text,
+        stdout=subprocess.PIPE if capture_output else None,
+        stderr=subprocess.PIPE if capture_output else None,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+
+
+class RemoteOtaPublisher:
+    """通过 SSH 与 Docker 把 OTA 发布到 Ubuntu 生产 Hub。"""
+
+    def __init__(self, config: OtaPublishConfig, *, runner=run_external) -> None:
+        self.config = config
+        self.runner = runner
+
+    def _run(
+        self,
+        argv: list[str] | tuple[str, ...],
+        *,
+        capture_output: bool = False,
+        allow_failure: bool = False,
+    ) -> subprocess.CompletedProcess:
+        try:
+            result = self.runner(
+                argv,
+                capture_output=capture_output,
+                input_text=None,
+            )
+        except OSError as exc:
+            raise OtaPublishError(f"无法启动远程发布命令：{argv[0]}: {exc}") from exc
+        if result.returncode != 0 and not allow_failure:
+            detail = (result.stderr or result.stdout or "").strip()
+            suffix = f"：{detail[:500]}" if detail else ""
+            raise OtaPublishError(
+                f"远程发布命令失败（{argv[0]}，退出码 {result.returncode}）{suffix}"
+            )
+        return result
+
+    def _ssh(self, *remote_argv: str, capture_output: bool = False) -> subprocess.CompletedProcess:
+        return self._run(
+            ["ssh", self.config.ssh_host, *remote_argv],
+            capture_output=capture_output,
+        )
+
+    def preflight(self) -> None:
+        """确认目标容器健康，且固件目录正由预期宿主路径读写挂载。"""
+        result = self._ssh(
+            "docker",
+            "inspect",
+            self.config.container_name,
+            capture_output=True,
+        )
+        try:
+            inspected = json.loads(result.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise OtaPublishError("docker inspect 输出不是有效 JSON") from exc
+        if not isinstance(inspected, list) or len(inspected) != 1:
+            raise OtaPublishError("docker inspect 未返回唯一目标容器")
+        container = inspected[0]
+        state = container.get("State") if isinstance(container, dict) else None
+        health = state.get("Health") if isinstance(state, dict) else None
+        if (
+            not isinstance(state, dict)
+            or state.get("Status") != "running"
+            or not isinstance(health, dict)
+            or health.get("Status") != "healthy"
+        ):
+            raise OtaPublishError("生产 Hub 容器未处于 running/healthy 状态")
+
+        expected_source = f"{self.config.remote_service_root}/firmwares"
+        mounts = container.get("Mounts")
+        matched = [
+            mount
+            for mount in mounts if isinstance(mount, dict)
+            and mount.get("Destination") == self.config.container_firmware_root
+        ] if isinstance(mounts, list) else []
+        if len(matched) != 1:
+            raise OtaPublishError("生产 Hub 容器缺少唯一的固件目录挂载")
+        mount = matched[0]
+        if mount.get("Source") != expected_source or mount.get("RW") is not True:
+            raise OtaPublishError(
+                "生产 Hub 固件挂载来源或读写属性与发布配置不一致"
+            )
+
+    def _manifest_path(self, product: ProductConfig) -> str:
+        return (
+            f"{self.config.container_firmware_root}/manifests/"
+            f"{product.firmware_target}.json"
+        )
+
+    def _read_manifest_text(self, product: ProductConfig) -> str | None:
+        manifest_path = self._manifest_path(product)
+        exists = self._run(
+            [
+                "ssh",
+                self.config.ssh_host,
+                "docker",
+                "exec",
+                self.config.container_name,
+                "test",
+                "-f",
+                manifest_path,
+            ],
+            capture_output=True,
+            allow_failure=True,
+        )
+        if exists.returncode == 1:
+            return None
+        if exists.returncode != 0:
+            raise OtaPublishError("无法确认生产 Hub 当前 OTA 清单")
+        return self._ssh(
+            "docker",
+            "exec",
+            self.config.container_name,
+            "cat",
+            manifest_path,
+            capture_output=True,
+        ).stdout
+
+    def minimum_ota_version(self, product: ProductConfig) -> int:
+        self.preflight()
+        try:
+            return ota_minimum_from_manifest_text(
+                self._read_manifest_text(product),
+                product,
+            )
+        except SystemExit as exc:
+            raise OtaPublishError("生产 Hub 当前 OTA 清单不满足发布契约") from exc
+
+    def _load_release(
+        self,
+        firmware_path: Path,
+        manifest_path: Path,
+        product: ProductConfig,
+    ) -> tuple[dict, dict]:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise OtaPublishError(f"本地 OTA 清单无法解析：{exc}") from exc
+        if not isinstance(manifest, dict) or (
+            manifest.get("protocol_version") != 2
+            or manifest.get("product_id") != product.product_id
+            or manifest.get("firmware_target") != product.firmware_target
+        ):
+            raise OtaPublishError("本地 OTA 清单身份与产品配置不一致")
+        artifacts = manifest.get("artifacts")
+        app = artifacts.get("app") if isinstance(artifacts, dict) else None
+        if not isinstance(app, dict):
+            raise OtaPublishError("本地 OTA 清单缺少 artifacts.app")
+        artifact_id = app.get("artifact_id")
+        file_sha256 = app.get("file_sha256")
+        size = app.get("size")
+        ota_version = app.get("ota_version")
+        if (
+            not isinstance(artifact_id, str)
+            or re.fullmatch(r"[0-9a-f]{64}", artifact_id) is None
+            or not isinstance(file_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", file_sha256) is None
+            or isinstance(size, bool)
+            or not isinstance(size, int)
+            or size <= 0
+            or isinstance(ota_version, bool)
+            or not isinstance(ota_version, int)
+            or ota_version <= 0
+            or ota_version > MAX_SAFE_JSON_INTEGER
+        ):
+            raise OtaPublishError("本地 OTA 清单的 artifact 字段无效")
+        if not firmware_path.is_file():
+            raise OtaPublishError(f"本地 OTA 固件不存在：{firmware_path}")
+        if firmware_path.stat().st_size != size or _file_sha256(firmware_path) != file_sha256:
+            raise OtaPublishError("本地 OTA 固件大小或 SHA-256 与清单不一致")
+        return manifest, app
+
+    def _cleanup(self, host_paths: list[str], container_paths: list[str]) -> list[str]:
+        errors: list[str] = []
+        cleanup_commands = (
+            [
+                "ssh",
+                self.config.ssh_host,
+                "docker",
+                "exec",
+                "--user",
+                "0",
+                self.config.container_name,
+                "rm",
+                "-f",
+                *container_paths,
+            ],
+            ["ssh", self.config.ssh_host, "rm", "-f", *host_paths],
+        )
+        for command in cleanup_commands:
+            try:
+                result = self.runner(
+                    command,
+                    capture_output=True,
+                    input_text=None,
+                )
+            except OSError as exc:
+                errors.append(f"{command[2]}: {exc}")
+                continue
+            if result.returncode != 0:
+                errors.append(f"{command[2]} 退出码 {result.returncode}")
+        return errors
+
+    def publish(
+        self,
+        firmware_path: Path,
+        manifest_path: Path,
+        product: ProductConfig,
+    ) -> str:
+        """暂存输入、调用容器 helper、远端复核，并始终清理暂存文件。"""
+        manifest, app = self._load_release(firmware_path, manifest_path, product)
+        self.preflight()
+        token = f"desksuite-ota-{product.firmware_target}-{app['artifact_id'][:12]}-{os.getpid()}-{time.time_ns()}"
+        host_firmware = f"/tmp/{token}.bin"
+        host_manifest = f"/tmp/{token}.json"
+        host_helper = f"/tmp/{token}-remote_ota_publish.py"
+        container_firmware = host_firmware
+        container_manifest = host_manifest
+        container_helper = host_helper
+        host_paths = [host_firmware, host_manifest, host_helper]
+        container_paths = [container_firmware, container_manifest, container_helper]
+        artifact_path = (
+            f"{self.config.container_firmware_root}/artifacts/"
+            f"{app['artifact_id']}.bin"
+        )
+        failure: BaseException | None = None
+        try:
+            helper_path = Path(__file__).with_name("remote_ota_publish.py")
+            for source, destination in (
+                (firmware_path, host_firmware),
+                (manifest_path, host_manifest),
+                (helper_path, host_helper),
+            ):
+                self._run(
+                    ["scp", str(source), f"{self.config.ssh_host}:{destination}"]
+                )
+            for source, destination in zip(host_paths, container_paths):
+                self._ssh(
+                    "docker",
+                    "cp",
+                    source,
+                    f"{self.config.container_name}:{destination}",
+                )
+            self._ssh(
+                "docker",
+                "exec",
+                "--user",
+                "0",
+                self.config.container_name,
+                "python",
+                container_helper,
+                "--firmware",
+                container_firmware,
+                "--manifest",
+                container_manifest,
+                "--firmware-root",
+                self.config.container_firmware_root,
+                "--runtime-uid",
+                str(self.config.runtime_uid),
+                "--runtime-gid",
+                str(self.config.runtime_gid),
+            )
+
+            remote_manifest_text = self._read_manifest_text(product)
+            try:
+                remote_manifest = json.loads(remote_manifest_text or "")
+            except json.JSONDecodeError as exc:
+                raise OtaPublishError("远端发布后的 manifest 无法解析") from exc
+            if remote_manifest != manifest:
+                raise OtaPublishError("远端发布后的 manifest 与本地输入不一致")
+            remote_sha = self._ssh(
+                "docker",
+                "exec",
+                self.config.container_name,
+                "sha256sum",
+                artifact_path,
+                capture_output=True,
+            ).stdout.split()
+            remote_size = self._ssh(
+                "docker",
+                "exec",
+                self.config.container_name,
+                "stat",
+                "-c",
+                "%s",
+                artifact_path,
+                capture_output=True,
+            ).stdout.strip()
+            if not remote_sha or remote_sha[0] != app["file_sha256"]:
+                raise OtaPublishError("远端 OTA artifact SHA-256 复核失败")
+            if remote_size != str(app["size"]):
+                raise OtaPublishError("远端 OTA artifact 大小复核失败")
+            return artifact_path
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            cleanup_errors = self._cleanup(host_paths, container_paths)
+            if cleanup_errors and failure is None:
+                raise OtaPublishError(
+                    "OTA 已发布，但远端暂存清理失败：" + "; ".join(cleanup_errors)
+                )
 
 
 def run_powershell(
@@ -1092,11 +1425,21 @@ def _launch_monitor_detached(port: str) -> int:
 
 
 def cmd_ota(args: argparse.Namespace) -> int:
-    service_root = _resolve_service_root(getattr(args, "service_root", None))
-    if not (service_root / "app" / "main.py").exists():
-        fail(f"服务端仓库不存在或结构无效：{service_root}")
-
-    minimum = _read_existing_ota_version(service_root, PRODUCT)
+    publish_mode, publish_target = resolve_ota_publish_target(
+        getattr(args, "service_root", None)
+    )
+    remote_publisher: RemoteOtaPublisher | None = None
+    if publish_mode == "local":
+        service_root = publish_target
+        assert isinstance(service_root, Path)
+        minimum = _read_existing_ota_version(service_root, PRODUCT)
+    else:
+        assert isinstance(publish_target, OtaPublishConfig)
+        remote_publisher = RemoteOtaPublisher(publish_target)
+        try:
+            minimum = remote_publisher.minimum_ota_version(PRODUCT)
+        except OtaPublishError as exc:
+            fail(str(exc))
 
     # 编译（用指定最小版本生成 OTA 版本头）
     write_step("编译项目")
@@ -1129,16 +1472,47 @@ def cmd_ota(args: argparse.Namespace) -> int:
     artifact_id, version = parse_image_info(info_text)
     file_sha256 = _file_sha256(firmware_path)
     size = firmware_path.stat().st_size
-    published = publish_firmware(
-        firmware_path, service_root, PRODUCT, version,
-        int((OTA_VERSION_STATE_PATH.read_text(encoding="utf-8").strip())),
-        artifact_id, file_sha256, size,
-    )
+    ota_version = int(OTA_VERSION_STATE_PATH.read_text(encoding="utf-8").strip())
+    if publish_mode == "local":
+        published = publish_firmware(
+            firmware_path,
+            service_root,
+            PRODUCT,
+            version,
+            ota_version,
+            artifact_id,
+            file_sha256,
+            size,
+        )
+    else:
+        assert remote_publisher is not None
+        manifest = build_manifest(
+            PRODUCT,
+            version,
+            ota_version,
+            artifact_id,
+            file_sha256,
+            size,
+        )
+        with tempfile.TemporaryDirectory(prefix="desksuite-ota-") as temp_dir:
+            manifest_path = Path(temp_dir) / f"{PRODUCT.firmware_target}.json"
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            try:
+                published = remote_publisher.publish(
+                    firmware_path,
+                    manifest_path,
+                    PRODUCT,
+                )
+            except OtaPublishError as exc:
+                fail(str(exc))
 
     print(f"固件版本：{version}")
     print(f"产品：{PRODUCT.name}（product_id={PRODUCT.product_id}）")
     print(f"固件目标：{PRODUCT.firmware_target}")
-    print(f"OTA 版本：{OTA_VERSION_STATE_PATH.read_text(encoding='utf-8').strip()}")
+    print(f"OTA 版本：{ota_version}")
     print(f"artifact_id：{artifact_id}")
     print(f"file_sha256：{file_sha256}")
     print(f"发布文件：{published}")
@@ -1206,7 +1580,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("ota", help="编译并原子发布固件与目标清单")
     add_product_argument(p)
-    p.add_argument("--service-root", default=None, help="服务端目录（默认 DeskSuite/services/hub）")
+    p.add_argument(
+        "--service-root",
+        default=None,
+        help="显式改为本地 Hub 目录发布；省略时发布到 Ubuntu 生产 Hub",
+    )
     p.add_argument("--full-log", action="store_true")
     p.set_defaults(func=cmd_ota)
 
