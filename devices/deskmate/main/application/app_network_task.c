@@ -46,6 +46,7 @@
 #define DESKMATE_REMOTE_LOG_BATCH_CAPACITY 4U
 #define APP_NETWORK_HUB_HEALTH_TIMEOUT_MS  3000
 #define APP_NETWORK_HUB_HEALTH_MAX_BYTES   256U
+#define APP_NETWORK_LEGACY_HUB_URL          "http://192.168.6.248:8765"
 
 #ifndef CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC
     #define CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC 60
@@ -269,7 +270,7 @@ static esp_err_t stop_remote_log_upload(void)
  * @brief 读取并规范化启动时的 Hub 设置
  *
  * @param[out] out_snapshot 启动快照输出
- * @return ESP_OK 快照有效；其他值表示设置读取或既有地址无效
+ * @return ESP_OK 快照有效；其他值表示设置读取、旧默认地址迁移或既有地址校验失败
  */
 static esp_err_t load_initial_hub_settings_snapshot(app_network_hub_settings_snapshot_t *out_snapshot)
 {
@@ -279,6 +280,18 @@ static esp_err_t load_initial_hub_settings_snapshot(app_network_hub_settings_sna
     }
     device_settings_t settings;
     ESP_RETURN_ON_ERROR(settings_store_load_copy(&settings), TAG, "读取 Hub 初始设置失败");
+
+    if (strcmp(settings.service_url, APP_NETWORK_LEGACY_HUB_URL) == 0)
+    {
+        char normalized_default_url[APP_NETWORK_HUB_URL_MAX_LENGTH + 1U] = { 0 };
+        ESP_RETURN_ON_ERROR(app_network_hub_url_parse_copy(CONFIG_DESKMATE_SERVER_URL, normalized_default_url),
+                            TAG,
+                            "当前 Hub 默认地址无效");
+        settings_store_copy_string(settings.service_url, sizeof(settings.service_url), normalized_default_url);
+        ESP_RETURN_ON_ERROR(settings_store_save(&settings), TAG, "迁移旧 Hub 默认地址失败");
+        ESP_LOGI(TAG, "已迁移旧 Hub 默认地址");
+    }
+
     memset(out_snapshot, 0, sizeof(*out_snapshot));
     ESP_RETURN_ON_ERROR(app_network_hub_url_parse_copy(settings.service_url, out_snapshot->service_url),
                         TAG,
