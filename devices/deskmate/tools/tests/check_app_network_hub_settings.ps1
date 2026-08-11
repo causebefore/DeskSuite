@@ -434,6 +434,8 @@ Assert-Contains 'sdkconfig.defaults' 'CONFIG_WEB_CONSOLE_ACTIONS=y' `
     'DeskMate 默认构建未启用 Actions 模块'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_DESKMATE_SERVER_URL="http://192\.168\.6\.13:8765"' `
     'DeskMate 产品设置默认 Hub 地址未指向 Ubuntu 生产 Hub'
+Assert-Contains 'main\Kconfig.projbuild' '(?s)config DESKMATE_SERVER_URL.*?default "http://192\.168\.6\.13:8765"' `
+    'DeskMate Kconfig 默认 Hub 地址未指向 Ubuntu 生产 Hub'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_CONNECT_PORTAL_DEFAULT_SERVICE_URL="http://192\.168\.6\.13:8765"' `
     'DeskMate 配网页默认 Hub 地址未指向 Ubuntu 生产 Hub'
 Assert-Contains 'sdkconfig.defaults' 'CONFIG_NETWORK_MANAGER_DEFAULT_SERVICE_URL="http://192\.168\.6\.13:8765"' `

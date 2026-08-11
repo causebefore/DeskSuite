@@ -38,7 +38,7 @@ menu "DeskMate Server"
 
 config DESKMATE_SERVER_URL
     string "DeskMate server base URL"
-    default "http://192.168.6.248:8765"
+    default "http://192.168.6.13:8765"
     help
         本地 FastAPI server 地址，例如 http://192.168.1.10:8765。
         设备也可以通过配网页保存 service_url 覆盖此默认值。

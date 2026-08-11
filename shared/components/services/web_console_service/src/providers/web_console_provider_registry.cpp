@@ -250,8 +250,7 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
             return field->minimum >= 0 && field->maximum <= UINT32_MAX
                    && field->minimum <= field->maximum && field->step > 0U
                    && field->max_length_bytes == 0U && field->enum_values == NULL
-                   && field->enum_value_count == 0U && field->file_suffix == NULL
-                   && field->format == NULL;
+                   && field->enum_value_count == 0U && field->file_suffix == NULL;
 
         case WEB_CONSOLE_FIELD_TYPE_STRING:
             return field->minimum == 0 && field->maximum == 0 && field->step == 0U
