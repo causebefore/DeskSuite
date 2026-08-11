@@ -166,6 +166,8 @@ static uint32_t                           s_next_lease_generation = 1U;
 static uint32_t                           s_next_control_request_id;
 static uint32_t                           s_reconnect_backoff_ms;
 static network_manager_state_t            s_last_manager_state = NETWORK_STATE_STOPPED;
+static uint32_t                           s_last_portal_activity_sequence;
+static int64_t                            s_portal_activity_deadline_us;
 static control_response_slot_t            s_control_slots[NETWORK_CONTROL_RESPONSE_SLOTS];
 static app_network_link_change_callback_t s_link_change_callback;
 static void                              *s_link_change_callback_context;
@@ -1461,6 +1463,65 @@ static void reconcile_portal_transition_locked(const network_manager_status_t *s
     }
 }
 
+/** @brief 判断 Network Manager 状态是否表示配网页面仍可交互 */
+static bool portal_state_is_interactive(network_manager_state_t state)
+{
+    return state == NETWORK_STATE_PROVISIONING || state == NETWORK_STATE_VALIDATING;
+}
+
+/**
+ * @brief 按最新 Portal 事实收敛低功耗停网保护截止时间
+ *
+ * Network Manager 通知允许合并，因此活动序号而不是通知次数才是耐久事实。Portal 首次进入
+ * 交互态、手机显式活动、配置提交或验证失败都会建立新的完整无活动窗口；自动状态查询不会
+ * 推进序号，也不会让无人使用的热点永久保持。
+ *
+ * @param[in] status 最新 Network Manager 状态快照
+ * @param[in] previous 上一次已经收敛的 Manager 状态
+ */
+static void reconcile_portal_activity_deadline(const network_manager_status_t *status,
+                                               network_manager_state_t         previous)
+{
+    const bool interactive      = portal_state_is_interactive(status->state);
+    const bool entered_portal   = interactive && !portal_state_is_interactive(previous);
+    const bool activity_changed = interactive
+                                  && status->portal_activity_sequence != s_last_portal_activity_sequence;
+
+    s_last_portal_activity_sequence = status->portal_activity_sequence;
+    if (!interactive)
+    {
+        s_portal_activity_deadline_us = 0;
+        return;
+    }
+    if (entered_portal || activity_changed)
+    {
+        s_portal_activity_deadline_us =
+            esp_timer_get_time() + (int64_t) CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC * 1000000LL;
+    }
+}
+
+/**
+ * @brief 判断最新 Portal 活动是否要求拒绝本轮低功耗停网
+ *
+ * 同一 Network Application Task 串行调用本函数和状态收敛函数。若 Manager 快照已经前进而
+ * 对应通知命令仍在队列中，先拒绝停网，避免活动事实与停网命令交错时关闭手机正在使用的热点。
+ *
+ * @param[in] status 停网前重新读取的 Network Manager 状态快照
+ * @return true Portal 刚启动、存在未消费活动或仍在活动保护窗口内
+ */
+static bool portal_activity_blocks_power_save(const network_manager_status_t *status)
+{
+    if (!portal_state_is_interactive(status->state))
+    {
+        return false;
+    }
+
+    const bool has_unconsumed_activity = !portal_state_is_interactive(s_last_manager_state)
+                                         || status->portal_activity_sequence
+                                                != s_last_portal_activity_sequence;
+    return has_unconsumed_activity || esp_timer_get_time() < s_portal_activity_deadline_us;
+}
+
 /** @brief 把 Network Manager 状态事实转换为 DeskMate 顶层连接策略 */
 static void handle_manager_changed_command(void)
 {
@@ -1477,6 +1538,7 @@ static void handle_manager_changed_command(void)
     }
 
     const network_manager_state_t previous = s_last_manager_state;
+    reconcile_portal_activity_deadline(&status, previous);
     s_last_manager_state                   = status.state;
     app_network_link_change_callback_t link_change_callback;
     void                              *link_change_context;
@@ -2206,9 +2268,14 @@ static void handle_suspend_for_power_save_command(const network_command_t *comma
         return;
     }
 
+    network_manager_status_t manager_status = { 0 };
+    const bool portal_activity_conflict = network_manager_get_status_copy(&manager_status) == ESP_OK
+                                          && portal_activity_blocks_power_save(&manager_status);
+
     taskENTER_CRITICAL(&s_state_lock);
     const bool already_suspended = s_power_save_suspended;
-    const bool conflict          = s_active_lease_type != APP_NETWORK_LEASE_NONE || s_ota_queued || s_ota_running;
+    const bool conflict          = s_active_lease_type != APP_NETWORK_LEASE_NONE || s_ota_queued || s_ota_running
+                          || portal_activity_conflict;
     if (!already_suspended && !conflict)
     {
         s_power_save_suspended  = true;
@@ -2609,6 +2676,9 @@ esp_err_t app_network_init(void)
         return error;
     }
 
+    s_last_manager_state             = NETWORK_STATE_STOPPED;
+    s_last_portal_activity_sequence  = 0U;
+    s_portal_activity_deadline_us    = 0;
     if (xTaskCreate(app_network_task, "app_network_task", NETWORK_TASK_STACK, NULL, NETWORK_TASK_PRIORITY, &s_task)
         != pdPASS)
     {

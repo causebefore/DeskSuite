@@ -72,7 +72,7 @@ Presentation 和 UI 均不得反向包含 Application 头文件。
 | `app_web_console` | SD/在线前置检查、Hub/Pomodoro/设备与系统三项产品 Provider 装配、网页控制台网络租约、Service 启停与安全回滚 |
 | `app_power` | 拥有 30 秒活动窗口、番茄钟前台离线显示、语音/UI/网络可逆启停、内部 Timer 维护刷新和按键唤醒闭环 |
 | `app_environment` | 电池与温湿度产品采样周期 |
-| `app_network` | Hub URL 快照、版本、测试/更新共用单 pending 与结果、相关 I/O，及 Network Manager 会话退避、统一后端上下文、Dashboard 截止与失败退避、同步维护回执、OTA、远端日志、互斥租约、链路通知和低功耗停网握手 |
+| `app_network` | Hub URL 快照、版本、测试/更新共用单 pending 与结果、相关 I/O，及 Network Manager 会话退避、配网活动停网保护、统一后端上下文、Dashboard 截止与失败退避、同步维护回执、OTA、远端日志、互斥租约、链路通知和低功耗停网握手 |
 
 番茄钟数据流为：
 
@@ -294,6 +294,12 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 继续运行，并持有 `ESP_PM_NO_LIGHT_SLEEP` 锁阻止自动 Light-sleep，同时允许 DFS 在刷新间隙
 降低 CPU/APB 频率。Dashboard 截止到达时临时恢复网络并完成维护，活动代次未改变则再次停网；
 任意按键、阶段完成或离开运行中的番茄钟页都会释放 PM 锁并恢复正常网络策略。
+
+配网 Portal 首次进入 `PROVISIONING/VALIDATING`，或其显式用户活动序号前进时，`app_network`
+以 `CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC` 建立单调停网保护截止。在截止前到达的低功耗
+停网命令返回 `ESP_ERR_INVALID_STATE`，由 `app_power` 沿既有退避重新尝试；停网前若读到尚未由
+Application Task 收敛的新活动序号，也先拒绝本轮命令，避免通知与停网交错时关闭热点。自动状态
+查询不推进活动序号，因此连续无用户活动后仍会正常停网，不会让 Portal 永久保持。
 
 每次收集低功耗阻止条件前，`app_power` 都同步调用
 `app_voice_reconcile_network_lease()` 修复语音侧可能遗留的实时租约。没有本地租约时直接
