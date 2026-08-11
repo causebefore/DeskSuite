@@ -92,13 +92,16 @@ init → configure_copy → start → stop → deinit
 ## 7. 故障与恢复
 
 - Network Manager 未在线时不调用协议层，按 `retry_interval_ms` 重新检查。
-- `log_upload_start()` 或 `log_upload_batch()` 失败时保留当前会话或批次并退避重试。
+- `log_upload_start()` 或 `log_upload_batch()` 失败时保留当前会话或批次，按
+  `retry_interval_ms` 的 1、5、15、60 倍退避并在最后一档封顶；任一请求成功后下一轮失败从
+  第一档重新开始。
 - 上传成功后若服务端返回新的 `session_id`，后续批次改用新会话。
 - 是否因长期上传失败而停止网络会话、降级或重启由 Application 决定。
 
 ## 8. 配置与限制
 
-- 默认队列 64 条、每批 8 条、聚合 100 ms、失败重试 3 秒、HTTP 超时 3 秒。
+- 默认队列 64 条、每批 8 条、聚合 100 ms、上传失败首档重试 3 秒、HTTP 超时 3 秒；默认退避
+  等待依次为 3、15、45、180 秒。Network Manager 离线检查仍保持 3 秒间隔且不发起 HTTP。
 - 组件要求启用 `CONFIG_LOG_VERSION_2` 和 `CONFIG_LOG_MODE_TEXT`，并通过 `--wrap=esp_log` 接入
   普通 `ESP_LOGx`。
 - `base_url`、Token、`product_id`、`firmware_target` 与稳定 `device_id` 由调用方通过
@@ -113,7 +116,7 @@ init → configure_copy → start → stop → deinit
 
 ## 9. 验证
 
-- 静态检查：公共 C ABI、中文 Doxygen、Task 文件命名、Log V2 链接包装、队列满策略和单向
-  组件依赖。
+- 静态检查：公共 C ABI、中文 Doxygen、Task 文件命名、Log V2 链接包装、队列满策略、上传
+  失败退避和单向组件依赖。退避契约执行 `tests/check_remote_log_backoff.ps1`。
 - 实机接入后：验证一条 `ESP_LOGx` 只生成一条远端记录、原串口输出不变、早期日志缓存、离线
   重试、session 创建、批次顺序、停止超时和丢弃统计。

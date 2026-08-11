@@ -37,7 +37,7 @@ extern "C"
         size_t   queue_capacity;        /**< 可缓存的日志条数，不含内部停止命令槽位 */
         size_t   batch_capacity;        /**< 单次上传的最大日志条数，不得大于 queue_capacity */
         uint32_t batch_wait_ms;         /**< 收到首条日志后继续聚合批次的等待时间 */
-        uint32_t retry_interval_ms;     /**< 离线或上传失败后的重试间隔 */
+        uint32_t retry_interval_ms;     /**< 离线检查间隔及上传失败后的首档重试间隔 */
         int      http_timeout_ms;       /**< log_upload 同步 HTTP 请求超时 */
         uint32_t task_stack_size_bytes; /**< ESP-IDF FreeRTOS Task 栈字节数 */
         uint32_t task_priority;         /**< FreeRTOS Task 优先级 */
@@ -60,8 +60,8 @@ extern "C"
     /**
  * @brief 写入推荐的默认资源与重试配置
  *
- * 默认队列 64 条、每批 8 条、聚合等待 100 ms、失败重试 3 s、HTTP 超时 3 s、
- * Task 栈 6144 字节、优先级 3。
+ * 默认队列 64 条、每批 8 条、聚合等待 100 ms、上传失败首档重试 3 s、HTTP 超时 3 s、
+ * Task 栈 6144 字节、优先级 3。连续上传失败按 1、5、15、60 倍退避并在最后一档封顶。
  *
  * @param[out] out_config 配置输出
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 输出指针为空

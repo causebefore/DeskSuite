@@ -19,6 +19,9 @@
 #define REMOTE_LOG_TASK_STACK_SIZE_DEFAULT   6144U
 #define REMOTE_LOG_TASK_PRIORITY_DEFAULT     3U
 
+/** @brief 连续上传失败的技术退避倍率，最后一档封顶 */
+static const uint8_t s_retry_backoff_multipliers[] = { 1U, 5U, 15U, 60U };
+
 /** @brief 日志标签 */
 static const char *TAG = "remote_log_task";
 
@@ -79,9 +82,39 @@ static TickType_t remote_log_ms_to_ticks(uint32_t duration_ms)
     return duration_ms > 0U && ticks == 0U ? 1U : ticks;
 }
 
-static void remote_log_wait_retry(void)
+/**
+ * @brief 按连续失败阶段计算上传重试等待时间
+ *
+ * 配置值是第一档等待时间；乘法在 uint32_t 范围内饱和，避免异常配置导致回绕后高频重试。
+ *
+ * @param[in] retry_stage 当前连续失败阶段
+ * @return 本轮等待毫秒数
+ */
+static uint32_t remote_log_retry_delay_ms(uint8_t retry_stage)
 {
-    (void) ulTaskNotifyTake(pdTRUE, remote_log_ms_to_ticks(g_remote_log_runtime.config.retry_interval_ms));
+    const size_t stage_count = sizeof(s_retry_backoff_multipliers) / sizeof(s_retry_backoff_multipliers[0]);
+    const size_t stage_index = retry_stage < stage_count ? retry_stage : stage_count - 1U;
+    const uint32_t multiplier = s_retry_backoff_multipliers[stage_index];
+    const uint32_t base_delay = g_remote_log_runtime.config.retry_interval_ms;
+    return base_delay > UINT32_MAX / multiplier ? UINT32_MAX : base_delay * multiplier;
+}
+
+/**
+ * @brief 推进连续失败阶段并在最后一档封顶
+ *
+ * @param[in] retry_stage 当前连续失败阶段
+ * @return 下一次失败应使用的阶段
+ */
+static uint8_t remote_log_next_retry_stage(uint8_t retry_stage)
+{
+    const uint8_t last_stage =
+        (uint8_t) (sizeof(s_retry_backoff_multipliers) / sizeof(s_retry_backoff_multipliers[0]) - 1U);
+    return retry_stage < last_stage ? (uint8_t) (retry_stage + 1U) : last_stage;
+}
+
+static void remote_log_wait_retry(uint8_t retry_stage)
+{
+    (void) ulTaskNotifyTake(pdTRUE, remote_log_ms_to_ticks(remote_log_retry_delay_ms(retry_stage)));
 }
 
 static const char *remote_log_reset_reason_name(esp_reset_reason_t reason)
@@ -135,7 +168,7 @@ static bool remote_log_wait_online(void)
 
         const esp_err_t state_error = error != ESP_OK ? error : status.last_error;
         remote_log_set_state(REMOTE_LOG_STATE_WAITING_NETWORK, state_error);
-        remote_log_wait_retry();
+        remote_log_wait_retry(0U);
     }
     return false;
 }
@@ -160,6 +193,7 @@ static bool remote_log_ensure_session(void)
     }
 
     const esp_app_desc_t *app = esp_app_get_description();
+    uint8_t               retry_stage = 0U;
 
     while (!remote_log_stop_requested())
     {
@@ -193,7 +227,8 @@ static bool remote_log_ensure_session(void)
         }
 
         remote_log_record_upload_failure(error);
-        remote_log_wait_retry();
+        remote_log_wait_retry(retry_stage);
+        retry_stage = remote_log_next_retry_stage(retry_stage);
     }
     return false;
 }
@@ -273,6 +308,7 @@ static bool remote_log_collect_batch(size_t *out_count)
  */
 static bool remote_log_upload_batch(size_t count)
 {
+    uint8_t retry_stage = 0U;
     while (!remote_log_stop_requested())
     {
         if (!remote_log_wait_online())
@@ -304,7 +340,8 @@ static bool remote_log_upload_batch(size_t count)
         }
 
         remote_log_record_upload_failure(error);
-        remote_log_wait_retry();
+        remote_log_wait_retry(retry_stage);
+        retry_stage = remote_log_next_retry_stage(retry_stage);
     }
     return false;
 }
