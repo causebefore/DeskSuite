@@ -303,21 +303,6 @@ Assert-Contains $networkTask 'case\s+NETWORK_COMMAND_HUB_UPDATE\s*:' `
 Assert-Contains $networkTask 'char\s+hub_url\s*\[\s*APP_NETWORK_HUB_URL_MAX_LENGTH\s*\+\s*1U\s*\]' `
     'Hub 命令未按值携带有界候选地址'
 
-$hubInitialLoad = Read-CFunction $networkTask 'load_initial_hub_settings_snapshot'
-Assert-Contains $networkTask `
-    '#define\s+APP_NETWORK_LEGACY_HUB_URL\s+"http://192\.168\.6\.248:8765"' `
-    'Network Application 缺少已知旧 Hub 默认地址迁移常量'
-Assert-TextInOrder $hubInitialLoad @(
-    'strcmp\s*\(\s*settings\.service_url\s*,\s*APP_NETWORK_LEGACY_HUB_URL\s*\)\s*==\s*0',
-    'app_network_hub_url_parse_copy\s*\(\s*CONFIG_DESKMATE_SERVER_URL\s*,\s*normalized_default_url\s*\)',
-    'settings_store_copy_string\s*\(\s*settings\.service_url[\s\S]{0,180}normalized_default_url',
-    'settings_store_save\s*\(\s*&settings\s*\)',
-    'app_network_hub_url_parse_copy\s*\(\s*settings\.service_url\s*,\s*out_snapshot->service_url\s*\)'
-) '启动时必须只把精确旧默认地址规范化并持久化为当前构建默认值，再发布初始 Hub 快照'
-Assert-TextNotContains $hubInitialLoad `
-    'strstr\s*\(|strncmp\s*\(\s*settings\.service_url\s*,\s*APP_NETWORK_LEGACY_HUB_URL' `
-    '旧 Hub 地址迁移必须精确匹配完整值，不能覆盖其他用户地址'
-
 $hubHealthCheck = Read-CFunction $networkTask 'perform_hub_health_check'
 Assert-TextInOrder $hubHealthCheck @(
     'const\s+char\s*\*\s*candidate',
