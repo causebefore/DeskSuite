@@ -132,21 +132,38 @@ esp_err_t system_storage_set_time_synced(bool synced);
 esp_err_t system_storage_get_time_synced(bool *synced);
 
 /**
- * @brief 保存 OTA 提示画面是否等待正常页面恢复
+ * @brief 保存非照片画面是否等待正常页面恢复
  *
  * @param[in] pending true 表示下次启动必须呈现正常页面；false 表示无需恢复
  * @return ESP_OK 成功；或其他 NVS 错误码
  */
-esp_err_t system_storage_set_ota_display_restore_pending(bool pending);
+esp_err_t system_storage_set_display_restore_pending(bool pending);
 
 /**
- * @brief 读取 OTA 提示画面的待恢复状态
+ * @brief 读取非照片画面的待恢复状态
  *
  * @param[out] out_pending 待恢复状态输出
  * @return ESP_OK 成功；ESP_ERR_NOT_FOUND 表示尚未保存，应按无需恢复处理；
  *         ESP_ERR_INVALID_RESPONSE 表示持久化值非法；或其他 NVS 错误码
  */
-esp_err_t system_storage_get_ota_display_restore_pending(bool *out_pending);
+esp_err_t system_storage_get_display_restore_pending(bool *out_pending);
+
+/**
+ * @brief 保存是否应在下一次启动进入现有配网 Portal
+ *
+ * @param[in] pending true 表示保持配网意图直到候选配置成功；false 表示清除
+ * @return ESP_OK 成功；或其他 NVS 错误码
+ */
+esp_err_t system_storage_set_provisioning_pending(bool pending);
+
+/**
+ * @brief 读取下一次启动的配网意图
+ *
+ * @param[out] out_pending 配网意图输出
+ * @return ESP_OK 成功；ESP_ERR_NOT_FOUND 表示尚未保存，应按 false 处理；
+ *         ESP_ERR_INVALID_RESPONSE 表示持久化值非法；或其他 NVS 错误码
+ */
+esp_err_t system_storage_get_provisioning_pending(bool *out_pending);
 
 #ifdef __cplusplus
 }

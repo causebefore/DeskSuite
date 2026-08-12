@@ -25,8 +25,10 @@ static const char *TAG = "system_storage";
 #define SYSTEM_STORAGE_KEY_TIME_SYNCED    "time_synced"
 /** @brief 网络配置键 */
 #define SYSTEM_STORAGE_KEY_NETWORK_CONFIG "network_cfg"
-/** @brief OTA 提示画面待恢复键 */
-#define SYSTEM_STORAGE_KEY_OTA_DISPLAY_RESTORE "ota_disp_rstr"
+/** @brief 非照片画面待恢复键；沿用历史键名保证 OTA 升级兼容 */
+#define SYSTEM_STORAGE_KEY_DISPLAY_RESTORE      "ota_disp_rstr"
+/** @brief 跨重启及深睡保留的配网意图键 */
+#define SYSTEM_STORAGE_KEY_PROVISIONING_PENDING "prov_pending"
 
 /**
  * @brief 判断字符串是否在缓冲区内结束
@@ -303,12 +305,12 @@ esp_err_t system_storage_get_time_synced(bool *synced)
     return ESP_OK;
 }
 
-esp_err_t system_storage_set_ota_display_restore_pending(bool pending)
+/** @brief 保存一个布尔 NVS 值并提交 */
+static esp_err_t system_storage_set_bool(const char *key, bool value)
 {
     nvs_handle_t handle;
     ESP_RETURN_ON_ERROR(system_storage_open(NVS_READWRITE, &handle), TAG, "打开 NVS 失败");
-    esp_err_t err =
-        nvs_set_u8(handle, SYSTEM_STORAGE_KEY_OTA_DISPLAY_RESTORE, pending ? 1U : 0U);
+    esp_err_t err = nvs_set_u8(handle, key, value ? 1U : 0U);
     if (err == ESP_OK)
     {
         err = nvs_commit(handle);
@@ -317,16 +319,18 @@ esp_err_t system_storage_set_ota_display_restore_pending(bool pending)
     return system_storage_normalize_nvs_error(err);
 }
 
-esp_err_t system_storage_get_ota_display_restore_pending(bool *out_pending)
+/** @brief 读取并校验一个布尔 NVS 值 */
+static esp_err_t system_storage_get_bool(const char *key, bool *out_value, const char *name)
 {
-    ESP_RETURN_ON_FALSE(out_pending != NULL,
+    ESP_RETURN_ON_FALSE(out_value != NULL,
                         ESP_ERR_INVALID_ARG,
                         TAG,
-                        "OTA 画面恢复状态输出指针为空");
+                        "%s输出指针为空",
+                        name);
     nvs_handle_t handle;
     ESP_RETURN_ON_ERROR(system_storage_open(NVS_READONLY, &handle), TAG, "打开 NVS 失败");
     uint8_t   value = 0U;
-    esp_err_t err = nvs_get_u8(handle, SYSTEM_STORAGE_KEY_OTA_DISPLAY_RESTORE, &value);
+    esp_err_t err = nvs_get_u8(handle, key, &value);
     nvs_close(handle);
     err = system_storage_normalize_nvs_error(err);
     if (err != ESP_OK)
@@ -336,7 +340,32 @@ esp_err_t system_storage_get_ota_display_restore_pending(bool *out_pending)
     ESP_RETURN_ON_FALSE(value <= 1U,
                         ESP_ERR_INVALID_RESPONSE,
                         TAG,
-                        "OTA 画面恢复状态持久化值非法");
-    *out_pending = value != 0U;
+                        "%s持久化值非法",
+                        name);
+    *out_value = value != 0U;
     return ESP_OK;
+}
+
+esp_err_t system_storage_set_display_restore_pending(bool pending)
+{
+    return system_storage_set_bool(SYSTEM_STORAGE_KEY_DISPLAY_RESTORE, pending);
+}
+
+esp_err_t system_storage_get_display_restore_pending(bool *out_pending)
+{
+    return system_storage_get_bool(SYSTEM_STORAGE_KEY_DISPLAY_RESTORE,
+                                   out_pending,
+                                   "画面恢复状态");
+}
+
+esp_err_t system_storage_set_provisioning_pending(bool pending)
+{
+    return system_storage_set_bool(SYSTEM_STORAGE_KEY_PROVISIONING_PENDING, pending);
+}
+
+esp_err_t system_storage_get_provisioning_pending(bool *out_pending)
+{
+    return system_storage_get_bool(SYSTEM_STORAGE_KEY_PROVISIONING_PENDING,
+                                   out_pending,
+                                   "配网意图");
 }

@@ -42,6 +42,10 @@ static constexpr uint32_t PHOTO_PLAYBACK_NOTIFY_CONTROL             = 1UL << 4U;
 static constexpr uint32_t PHOTO_PLAYBACK_NOTIFY_MODAL_LEFT          = 1UL << 5U;
 /** @brief 模态确认键单击通知位 */
 static constexpr uint32_t PHOTO_PLAYBACK_NOTIFY_MODAL_CONFIRM       = 1UL << 6U;
+/** @brief 物理中键三秒长按配网请求通知位 */
+static constexpr uint32_t PHOTO_PLAYBACK_NOTIFY_PROVISIONING        = 1UL << 7U;
+/** @brief 物理中键进入配网所需持续时间 */
+static constexpr int64_t PHOTO_PLAYBACK_PROVISIONING_HOLD_US        = 3000000LL;
 
 /** @brief 导航方向 */
 enum class PhotoPlaybackNavigation : uint8_t
@@ -115,11 +119,15 @@ class PhotoPlaybackRuntime final {
         nullptr; /**< 固件检查请求回调 */
     void *firmware_check_request_context = nullptr; /**< 固件检查请求回调上下文 */
     bool modal_active = false; /**< 是否消费普通按键并提交模态动作 */
+    bool modal_allows_provisioning = false; /**< 模态是否只允许中键长按配网 */
     bool collection_change_deferred = false; /**< 模态期间是否延后集合收敛 */
     photo_playback_app_modal_action_cb_t modal_action_callback = nullptr; /**< 模态动作回调 */
     void *modal_action_context = nullptr; /**< 模态动作回调上下文 */
     esp_err_t control_result = ESP_OK; /**< 最近一次同步控制命令结果 */
     int64_t                             left_press_started_at_us = 0; /**< 左键有效按下的单调时间 */
+    int64_t right_press_started_at_us = 0; /**< 中键有效按下的单调时间 */
+    photo_playback_app_provisioning_request_cb_t provisioning_request_callback = nullptr;
+    void *provisioning_request_context = nullptr;
     photo_playback_app_collection_settled_cb_t collection_settled_callback =
         nullptr;                                                           /**< 收敛回调 */
     void                            *collection_settled_context = nullptr; /**< 收敛回调上下文 */

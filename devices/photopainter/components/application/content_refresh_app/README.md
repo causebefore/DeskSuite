@@ -32,8 +32,12 @@
 收到的请求并入当前轮次，调度等待中收到的请求提前开始新一轮。正常内容刷新不检查固件，也不
 为了 OTA 延长在线会话。
 
-每轮在 `network_manager_stop()` 成功或明确失败后，通过借用回调发布轮次结果、当前
+每轮在 `network_manager_stop()` 成功或明确失败后，通过借用回调发布受控结果
+`SUCCESS/NETWORK_UNAVAILABLE/SERVER_UNAVAILABLE/LOCAL_FAILURE`、当前
 `next_refresh_at` 和活动集合 `generation`，供电源协调 App 等待显示收敛。
+
+网络建链阶段失败只归类为网络不可用；Manifest、帧下载和服务协议失败归类为服务器不可用；
+SD、提交和本地状态错误归类为本地失败，不根据通用 `esp_err_t` 猜测页面。
 
 ## 3. 生命周期、停止与恢复
 

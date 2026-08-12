@@ -80,6 +80,16 @@ extern "C"
     esp_err_t bootstart_app_init_local_communication(void);
 
     /**
+     * @brief 初始化启动配网与照片播放共用的按键 Device 和扫描 Service
+     *
+     * 返回时扫描尚未启动；启动配网 Application 会临时接管，联网后由照片播放 Application
+     * 重新注册回调并启动同一个 Service。
+     *
+     * @return ESP_OK 成功；或按键 Device、Service 初始化错误码
+     */
+    esp_err_t bootstart_app_init_button_input(void);
+
+    /**
  * @brief 使用已初始化的显示与网络能力运行配网用例，并在联网后尽力启动远端日志上传
  *
  * @param[in] wakeup_context 调用期间借用的本轮唤醒上下文

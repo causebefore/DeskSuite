@@ -294,6 +294,20 @@ esp_err_t photo_playback_app_set_firmware_check_request_callback_borrow(
     return ESP_OK;
 }
 
+esp_err_t photo_playback_app_set_provisioning_request_callback_borrow(
+    photo_playback_app_provisioning_request_cb_t callback, void *context)
+{
+    ESP_RETURN_ON_FALSE(g_photo_playback_runtime.initialized,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "照片播放 App 尚未初始化");
+    taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+    g_photo_playback_runtime.provisioning_request_callback = callback;
+    g_photo_playback_runtime.provisioning_request_context = callback != nullptr ? context : nullptr;
+    taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+    return ESP_OK;
+}
+
 esp_err_t photo_playback_app_begin_modal_borrow(
     photo_playback_app_modal_action_cb_t callback, void *context)
 {
@@ -309,7 +323,31 @@ esp_err_t photo_playback_app_begin_modal_borrow(
         g_photo_playback_runtime.modal_action_callback = callback;
         g_photo_playback_runtime.modal_action_context = context;
         g_photo_playback_runtime.modal_active = true;
+        g_photo_playback_runtime.modal_allows_provisioning = false;
         g_photo_playback_runtime.left_press_started_at_us = 0;
+        g_photo_playback_runtime.right_press_started_at_us = 0;
+    }
+    taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+    ESP_RETURN_ON_FALSE(running, ESP_ERR_INVALID_STATE, TAG, "照片播放 Task 尚未运行");
+    return ESP_OK;
+}
+
+esp_err_t photo_playback_app_begin_provisioning_modal(void)
+{
+    ESP_RETURN_ON_FALSE(g_photo_playback_runtime.initialized,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "照片播放 App 尚未初始化");
+    taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+    const bool running = g_photo_playback_runtime.task != nullptr;
+    if (running)
+    {
+        g_photo_playback_runtime.modal_action_callback = nullptr;
+        g_photo_playback_runtime.modal_action_context = nullptr;
+        g_photo_playback_runtime.modal_active = true;
+        g_photo_playback_runtime.modal_allows_provisioning = true;
+        g_photo_playback_runtime.left_press_started_at_us = 0;
+        g_photo_playback_runtime.right_press_started_at_us = 0;
     }
     taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
     ESP_RETURN_ON_FALSE(running, ESP_ERR_INVALID_STATE, TAG, "照片播放 Task 尚未运行");
@@ -326,9 +364,11 @@ esp_err_t photo_playback_app_end_modal(void)
     bool collection_change_deferred;
     taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
     g_photo_playback_runtime.modal_active = false;
+    g_photo_playback_runtime.modal_allows_provisioning = false;
     g_photo_playback_runtime.modal_action_callback = nullptr;
     g_photo_playback_runtime.modal_action_context = nullptr;
     g_photo_playback_runtime.left_press_started_at_us = 0;
+    g_photo_playback_runtime.right_press_started_at_us = 0;
     collection_change_deferred = g_photo_playback_runtime.collection_change_deferred;
     g_photo_playback_runtime.collection_change_deferred = false;
     task = g_photo_playback_runtime.task;
@@ -415,12 +455,16 @@ esp_err_t photo_playback_app_deinit(void)
     g_photo_playback_runtime.refresh_request_context  = nullptr;
     g_photo_playback_runtime.firmware_check_request_callback = nullptr;
     g_photo_playback_runtime.firmware_check_request_context = nullptr;
+    g_photo_playback_runtime.provisioning_request_callback = nullptr;
+    g_photo_playback_runtime.provisioning_request_context = nullptr;
     g_photo_playback_runtime.modal_active = false;
+    g_photo_playback_runtime.modal_allows_provisioning = false;
     g_photo_playback_runtime.collection_change_deferred = false;
     g_photo_playback_runtime.modal_action_callback = nullptr;
     g_photo_playback_runtime.modal_action_context = nullptr;
     g_photo_playback_runtime.control_result = ESP_OK;
     g_photo_playback_runtime.left_press_started_at_us = 0;
+    g_photo_playback_runtime.right_press_started_at_us = 0;
     g_photo_playback_runtime.collection_settled_callback = nullptr;
     g_photo_playback_runtime.collection_settled_context = nullptr;
     g_photo_playback_runtime.activity_callback = nullptr;

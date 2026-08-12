@@ -48,10 +48,20 @@ typedef enum
     DISPLAY_COLLECTION_SYNC_COMMITTED,        /**< 新集合已完整提交 */
 } display_collection_sync_outcome_t;
 
+/** @brief 集合同步失败来源；同步失败时用于区分产品提示与本地恢复策略 */
+typedef enum
+{
+    DISPLAY_COLLECTION_SYNC_FAILURE_NONE = 0, /**< 没有失败 */
+    DISPLAY_COLLECTION_SYNC_FAILURE_BACKEND,  /**< Manifest、帧下载或服务端内容无效 */
+    DISPLAY_COLLECTION_SYNC_FAILURE_STORAGE,  /**< SD 恢复、读取、写入或提交失败 */
+    DISPLAY_COLLECTION_SYNC_FAILURE_CANCELLED, /**< 调用方请求取消 */
+} display_collection_sync_failure_t;
+
 /** @brief 同步事务结果 */
 typedef struct
 {
     display_collection_sync_outcome_t outcome;          /**< 事务结果 */
+    display_collection_sync_failure_t failure;          /**< 失败来源；错误返回时仍有效 */
     uint8_t                           downloaded_pages; /**< 实际下载页面数 */
     uint8_t                           reused_pages;     /**< 复用本地页面数 */
     int64_t                           next_refresh_at_utc; /**< 下一次刷新 UTC Unix 秒 */
@@ -102,7 +112,8 @@ esp_err_t display_collection_service_init(void);
  * 事务期间独占内部下载缓冲区，但快照读取仍可并发执行。任何页面失败都不会切换活动集合。
  *
  * @param[in] request 同步配置，仅调用期间借用
- * @param[out] out_result 同步结果，仅 ESP_OK 时有效
+ * @param[out] out_result 同步结果；`failure` 在参数校验通过并进入事务后始终有效，其余字段仅
+ *                        ESP_OK 时有效
  * @return ESP_OK 未变化或已提交；ESP_ERR_INVALID_STATE 生命周期、并发或存储状态无效；
  *         ESP_ERR_INVALID_ARG 参数无效；或网络、协议、存储错误码
  */

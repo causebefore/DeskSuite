@@ -81,6 +81,23 @@ static esp_err_t power_management_app_on_firmware_check_request(void *context)
     return ESP_OK;
 }
 
+/** @brief 把物理中键三秒长按转换为一次性配网通知 */
+static esp_err_t power_management_app_on_provisioning_request(void *context)
+{
+    (void) context;
+    TaskHandle_t task;
+    taskENTER_CRITICAL(&g_power_management_runtime.state_lock);
+    task = g_power_management_runtime.task;
+    taskEXIT_CRITICAL(&g_power_management_runtime.state_lock);
+    ESP_RETURN_ON_FALSE(task != nullptr,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "电源管理 Task 尚未运行，不能请求配网");
+    return xTaskNotify(task, POWER_MANAGEMENT_NOTIFY_PROVISIONING, eSetBits) == pdPASS
+               ? ESP_OK
+               : ESP_FAIL;
+}
+
 /** @brief 把照片播放 App 的模态按键动作转换为电源管理通知 */
 static esp_err_t power_management_app_on_modal_action(
     photo_playback_app_modal_action_t action, void *context)
@@ -201,6 +218,12 @@ static esp_err_t power_management_app_clear_callbacks()
     if (first_error == ESP_OK)
     {
         first_error = firmware_error;
+    }
+    const esp_err_t provisioning_error =
+        photo_playback_app_set_provisioning_request_callback_borrow(nullptr, nullptr);
+    if (first_error == ESP_OK)
+    {
+        first_error = provisioning_error;
     }
     const esp_err_t modal_error = photo_playback_app_end_modal();
     if (first_error == ESP_OK)
@@ -328,6 +351,12 @@ esp_err_t power_management_app_start(void)
         cleanup,
         TAG,
         "注册固件检查请求回调失败");
+    ESP_GOTO_ON_ERROR(
+        photo_playback_app_set_provisioning_request_callback_borrow(
+            power_management_app_on_provisioning_request, nullptr),
+        cleanup,
+        TAG,
+        "注册配网请求回调失败");
     ESP_GOTO_ON_ERROR(photo_playback_app_set_collection_settled_callback_borrow(
                           power_management_app_on_display_settled,
                           nullptr),

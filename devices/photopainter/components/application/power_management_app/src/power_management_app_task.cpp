@@ -535,6 +535,11 @@ static PowerDisplayReadiness power_management_check_display(uint64_t target_gene
     }
     if (status.state == PHOTO_PLAYBACK_APP_STATE_NO_CONTENT)
     {
+        if (status.last_error != ESP_OK && status.last_error != ESP_ERR_NOT_FOUND)
+        {
+            *out_error = status.last_error;
+            return PowerDisplayReadiness::Blocked;
+        }
         if (status.collection_settled
             && status.settled_collection_generation >= target_generation)
         {
@@ -585,6 +590,43 @@ static esp_err_t power_management_stop_optional(const char *name, esp_err_t (*st
 static esp_err_t power_management_stop_remote_log()
 {
     return remote_log_stop(POWER_MANAGEMENT_REMOTE_LOG_STOP_TIMEOUT_MS);
+}
+
+/**
+ * @brief 已持久化配网意图后按依赖顺序停止运行期组件并重启
+ *
+ * 停止失败只记录诊断；一次性意图已经落盘，新启动仍会收敛到现有 Portal。
+ */
+[[noreturn]] static void power_management_restart_for_provisioning()
+{
+    ESP_LOGI(TAG, "开始为配网请求有序停止运行期组件");
+    bool stopped = false;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        power_management_stop_optional("照片播放 App", photo_playback_app_stop, &stopped));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        power_management_stop_optional("内容刷新 App", content_refresh_app_stop, &stopped));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        power_management_stop_optional("固件 OTA Task", firmware_ota_stop, &stopped));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        power_management_stop_optional("远端日志 Task", power_management_stop_remote_log, &stopped));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        power_management_stop_optional("SD 卡 Service", sd_card_service_stop, &stopped));
+
+    network_manager_status_t network_status = {};
+    const esp_err_t status_error = network_manager_get_status_copy(&network_status);
+    if (status_error == ESP_OK && network_status.state != NETWORK_STATE_STOPPED)
+    {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(
+            power_management_stop_optional("网络会话", network_manager_stop, &stopped));
+    }
+    else if (status_error != ESP_OK && status_error != ESP_ERR_INVALID_STATE)
+    {
+        ESP_LOGW(TAG, "配网重启前读取网络状态失败: %s", esp_err_to_name(status_error));
+    }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(device_buzzer_stop());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(device_led_off());
+    ESP_LOGI(TAG, "运行期配网意图已保存，立即重启进入现有 Portal");
+    esp_restart();
 }
 
 /** @brief 记录首个回滚错误，同时继续恢复其余已经停止的组件 */
@@ -913,29 +955,29 @@ static void power_management_play_ota_tone()
  * @param[in,out] inout_restore_marked 是否已经设置恢复标记
  * @return ESP_OK 已完成一次物理全刷；或测量、持久化、页面显示错误码
  */
-static esp_err_t power_management_present_ota_page(const char *const *texts,
-                                                   const uint8_t *scales,
-                                                   size_t line_count,
-                                                   bool *inout_restore_marked)
+static esp_err_t power_management_present_status_page(const char *const *texts,
+                                                      const uint8_t *scales,
+                                                      size_t line_count,
+                                                      bool *inout_restore_marked)
 {
     ESP_RETURN_ON_FALSE(texts != nullptr && scales != nullptr && line_count > 0U
                             && line_count <= PHOTO_PLAYBACK_APP_STATUS_LINE_MAX
                             && inout_restore_marked != nullptr,
                         ESP_ERR_INVALID_ARG,
                         TAG,
-                        "OTA 状态页配置无效");
+                        "状态页配置无效");
     if (!*inout_restore_marked)
     {
-        ESP_RETURN_ON_ERROR(system_storage_set_ota_display_restore_pending(true),
+        ESP_RETURN_ON_ERROR(system_storage_set_display_restore_pending(true),
                             TAG,
-                            "保存 OTA 状态页恢复标记失败");
+                            "保存非照片状态页恢复标记失败");
         *inout_restore_marked = true;
     }
 
     device_display_info_t display_info = {};
     ESP_RETURN_ON_ERROR(device_display_get_info_copy(&display_info),
                         TAG,
-                        "读取 OTA 状态页显示尺寸失败");
+                        "读取状态页显示尺寸失败");
     device_display_ascii_size_t sizes[PHOTO_PLAYBACK_APP_STATUS_LINE_MAX] = {};
     uint32_t total_height = 0U;
     for (size_t index = 0U; index < line_count; ++index)
@@ -944,11 +986,11 @@ static esp_err_t power_management_present_ota_page(const char *const *texts,
                                                               scales[index],
                                                               &sizes[index]),
                             TAG,
-                            "测量 OTA 状态页文本失败");
+                            "测量状态页文本失败");
         ESP_RETURN_ON_FALSE(sizes[index].width_pixels <= display_info.width_pixels,
                             ESP_ERR_INVALID_SIZE,
                             TAG,
-                            "OTA 状态页文本宽度超过屏幕");
+                            "状态页文本宽度超过屏幕");
         total_height += sizes[index].height_pixels;
     }
     total_height += static_cast<uint32_t>(line_count - 1U)
@@ -956,7 +998,7 @@ static esp_err_t power_management_present_ota_page(const char *const *texts,
     ESP_RETURN_ON_FALSE(total_height <= display_info.height_pixels,
                         ESP_ERR_INVALID_SIZE,
                         TAG,
-                        "OTA 状态页文本高度超过屏幕");
+                        "状态页文本高度超过屏幕");
 
     photo_playback_app_status_line_t lines[PHOTO_PLAYBACK_APP_STATUS_LINE_MAX] = {};
     uint32_t y = (display_info.height_pixels - total_height) / 2U;
@@ -977,7 +1019,7 @@ static esp_err_t power_management_present_update_available(bool *inout_restore_m
 {
     static const char *const texts[] = { "UPDATE AVAILABLE", "CONFIRM: INSTALL", "LEFT: CANCEL" };
     static const uint8_t scales[] = { 5U, 4U, 4U };
-    return power_management_present_ota_page(texts, scales, 3U, inout_restore_marked);
+    return power_management_present_status_page(texts, scales, 3U, inout_restore_marked);
 }
 
 /** @brief 显示当前固件已是最新版本的结果页 */
@@ -985,7 +1027,7 @@ static esp_err_t power_management_present_up_to_date(bool *inout_restore_marked)
 {
     static const char *const texts[] = { "FIRMWARE IS UP TO DATE", "LEFT: BACK" };
     static const uint8_t scales[] = { 4U, 4U };
-    return power_management_present_ota_page(texts, scales, 2U, inout_restore_marked);
+    return power_management_present_status_page(texts, scales, 2U, inout_restore_marked);
 }
 
 /** @brief 显示服务器不可用结果页 */
@@ -993,7 +1035,33 @@ static esp_err_t power_management_present_server_unavailable(bool *inout_restore
 {
     static const char *const texts[] = { "SERVER UNAVAILABLE", "LEFT: BACK" };
     static const uint8_t scales[] = { 4U, 4U };
-    return power_management_present_ota_page(texts, scales, 2U, inout_restore_marked);
+    return power_management_present_status_page(texts, scales, 2U, inout_restore_marked);
+}
+
+/** @brief 显示网络或服务器不可用提示，并只允许中键三秒长按进入配网 */
+static esp_err_t power_management_present_connectivity_prompt(
+    content_refresh_app_result_t result, bool *inout_restore_marked)
+{
+    ESP_RETURN_ON_FALSE(result == CONTENT_REFRESH_APP_RESULT_NETWORK_UNAVAILABLE
+                            || result == CONTENT_REFRESH_APP_RESULT_SERVER_UNAVAILABLE,
+                        ESP_ERR_INVALID_ARG,
+                        TAG,
+                        "连接提示结果无效");
+    ESP_RETURN_ON_ERROR(photo_playback_app_begin_provisioning_modal(),
+                        TAG,
+                        "启用连接提示配网按键失败");
+    const char *const texts[] = {
+        result == CONTENT_REFRESH_APP_RESULT_NETWORK_UNAVAILABLE ? "NO NETWORK" : "NO SERVER",
+        "HOLD MIDDLE 3S TO SETUP",
+    };
+    static const uint8_t scales[] = { 4U, 2U };
+    const esp_err_t error =
+        power_management_present_status_page(texts, scales, 2U, inout_restore_marked);
+    if (error != ESP_OK)
+    {
+        (void) photo_playback_app_end_modal();
+    }
+    return error;
 }
 
 /** @brief 显示固件正在写入且不可断电的状态页 */
@@ -1001,7 +1069,7 @@ static esp_err_t power_management_present_updating(bool *inout_restore_marked)
 {
     static const char *const texts[] = { "UPDATING FIRMWARE", "DO NOT POWER OFF" };
     static const uint8_t scales[] = { 4U, 4U };
-    return power_management_present_ota_page(texts, scales, 2U, inout_restore_marked);
+    return power_management_present_status_page(texts, scales, 2U, inout_restore_marked);
 }
 
 /** @brief 显示固件安装失败结果页 */
@@ -1009,7 +1077,7 @@ static esp_err_t power_management_present_update_failed(bool *inout_restore_mark
 {
     static const char *const texts[] = { "UPDATE FAILED", "LEFT: BACK" };
     static const uint8_t scales[] = { 5U, 4U };
-    return power_management_present_ota_page(texts, scales, 2U, inout_restore_marked);
+    return power_management_present_status_page(texts, scales, 2U, inout_restore_marked);
 }
 
 /** @brief 在 OTA 会话中启动 Network Manager 并等待最多 30 秒上线 */
@@ -1359,7 +1427,7 @@ static esp_err_t power_management_finish_ota_interaction(bool *inout_network_hel
     }
     if (restore_error == ESP_OK && *inout_restore_marked)
     {
-        const esp_err_t marker_error = system_storage_set_ota_display_restore_pending(false);
+        const esp_err_t marker_error = system_storage_set_display_restore_pending(false);
         if (marker_error == ESP_OK)
         {
             *inout_restore_marked = false;
@@ -1401,6 +1469,8 @@ static void power_management_task(void *context)
     TickType_t ota_prompt_deadline = 0U;
     bool ota_network_held = false;
     bool ota_restore_marked = false;
+    bool connectivity_restore_marked = false;
+    bool connectivity_prompt_active = false;
     bool content_suspended_for_ota = false;
     content_refresh_app_round_event_t round_event = {};
     uint32_t wakeup_seconds = 0U;
@@ -1433,6 +1503,22 @@ static void power_management_task(void *context)
         if ((notification & POWER_MANAGEMENT_NOTIFY_STOP) != 0U)
         {
             break;
+        }
+
+        if ((notification & POWER_MANAGEMENT_NOTIFY_PROVISIONING) != 0U
+            && ota_interaction == PowerOtaInteraction::Inactive)
+        {
+            const esp_err_t intent_error = system_storage_set_provisioning_pending(true);
+            if (intent_error != ESP_OK)
+            {
+                ESP_LOGE(TAG,
+                         "保存一次性配网意图失败，保持当前页面: %s",
+                         esp_err_to_name(intent_error));
+            }
+            else
+            {
+                power_management_restart_for_provisioning();
+            }
         }
 
         if ((notification & POWER_MANAGEMENT_NOTIFY_FIRMWARE_CHECK) != 0U
@@ -1523,9 +1609,10 @@ static void power_management_task(void *context)
                 && power_management_take_round_event(&round_event))
             {
                 ESP_LOGI(TAG,
-                         "收到内容刷新轮次结果: generation=%llu, result=%s, "
+                         "收到内容刷新轮次结果: generation=%llu, result=%u, error=%s, "
                          "network_cleanup=%s, next_refresh_at=%lld",
                          (unsigned long long) round_event.collection_generation,
+                         (unsigned int) round_event.result,
                          esp_err_to_name(round_event.round_error),
                          round_event.network_cleanup_succeeded ? "完成" : "失败",
                          (long long) round_event.next_refresh_at_utc);
@@ -1564,15 +1651,36 @@ static void power_management_task(void *context)
                         wakeup_seconds,
                         round_event.round_error,
                         wakeup_at_utc);
+                    if (round_event.result == CONTENT_REFRESH_APP_RESULT_NETWORK_UNAVAILABLE
+                        || round_event.result == CONTENT_REFRESH_APP_RESULT_SERVER_UNAVAILABLE)
+                    {
+                        const esp_err_t prompt_error = power_management_present_connectivity_prompt(
+                            round_event.result, &connectivity_restore_marked);
+                        if (prompt_error != ESP_OK)
+                        {
+                            round_ready = false;
+                            power_management_app_publish(
+                                POWER_MANAGEMENT_APP_STATE_AUTO_SLEEP_BLOCKED, prompt_error);
+                            ESP_LOGE(TAG,
+                                     "连接提示页未能稳定显示: %s",
+                                     esp_err_to_name(prompt_error));
+                        }
+                        else
+                        {
+                            connectivity_prompt_active = true;
+                        }
+                    }
                 }
             }
 
             if (round_ready && ota_interaction == PowerOtaInteraction::Inactive)
             {
                 esp_err_t display_error = ESP_OK;
-                const PowerDisplayReadiness readiness =
-                    power_management_check_display(round_event.collection_generation,
-                                                   &display_error);
+                const PowerDisplayReadiness readiness = connectivity_prompt_active
+                                                            ? PowerDisplayReadiness::Ready
+                                                            : power_management_check_display(
+                                                                  round_event.collection_generation,
+                                                                  &display_error);
                 if (readiness == PowerDisplayReadiness::Blocked)
                 {
                     awake_window_active = false;

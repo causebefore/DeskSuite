@@ -90,6 +90,9 @@ typedef esp_err_t (*photo_playback_app_refresh_request_cb_t)(void *context);
  */
 typedef esp_err_t (*photo_playback_app_firmware_check_request_cb_t)(void *context);
 
+/** @brief 物理中键持续三秒松开后的配网请求回调 */
+typedef esp_err_t (*photo_playback_app_provisioning_request_cb_t)(void *context);
+
 /** @brief 模态状态页允许提交给协调方的按键动作 */
 typedef enum
 {
@@ -240,6 +243,15 @@ esp_err_t photo_playback_app_set_firmware_check_request_callback_borrow(
     photo_playback_app_firmware_check_request_cb_t callback, void *context);
 
 /**
+ * @brief 设置或清除物理中键三秒长按配网请求回调
+ *
+ * 普通照片页以及通过 `photo_playback_app_begin_provisioning_modal()` 启用的连接提示页会
+ * 提交该回调；普通 OTA 模态继续消费该长按。
+ */
+esp_err_t photo_playback_app_set_provisioning_request_callback_borrow(
+    photo_playback_app_provisioning_request_cb_t callback, void *context);
+
+/**
  * @brief 开始模态按键捕获并借用动作回调
  *
  * 启用后左键和确认键单击只提交模态动作，右键、普通导航和所有长按语义均被消费。允许在播放
@@ -251,6 +263,13 @@ esp_err_t photo_playback_app_set_firmware_check_request_callback_borrow(
  */
 esp_err_t photo_playback_app_begin_modal_borrow(
     photo_playback_app_modal_action_cb_t callback, void *context);
+
+/**
+ * @brief 开始只接受物理中键三秒长按的配网提示模态
+ *
+ * 该模式消费其他全部按键，不把普通点击计为用户活动。
+ */
+esp_err_t photo_playback_app_begin_provisioning_modal(void);
 
 /**
  * @brief 结束模态按键捕获并恢复普通按键语义

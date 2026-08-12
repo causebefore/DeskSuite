@@ -55,6 +55,24 @@ extern "C"
                              const char *source);
 
     /**
+     * @brief 判断一段单调时间是否达到指定持续时间
+     *
+     * 起点必须大于零，终点不得早于起点。函数不读取时钟，适合按键等纯策略边界测试。
+     *
+     * @param[in] started_at_us 起始单调时间，微秒
+     * @param[in] ended_at_us 结束单调时间，微秒
+     * @param[in] required_us 要求的最短持续时间，必须大于零
+     * @return true 持续时间达到要求；false 输入无效或尚未达到
+     */
+    static inline bool utils_duration_reached_us(int64_t started_at_us,
+                                                 int64_t ended_at_us,
+                                                 int64_t required_us)
+    {
+        return started_at_us > 0 && required_us > 0 && ended_at_us >= started_at_us
+               && ended_at_us - started_at_us >= required_us;
+    }
+
+    /**
  * @brief 从小端字节序读取 16 位无符号整数
  *
  * @param[in] data 至少包含 2 字节的数据指针

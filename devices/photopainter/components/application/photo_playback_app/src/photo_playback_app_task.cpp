@@ -594,6 +594,23 @@ static void photo_playback_task(void *context)
                 }
             }
         }
+        if ((notification & PHOTO_PLAYBACK_NOTIFY_PROVISIONING) != 0U)
+        {
+            photo_playback_app_provisioning_request_cb_t callback;
+            void *callback_context;
+            taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+            callback = g_photo_playback_runtime.provisioning_request_callback;
+            callback_context = g_photo_playback_runtime.provisioning_request_context;
+            taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+            if (callback != nullptr)
+            {
+                const esp_err_t error = callback(callback_context);
+                if (error != ESP_OK)
+                {
+                    ESP_LOGW(TAG, "中键长按配网请求被拒绝: %s", esp_err_to_name(error));
+                }
+            }
+        }
         if ((notification & PHOTO_PLAYBACK_NOTIFY_COLLECTION_CHANGED) != 0U)
         {
             taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
@@ -652,13 +669,48 @@ void photo_playback_app_on_button_event(device_button_id_t button, device_button
     (void) click_count;
     (void) context;
     bool modal_active;
+    bool modal_allows_provisioning;
     TaskHandle_t modal_task;
     taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
     modal_active = g_photo_playback_runtime.modal_active;
+    modal_allows_provisioning = g_photo_playback_runtime.modal_allows_provisioning;
     modal_task = g_photo_playback_runtime.task;
     taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
     if (modal_active)
     {
+        if (modal_allows_provisioning && button == DEVICE_BUTTON_RIGHT)
+        {
+            if (event == DEVICE_BUTTON_EVENT_PRESS)
+            {
+                taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+                g_photo_playback_runtime.right_press_started_at_us = esp_timer_get_time();
+                taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+            }
+            else if (event == DEVICE_BUTTON_EVENT_RELEASE)
+            {
+                taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+                g_photo_playback_runtime.right_press_started_at_us = 0;
+                taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+            }
+            else if (event == DEVICE_BUTTON_EVENT_LONG_PRESS_END)
+            {
+                const int64_t released_at_us = esp_timer_get_time();
+                int64_t pressed_at_us;
+                taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+                pressed_at_us = g_photo_playback_runtime.right_press_started_at_us;
+                g_photo_playback_runtime.right_press_started_at_us = 0;
+                taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+                if (utils_duration_reached_us(pressed_at_us,
+                                              released_at_us,
+                                              PHOTO_PLAYBACK_PROVISIONING_HOLD_US)
+                    && modal_task != nullptr)
+                {
+                    (void) xTaskNotify(modal_task,
+                                       PHOTO_PLAYBACK_NOTIFY_PROVISIONING,
+                                       eSetBits);
+                }
+            }
+        }
         if (event == DEVICE_BUTTON_EVENT_CLICK && modal_task != nullptr)
         {
             if (button == DEVICE_BUTTON_LEFT)
@@ -671,6 +723,42 @@ void photo_playback_app_on_button_event(device_button_id_t button, device_button
             }
         }
         return;
+    }
+    if (button == DEVICE_BUTTON_RIGHT)
+    {
+        if (event == DEVICE_BUTTON_EVENT_PRESS)
+        {
+            taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+            g_photo_playback_runtime.right_press_started_at_us = esp_timer_get_time();
+            taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+            return;
+        }
+        if (event == DEVICE_BUTTON_EVENT_RELEASE)
+        {
+            taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+            g_photo_playback_runtime.right_press_started_at_us = 0;
+            taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+            return;
+        }
+        if (event == DEVICE_BUTTON_EVENT_LONG_PRESS_END)
+        {
+            const int64_t released_at_us = esp_timer_get_time();
+            int64_t pressed_at_us;
+            TaskHandle_t task;
+            taskENTER_CRITICAL(&g_photo_playback_runtime.state_lock);
+            pressed_at_us = g_photo_playback_runtime.right_press_started_at_us;
+            g_photo_playback_runtime.right_press_started_at_us = 0;
+            task = g_photo_playback_runtime.task;
+            taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
+            if (utils_duration_reached_us(pressed_at_us,
+                                          released_at_us,
+                                          PHOTO_PLAYBACK_PROVISIONING_HOLD_US)
+                && task != nullptr)
+            {
+                (void) xTaskNotify(task, PHOTO_PLAYBACK_NOTIFY_PROVISIONING, eSetBits);
+            }
+            return;
+        }
     }
     if (button == DEVICE_BUTTON_LEFT)
     {
@@ -698,8 +786,9 @@ void photo_playback_app_on_button_event(device_button_id_t button, device_button
             g_photo_playback_runtime.left_press_started_at_us = 0;
             task                                              = g_photo_playback_runtime.task;
             taskEXIT_CRITICAL(&g_photo_playback_runtime.state_lock);
-            if (pressed_at_us > 0
-                && released_at_us - pressed_at_us >= PHOTO_PLAYBACK_FIRMWARE_CHECK_HOLD_US
+            if (utils_duration_reached_us(pressed_at_us,
+                                          released_at_us,
+                                          PHOTO_PLAYBACK_FIRMWARE_CHECK_HOLD_US)
                 && task != nullptr)
             {
                 (void) xTaskNotify(task, PHOTO_PLAYBACK_NOTIFY_FIRMWARE_CHECK, eSetBits);

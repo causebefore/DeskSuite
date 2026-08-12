@@ -40,6 +40,8 @@ static constexpr uint32_t POWER_MANAGEMENT_NOTIFY_MODAL_LEFT = 1UL << 8U;
 static constexpr uint32_t POWER_MANAGEMENT_NOTIFY_MODAL_CONFIRM = 1UL << 9U;
 /** @brief OTA Task 已复制一份不可变事务完成事件 */
 static constexpr uint32_t POWER_MANAGEMENT_NOTIFY_FIRMWARE_OTA_EVENT = 1UL << 10U;
+/** @brief 物理中键三秒长按配网请求通知位 */
+static constexpr uint32_t POWER_MANAGEMENT_NOTIFY_PROVISIONING = 1UL << 11U;
 
 /** @brief 电源管理 App 进程期唯一 Runtime */
 class PowerManagementRuntime final

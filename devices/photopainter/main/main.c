@@ -41,6 +41,11 @@ void app_main(void)
     {
         bootstart_app_handle_fatal_error(startup_error);
     }
+    startup_error = bootstart_app_init_button_input();
+    if (startup_error != ESP_OK)
+    {
+        bootstart_app_handle_fatal_error(startup_error);
+    }
     startup_error = bootstart_app_run_provisioning(&wakeup_context);
     if (startup_error != ESP_OK)
     {

@@ -45,9 +45,19 @@ typedef struct
     uint32_t completed_rounds;         /**< 已完成成功轮数 */
 } content_refresh_app_status_t;
 
+/** @brief 一轮内容刷新供电源与显示策略消费的产品结果 */
+typedef enum
+{
+    CONTENT_REFRESH_APP_RESULT_SUCCESS = 0, /**< 网络、服务端与本地事务成功 */
+    CONTENT_REFRESH_APP_RESULT_NETWORK_UNAVAILABLE, /**< Wi-Fi 未获得可用 IPv4 */
+    CONTENT_REFRESH_APP_RESULT_SERVER_UNAVAILABLE,  /**< Hub 请求或服务端内容失败 */
+    CONTENT_REFRESH_APP_RESULT_LOCAL_FAILURE,       /**< 本地存储、状态或清理失败 */
+} content_refresh_app_result_t;
+
 /** @brief 一轮刷新完成后发布给协调 App 的稳定事实 */
 typedef struct
 {
+    content_refresh_app_result_t result; /**< 本轮产品结果，不依赖错误码猜测来源 */
     esp_err_t round_error; /**< 本轮联网或同步结果，ESP_OK 表示成功 */
     bool network_cleanup_succeeded; /**< 本轮网络会话是否已经完整关闭 */
     int64_t next_refresh_at_utc; /**< 服务端下发的下一次刷新 UTC Unix 秒 */

@@ -87,6 +87,14 @@ static esp_err_t bootstart_app_load_backend_context_copy(protocol_backend_contex
     return protocol_backend_context_build_copy(&config, out_context);
 }
 
+/** @brief 为启动配网用例检查当前 Hub 配置是否完整 */
+static esp_err_t bootstart_app_check_backend_ready(void *context)
+{
+    (void) context;
+    protocol_backend_context_t backend;
+    return bootstart_app_load_backend_context_copy(&backend);
+}
+
 /**
  * @brief 把持久化网络配置转换为 Network Manager 配置
  *
@@ -170,23 +178,23 @@ static const network_manager_config_store_t s_bootstart_app_network_config_store
     .ctx                = NULL,
 };
 
-/** @brief 在正常页面恢复后清除一次性 OTA 提示画面标记 */
-static esp_err_t bootstart_app_confirm_ota_display_restored(void *context)
+/** @brief 在正常页面恢复后清除一次性非照片画面标记 */
+static esp_err_t bootstart_app_confirm_display_restored(void *context)
 {
     (void) context;
-    const esp_err_t error = system_storage_set_ota_display_restore_pending(false);
+    const esp_err_t error = system_storage_set_display_restore_pending(false);
     if (error == ESP_OK)
     {
-        ESP_LOGI(TAG, "正常页面已覆盖 OTA 更新提示，清除一次性画面恢复标记");
+        ESP_LOGI(TAG, "正常页面已覆盖非照片提示，清除一次性画面恢复标记");
     }
     return error;
 }
 
-/** @brief 读取 OTA 提示画面待恢复状态，读取异常时保守地要求恢复正常页面 */
-static bool bootstart_app_should_restore_ota_display(void)
+/** @brief 读取非照片画面待恢复状态，读取异常时保守地要求恢复正常页面 */
+static bool bootstart_app_should_restore_display(void)
 {
     bool            pending = false;
-    const esp_err_t error   = system_storage_get_ota_display_restore_pending(&pending);
+    const esp_err_t error   = system_storage_get_display_restore_pending(&pending);
     if (error == ESP_ERR_NOT_FOUND)
     {
         return false;
@@ -194,7 +202,7 @@ static bool bootstart_app_should_restore_ota_display(void)
     if (error != ESP_OK)
     {
         ESP_LOGW(TAG,
-                 "读取 OTA 提示画面恢复标记失败，本轮保守执行全屏刷新: %s",
+                 "读取非照片画面恢复标记失败，本轮保守执行全屏刷新: %s",
                  esp_err_to_name(error));
         return true;
     }
@@ -553,9 +561,22 @@ esp_err_t bootstart_app_run_provisioning(const bootstart_app_wakeup_context_t *w
 {
     ESP_RETURN_ON_FALSE(wakeup_context != NULL, ESP_ERR_INVALID_ARG, TAG, "配网启动缺少唤醒上下文");
 
+    bool provisioning_pending = false;
+    esp_err_t pending_error = system_storage_get_provisioning_pending(&provisioning_pending);
+    if (pending_error == ESP_ERR_NOT_FOUND)
+    {
+        provisioning_pending = false;
+    }
+    else
+    {
+        ESP_RETURN_ON_ERROR(pending_error, TAG, "读取启动配网意图失败");
+    }
     const provisioning_app_config_t provisioning_config = {
         .woken_by_button = wakeup_context->woken_by_button,
         .woken_by_timer  = wakeup_context->woken_by_timer,
+        .force_portal    = provisioning_pending,
+        .backend_ready_callback = bootstart_app_check_backend_ready,
+        .backend_ready_context  = NULL,
     };
     ESP_RETURN_ON_ERROR(provisioning_app_run_until_online(&provisioning_config),
                         TAG,
@@ -570,7 +591,7 @@ esp_err_t bootstart_app_run_provisioning(const bootstart_app_wakeup_context_t *w
  *
  * @return ESP_OK 成功；或按键初始化错误码
  */
-static esp_err_t bootstart_app_init_buttons(void)
+esp_err_t bootstart_app_init_button_input(void)
 {
     ESP_RETURN_ON_ERROR(device_button_init(), TAG, "初始化按键设备失败");
 
@@ -584,7 +605,7 @@ cleanup:
 }
 
 /**
- * @brief 装配本地显示与内容刷新链路，并按一次性 OTA 标记决定是否恢复正常页面
+ * @brief 装配本地显示与内容刷新链路，并按一次性非照片画面标记决定是否恢复正常页面
  *
  * 照片播放启动后的后端上下文或内容刷新错误保留已运行组件，交由顶层统一致命错误入口按整机
  * 依赖顺序停止，避免局部清理与深睡清理竞争。
@@ -593,26 +614,23 @@ cleanup:
  */
 esp_err_t bootstart_app_start_photo_pipeline(void)
 {
-    bool       buttons_initialized                    = false;
     bool       collection_initialized                 = false;
     bool       present_initialized                    = false;
     bool       playback_initialized                   = false;
     esp_err_t  ret                                    = ESP_OK;
-    const bool ota_display_restore_pending            = bootstart_app_should_restore_ota_display();
+    const bool display_restore_pending                 = bootstart_app_should_restore_display();
     const photo_playback_app_config_t playback_config = {
-        .present_active_on_start = ota_display_restore_pending,
+        .present_active_on_start = display_restore_pending,
         .first_presented_callback =
-            ota_display_restore_pending ? bootstart_app_confirm_ota_display_restored : NULL,
+            display_restore_pending ? bootstart_app_confirm_display_restored : NULL,
         .first_presented_context = NULL,
     };
 
-    if (ota_display_restore_pending)
+    if (display_restore_pending)
     {
-        ESP_LOGI(TAG, "检测到 OTA 提示画面待恢复，本轮启动将全屏呈现当前页面");
+        ESP_LOGI(TAG, "检测到非照片画面待恢复，本轮启动将全屏呈现当前页面");
     }
 
-    ESP_GOTO_ON_ERROR(bootstart_app_init_buttons(), cleanup, TAG, "初始化照片播放按键链路失败");
-    buttons_initialized = true;
     ESP_GOTO_ON_ERROR(display_collection_service_init(), cleanup, TAG, "初始化照片集合服务失败");
     collection_initialized = true;
     ESP_GOTO_ON_ERROR(display_present_service_init(), cleanup, TAG, "初始化照片呈现服务失败");
@@ -671,11 +689,6 @@ cleanup:
     if (collection_initialized)
     {
         ESP_ERROR_CHECK_WITHOUT_ABORT(display_collection_service_deinit());
-    }
-    if (buttons_initialized)
-    {
-        ESP_ERROR_CHECK_WITHOUT_ABORT(button_service_deinit());
-        ESP_ERROR_CHECK_WITHOUT_ABORT(device_button_deinit());
     }
     return ret;
 }

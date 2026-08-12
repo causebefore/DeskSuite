@@ -71,10 +71,12 @@ static void content_refresh_publish(content_refresh_app_state_t state, esp_err_t
 /**
  * @brief 在状态锁外发布一轮刷新与网络清理均已收敛的事实
  */
-static void content_refresh_notify_round(esp_err_t round_error,
-                                         bool network_cleanup_succeeded)
+static void content_refresh_notify_round(content_refresh_app_result_t result,
+                                          esp_err_t round_error,
+                                          bool network_cleanup_succeeded)
 {
     content_refresh_app_round_event_t event = {};
+    event.result = result;
     event.round_error = round_error;
     event.network_cleanup_succeeded = network_cleanup_succeeded;
 
@@ -350,14 +352,21 @@ static uint32_t content_refresh_calculate_long_failure_wait_ms()
  * @param[out] out_cleanup_failed true 表示 Network Manager 未达到可重启终态
  * @return 本轮网络连接或内容同步结果；网络清理失败时返回清理错误
  */
-static esp_err_t content_refresh_run_round(uint32_t round_number, bool *out_cleanup_failed)
+static esp_err_t content_refresh_run_round(uint32_t round_number,
+                                           bool *out_cleanup_failed,
+                                           content_refresh_app_result_t *out_result)
 {
     *out_cleanup_failed = false;
+    *out_result = CONTENT_REFRESH_APP_RESULT_LOCAL_FAILURE;
     ESP_LOGI(TAG,
              "========== 第 %lu 轮内容刷新开始：等待网络上线 ==========",
              (unsigned long) round_number);
     content_refresh_publish(CONTENT_REFRESH_APP_STATE_WAIT_NETWORK, ESP_OK, 0U);
     esp_err_t round_error = content_refresh_wait_online();
+    if (round_error != ESP_OK)
+    {
+        *out_result = CONTENT_REFRESH_APP_RESULT_NETWORK_UNAVAILABLE;
+    }
     if (round_error == ESP_OK && !content_refresh_should_stop())
     {
         content_refresh_publish(CONTENT_REFRESH_APP_STATE_SYNCING, ESP_OK, 0U);
@@ -381,10 +390,11 @@ static esp_err_t content_refresh_run_round(uint32_t round_number, bool *out_clea
         request.backend        = &g_content_refresh_runtime.backend;
         request.timeout_ms     = g_content_refresh_runtime.timeout_ms;
         request.should_cancel  = content_refresh_collection_should_cancel;
-        display_collection_sync_result_t result;
+        display_collection_sync_result_t result = {};
         round_error = display_collection_service_sync(&request, &result);
         if (round_error == ESP_OK)
         {
+            *out_result = CONTENT_REFRESH_APP_RESULT_SUCCESS;
             display_collection_snapshot_t snapshot = {};
             const esp_err_t snapshot_error =
                 display_collection_service_get_snapshot_copy(&snapshot);
@@ -424,6 +434,9 @@ static esp_err_t content_refresh_run_round(uint32_t round_number, bool *out_clea
         }
         else
         {
+            *out_result = result.failure == DISPLAY_COLLECTION_SYNC_FAILURE_BACKEND
+                              ? CONTENT_REFRESH_APP_RESULT_SERVER_UNAVAILABLE
+                              : CONTENT_REFRESH_APP_RESULT_LOCAL_FAILURE;
             ESP_LOGW(TAG,
                      "照片集合同步失败，继续保留本地已有图片: %s",
                      esp_err_to_name(round_error));
@@ -523,13 +536,15 @@ static void content_refresh_task(void *context)
         run_immediately = false;
 
         bool cleanup_failed = false;
+        content_refresh_app_result_t round_result = CONTENT_REFRESH_APP_RESULT_LOCAL_FAILURE;
         ++round_sequence;
-        const esp_err_t error = content_refresh_run_round(round_sequence, &cleanup_failed);
+        const esp_err_t error =
+            content_refresh_run_round(round_sequence, &cleanup_failed, &round_result);
         if (cleanup_failed)
         {
             g_content_refresh_runtime.stop_result = error;
             content_refresh_publish(CONTENT_REFRESH_APP_STATE_CLEANUP_FAILED, error, 0U);
-            content_refresh_notify_round(error, false);
+            content_refresh_notify_round(CONTENT_REFRESH_APP_RESULT_LOCAL_FAILURE, error, false);
             break;
         }
         if (content_refresh_should_stop())
@@ -605,7 +620,7 @@ static void content_refresh_task(void *context)
                      (unsigned long) (next_retry_ms / 1000U),
                      esp_err_to_name(error));
         }
-        content_refresh_notify_round(error, true);
+        content_refresh_notify_round(round_result, error, true);
     }
 
     if (g_content_refresh_runtime.stop_result == ESP_OK)

@@ -226,6 +226,10 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
     if (!previous_snapshot.storage_available)
     {
         error = display_collection_recover_storage(nullptr);
+        if (error != ESP_OK)
+        {
+            out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_STORAGE;
+        }
         if (error == ESP_OK)
         {
             xSemaphoreTake(g_display_collection_runtime.lock, portMAX_DELAY);
@@ -250,10 +254,15 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
             previous_snapshot.has_active ? previous_snapshot.next_refresh_at_utc : 0,
             request->timeout_ms,
             &manifest);
+        if (error != ESP_OK)
+        {
+            out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_BACKEND;
+        }
     }
     else if (error == ESP_OK)
     {
         error = ESP_ERR_INVALID_STATE;
+        out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_CANCELLED;
     }
     if (error != ESP_OK)
     {
@@ -299,7 +308,15 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
             error = display_collection_make_page(manifest.pages[index], &next_pages[index]);
             if (error != ESP_OK || display_collection_is_cancelled(request))
             {
-                error = error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
+                if (error == ESP_OK)
+                {
+                    error = ESP_ERR_INVALID_STATE;
+                    out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_CANCELLED;
+                }
+                else
+                {
+                    out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_BACKEND;
+                }
                 ESP_LOGE(TAG,
                          "[%u/%u] 准备图片同步失败: page_id=%s, error=%s",
                          (unsigned int) (index + 1U),
@@ -337,6 +354,7 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
             if (error != ESP_ERR_NOT_FOUND && error != ESP_ERR_INVALID_RESPONSE
                 && error != ESP_ERR_INVALID_SIZE)
             {
+                out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_STORAGE;
                 ESP_LOGE(TAG,
                          "[%u/%u] 读取本地图片失败，无法继续同步: page_id=%s, error=%s",
                          (unsigned int) (index + 1U),
@@ -367,11 +385,18 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
                                                            display_collection_on_download_data,
                                                            &download,
                                                            &download_result);
+            if (error != ESP_OK)
+            {
+                out_result->failure = display_collection_is_cancelled(request)
+                                          ? DISPLAY_COLLECTION_SYNC_FAILURE_CANCELLED
+                                          : DISPLAY_COLLECTION_SYNC_FAILURE_BACKEND;
+            }
             if (error == ESP_OK
                 && (download_result.status_code < 200 || download_result.status_code >= 300
                     || download_result.received_bytes != download.size))
             {
                 error = ESP_ERR_INVALID_RESPONSE;
+                out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_BACKEND;
             }
             if (error == ESP_OK)
             {
@@ -380,12 +405,20 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
                     download.size,
                     &next_pages[index].protocol,
                     &view);
+                if (error != ESP_OK)
+                {
+                    out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_BACKEND;
+                }
             }
             if (error == ESP_OK)
             {
                 error = display_collection_storage_store_page(next_pages[index],
                                                               g_display_collection_runtime.buffer,
                                                               download.size);
+                if (error != ESP_OK)
+                {
+                    out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_STORAGE;
+                }
             }
             if (error == ESP_OK)
             {
@@ -420,7 +453,11 @@ esp_err_t display_collection_service_sync(const display_collection_sync_request_
                                                   previous_slot,
                                                   workspace.scratch_pages,
                                                   &new_generation,
-                                                  &new_slot);
+                                                   &new_slot);
+        if (error != ESP_OK)
+        {
+            out_result->failure = DISPLAY_COLLECTION_SYNC_FAILURE_STORAGE;
+        }
     }
 
     display_collection_commit_cb_t callback = nullptr;
