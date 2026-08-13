@@ -37,7 +37,6 @@ typedef enum
     NETWORK_COMMAND_PORTAL_SUBMISSION,
     NETWORK_COMMAND_PORTAL_ACTIVITY,
     NETWORK_COMMAND_START_PORTAL,
-    NETWORK_COMMAND_FORGET_AND_START_PORTAL,
     NETWORK_COMMAND_STOP,
 } network_command_type_t;
 
@@ -893,21 +892,6 @@ static void network_manager_task(void *arg)
             case NETWORK_COMMAND_START_PORTAL:
                 network_manager_enter_portal();
                 break;
-            case NETWORK_COMMAND_FORGET_AND_START_PORTAL: {
-                const esp_err_t err = s_runtime.config_store.erase_config(s_runtime.config_store.ctx);
-                if (err != ESP_OK && err != ESP_ERR_NOT_FOUND)
-                {
-                    network_manager_publish(NETWORK_STATE_ERROR, err);
-                    break;
-                }
-                memset(&s_runtime.active_config, 0, sizeof(s_runtime.active_config));
-                memset(&s_runtime.pending_config, 0, sizeof(s_runtime.pending_config));
-                s_runtime.has_saved_config   = false;
-                s_runtime.has_pending_config = false;
-                s_runtime.connection_source  = NETWORK_CONNECTION_ACTIVE;
-                network_manager_enter_portal();
-                break;
-            }
             default:
                 break;
         }
@@ -1135,17 +1119,5 @@ esp_err_t network_manager_internal_request_start_portal(void)
 {
     network_command_t command = {};
     command.type              = NETWORK_COMMAND_START_PORTAL;
-    return network_manager_post_command(&command);
-}
-
-/**
- * @brief 清除网络配置并进入配网模式
- *
- * @return ESP_OK 命令已入队；其他值表示管理器未就绪或队列已满
- */
-esp_err_t network_manager_internal_request_forget_and_start_portal(void)
-{
-    network_command_t command = {};
-    command.type              = NETWORK_COMMAND_FORGET_AND_START_PORTAL;
     return network_manager_post_command(&command);
 }

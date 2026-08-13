@@ -229,16 +229,3 @@ esp_err_t network_manager_request_start_portal(void)
     ESP_RETURN_ON_ERROR(network_manager_internal_request_start_portal(), TAG, "提交启动配网 Portal 命令失败");
     return ESP_OK;
 }
-
-/**
- * @brief 请求清除配置并进入配网 Portal
- *
- * @return ESP_OK 命令已入队；或生命周期、队列错误码
- */
-esp_err_t network_manager_request_forget_and_start_portal(void)
-{
-    ESP_RETURN_ON_ERROR(network_manager_internal_request_forget_and_start_portal(),
-                        TAG,
-                        "提交清除配置并启动 Portal 命令失败");
-    return ESP_OK;
-}

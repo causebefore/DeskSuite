@@ -95,14 +95,6 @@ extern "C"
                                           uint32_t timeout_ms);
 
     /**
-     * @brief 查询 WebSocket 当前连接事实
-     *
-     * @param[in] socket WebSocket 对象；可为 NULL
-     * @return true 当前已连接；false 未连接或对象为空
-     */
-    bool transport_websocket_is_connected(const transport_websocket_t *socket);
-
-    /**
      * @brief 查询因容量或队列限制而累计丢弃的完整消息数
      *
      * @param[in] socket WebSocket 对象；可为 NULL

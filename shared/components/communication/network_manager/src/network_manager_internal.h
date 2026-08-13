@@ -40,9 +40,6 @@ extern "C"
     /** @brief 请求状态机保留配置并进入配网 */
     esp_err_t network_manager_internal_request_start_portal(void);
 
-    /** @brief 请求状态机清除配置并进入配网 */
-    esp_err_t network_manager_internal_request_forget_and_start_portal(void);
-
     /**
  * @brief 发布网络诊断事实并在锁外通知回调
  *

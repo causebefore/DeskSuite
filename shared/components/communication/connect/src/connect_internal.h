@@ -20,6 +20,16 @@ extern "C"
 #define CONNECT_INTERNAL_PORTAL_SCAN_RESULT_MAX 2048U
 
     /**
+     * @brief 将文本按 JSON 字符串规则转义后追加到缓冲区
+     *
+     * @param[out] out 输出缓冲区
+     * @param[in] out_len 输出缓冲区容量
+     * @param[in,out] offset 当前写入位置
+     * @param[in] text 待转义文本；可为 NULL
+     */
+    void connect_internal_append_json_escaped(char *out, size_t out_len, size_t *offset, const char *text);
+
+    /**
  * @brief 确保 Wi-Fi 驱动已启动
  *
  * @return ESP_OK 已启动或原本已启动；其他值表示驱动启动失败

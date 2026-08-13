@@ -333,17 +333,6 @@ esp_err_t transport_websocket_receive(transport_websocket_t *socket, transport_w
 }
 
 /**
- * @brief 查询 WebSocket 是否已连接
- *
- * @param[in] socket WebSocket 对象
- * @return true 已连接；false 未连接或对象为空
- */
-bool transport_websocket_is_connected(const transport_websocket_t *socket)
-{
-    return socket != nullptr && socket->connected.load();
-}
-
-/**
  * @brief 查询累计丢弃消息数
  *
  * @param[in] socket WebSocket 对象

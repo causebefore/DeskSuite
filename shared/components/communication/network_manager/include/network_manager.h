@@ -229,13 +229,6 @@ extern "C"
  */
     esp_err_t network_manager_request_start_portal(void);
 
-    /**
- * @brief 清除网络配置并进入配网模式
- *
- * @return ESP_OK 命令已入队；其他值表示管理器未就绪或队列已满
- */
-    esp_err_t network_manager_request_forget_and_start_portal(void);
-
 #ifdef __cplusplus
 }
 #endif

@@ -120,7 +120,7 @@ static esp_err_t root_get_handler(httpd_req_t *req)
                            (ssize_t) connect_portal_index_gzip_size_bytes);
 }
 
-static void append_json_escaped(char *out, size_t out_len, size_t *offset, const char *text)
+void connect_internal_append_json_escaped(char *out, size_t out_len, size_t *offset, const char *text)
 {
     if (text == NULL)
     {
@@ -171,7 +171,7 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     char   response[CONNECT_PORTAL_STATUS_MAX + 24] = { 0 };
     size_t offset                                   = 0;
     (void) utils_append_string(response, sizeof(response), &offset, "{\"message\":\"");
-    append_json_escaped(response, sizeof(response), &offset, message);
+    connect_internal_append_json_escaped(response, sizeof(response), &offset, message);
     (void) utils_append_string(response, sizeof(response), &offset, "\"}");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");

@@ -58,49 +58,6 @@ static void append_number(char *out, size_t out_len, size_t *offset, int value)
 }
 
 /**
- * @brief 将文本按 JSON 字符串规则转义后追加到缓冲区
- *
- * @param[out] out 输出缓冲区
- * @param[in] out_len 输出缓冲区容量
- * @param[in,out] offset 当前写入位置
- * @param[in] text 待转义文本
- */
-static void append_json_escaped(char *out, size_t out_len, size_t *offset, const char *text)
-{
-    if (text == NULL)
-    {
-        return;
-    }
-
-    for (size_t i = 0; text[i] != '\0'; ++i)
-    {
-        switch (text[i])
-        {
-            case '\\':
-                (void) utils_append_string(out, out_len, offset, "\\\\");
-                break;
-            case '"':
-                (void) utils_append_string(out, out_len, offset, "\\\"");
-                break;
-            case '\n':
-                (void) utils_append_string(out, out_len, offset, "\\n");
-                break;
-            case '\r':
-                (void) utils_append_string(out, out_len, offset, "\\r");
-                break;
-            case '\t':
-                (void) utils_append_string(out, out_len, offset, "\\t");
-                break;
-            default: {
-                char ch[2] = { text[i], '\0' };
-                (void) utils_append_string(out, out_len, offset, ch);
-                break;
-            }
-        }
-    }
-}
-
-/**
  * @brief 判断扫描记录是否与之前的可见 SSID 重复
  *
  * @param[in] records 扫描记录数组
@@ -179,7 +136,7 @@ static void portal_collect_scan(char *response, size_t response_len)
         }
         has_visible_ap = true;
         (void) utils_append_string(response, response_len, &offset, "{\"ssid\":\"");
-        append_json_escaped(response, response_len, &offset, (const char *) records[i].ssid);
+        connect_internal_append_json_escaped(response, response_len, &offset, (const char *) records[i].ssid);
         (void) utils_append_string(response, response_len, &offset, "\",\"rssi\":");
         append_number(response, response_len, &offset, records[i].rssi);
         (void) utils_append_string(response, response_len, &offset, ",\"open\":");
