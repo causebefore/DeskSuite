@@ -26,8 +26,12 @@ manifest 位于 `manifests\`，路径统一相对 DeskMate 仓库根目录解析
 生成文件位于：
 
 ```text
-esp32\components\ui_platform\images\generated
+components\graphics\ui_platform\images\generated
 ```
+
+`QWeather-Icons-1.8.0\icons\` 只保留 `qweather.json` 当前引用的填充图标；上游
+`README.md` 和 `LICENSE` 保留在版本目录。新增天气代码时，需要同时补充对应 SVG 并更新
+manifest。
 
 运行时只通过 `ui_platform_image` 查询 catalog；生成文件不包含天气、联网、电池等
 业务判断。
