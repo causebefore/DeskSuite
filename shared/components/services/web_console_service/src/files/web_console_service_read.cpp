@@ -14,6 +14,7 @@
 
 #include "esp_heap_caps.h"
 #include "sdkconfig.h"
+#include "web_console_http_common.hpp"
 
 /**
  * @brief 验证目录项名称的 UTF-8 编码有效性
@@ -358,7 +359,7 @@ static web_file_operation_result_t web_file_send_directory_listing(httpd_req_t  
         return web_file_close_directory(directory, WEB_FILE_OPERATION_CANCELLED);
     }
     *response_started = true;
-    if (web_file_set_json_response(request, "200 OK") != ESP_OK
+    if (web_console_http_set_json_response(request, "200 OK") != ESP_OK
         || httpd_resp_send_chunk(request, workspace->auxiliary, (size_t) prefix_size) != ESP_OK)
     {
         return web_file_close_directory(directory, WEB_FILE_OPERATION_IO_ERROR);

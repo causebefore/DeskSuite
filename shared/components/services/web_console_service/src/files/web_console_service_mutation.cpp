@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "esp_heap_caps.h"
+#include "web_console_http_common.hpp"
 
 /**
  * @brief 校验目标路径的父目录真实存在且为目录
@@ -271,7 +272,7 @@ static esp_err_t web_file_send_mutation_success(httpd_req_t *request, web_file_m
             break;
     }
 
-    const esp_err_t error = web_file_set_json_response(request, status);
+    const esp_err_t error = web_console_http_set_json_response(request, status);
     return error == ESP_OK ? httpd_resp_send(request, body, HTTPD_RESP_USE_STRLEN) : error;
 }
 

@@ -5,7 +5,6 @@
 #include "web_console_http_common.hpp"
 
 #include <limits.h>
-#include <limits.h>
 #include <stdint.h>
 #include <string.h>
 

@@ -46,37 +46,6 @@ static void web_file_secure_clear(void *data, size_t size)
 }
 
 /**
- * @brief 设置 HTTP 响应为 JSON 类型并禁止缓存
- *
- * 委托 Core 公共 HTTP 辅助函数依次设置状态码、Content-Type、`Cache-Control: no-store`
- * 和 `X-Content-Type-Options: nosniff`。任何一步失败时立即返回错误。
- *
- * @param[in] request HTTPD 在本次回调期间借出的请求对象
- * @param[in] status HTTP 状态行，例如 "200 OK"
- * @return ESP_OK 全部头部设置完成；其他错误码来自 HTTPD 响应 API
- */
-static esp_err_t web_file_set_json_response(httpd_req_t *request, const char *status)
-{
-    return web_console_http_set_json_response(request, status);
-}
-
-/**
- * @brief 发送带指定状态码和 JSON 正文的错误响应
- *
- * 委托 `web_console_http_send_json_error()` 设置统一安全响应头，并按 NUL 结尾字符串长度
- * 发送正文。响应设置阶段失败时不发送正文，直接返回错误。
- *
- * @param[in] request HTTPD 在本次回调期间借出的请求对象
- * @param[in] status HTTP 状态行，例如 "401 Unauthorized"
- * @param[in] body NUL 结尾的 JSON 响应正文
- * @return ESP_OK 响应发送完成；其他错误码来自 HTTPD 响应 API
- */
-static esp_err_t web_file_send_json_error(httpd_req_t *request, const char *status, const char *body)
-{
-    return web_console_http_send_json_error(request, status, body);
-}
-
-/**
  * @brief 向客户端发送 503 Service Unavailable 错误响应
  *
  * 当 Service 正在停止、不再接纳请求时，由各 handler 调用此函数通知客户端。
@@ -86,9 +55,9 @@ static esp_err_t web_file_send_json_error(httpd_req_t *request, const char *stat
  */
 static esp_err_t web_file_send_unavailable(httpd_req_t *request)
 {
-    return web_file_send_json_error(request,
-                                    "503 Service Unavailable",
-                                    "{\"error\":\"service_unavailable\",\"message\":\"服务正在停止\"}");
+    return web_console_http_send_json_error(request,
+                                            "503 Service Unavailable",
+                                            "{\"error\":\"service_unavailable\",\"message\":\"服务正在停止\"}");
 }
 
 bool web_console_handler_enter(void)
@@ -328,22 +297,22 @@ static esp_err_t web_file_send_auth_result(httpd_req_t *request, web_file_auth_r
         case WEB_FILE_AUTH_BAD_CODE:
         case WEB_FILE_AUTH_UNAUTHORIZED:
         case WEB_FILE_AUTH_EXPIRED:
-            return web_file_send_json_error(request,
-                                            "401 Unauthorized",
-                                            "{\"error\":\"unauthorized\",\"message\":\"访问码错误\"}");
+            return web_console_http_send_json_error(request,
+                                                    "401 Unauthorized",
+                                                    "{\"error\":\"unauthorized\",\"message\":\"访问码错误\"}");
         case WEB_FILE_AUTH_LOCKED:
-            return web_file_send_json_error(request,
-                                            "423 Locked",
-                                            "{\"error\":\"locked\",\"message\":\"访问码尝试次数过多，请稍后重试\"}");
+            return web_console_http_send_json_error(request,
+                                                    "423 Locked",
+                                                    "{\"error\":\"locked\",\"message\":\"访问码尝试次数过多，请稍后重试\"}");
         case WEB_FILE_AUTH_SESSION_BUSY:
-            return web_file_send_json_error(request,
-                                            "409 Conflict",
-                                            "{\"error\":\"session_conflict\",\"message\":\"已有活动会话\"}");
+            return web_console_http_send_json_error(request,
+                                                    "409 Conflict",
+                                                    "{\"error\":\"session_conflict\",\"message\":\"已有活动会话\"}");
         case WEB_FILE_AUTH_OK:
         default:
-            return web_file_send_json_error(request,
-                                            "500 Internal Server Error",
-                                            "{\"error\":\"internal_error\",\"message\":\"服务内部错误\"}");
+            return web_console_http_send_json_error(request,
+                                                    "500 Internal Server Error",
+                                                    "{\"error\":\"internal_error\",\"message\":\"服务内部错误\"}");
     }
 }
 
@@ -368,9 +337,9 @@ static esp_err_t handle_session_post(httpd_req_t *request)
     const web_file_session_body_result_t body_result = web_file_receive_access_code(request, code);
     if (body_result != WEB_FILE_SESSION_BODY_OK)
     {
-        error = web_file_send_json_error(request,
-                                         "400 Bad Request",
-                                         "{\"error\":\"bad_request\",\"message\":\"请求正文必须是六字节访问码\"}");
+        error = web_console_http_send_json_error(request,
+                                                 "400 Bad Request",
+                                                 "{\"error\":\"bad_request\",\"message\":\"请求正文必须是六字节访问码\"}");
         web_file_secure_clear(code, sizeof(code));
         return body_result == WEB_FILE_SESSION_BODY_IO_FAILED ? ESP_FAIL : error;
     }
@@ -420,13 +389,13 @@ static esp_err_t handle_session_post(httpd_req_t *request)
         web_file_revoke_session_if_token_matches(random_token);
         web_file_secure_clear(random_token, sizeof(random_token));
         web_file_secure_clear(response, sizeof(response));
-        error = web_file_send_json_error(request,
-                                         "500 Internal Server Error",
-                                         "{\"error\":\"internal_error\",\"message\":\"服务内部错误\"}");
+        error = web_console_http_send_json_error(request,
+                                                 "500 Internal Server Error",
+                                                 "{\"error\":\"internal_error\",\"message\":\"服务内部错误\"}");
         return error;
     }
 
-    error = web_file_set_json_response(request, "200 OK");
+    error = web_console_http_set_json_response(request, "200 OK");
     if (error == ESP_OK)
     {
         error = httpd_resp_send(request, response, (ssize_t) response_size);

@@ -108,15 +108,6 @@ struct web_file_mime_entry_t
     const char *content_type; /**< 对应的 MIME Content-Type 值 */
 };
 
-/**
- * @brief 设置 JSON 响应状态、类型与禁止缓存响应头
- *
- * @param[in] request HTTP 请求
- * @param[in] status HTTP 状态文本
- * @return ESP_OK 设置完成；其他错误码来自 HTTPD
- */
-esp_err_t web_file_set_json_response(httpd_req_t *request, const char *status);
-
 /** @brief 鉴权并独占唯一文件传输槽位 */
 web_file_guard_result_t web_file_transfer_acquire(httpd_req_t *request);
 

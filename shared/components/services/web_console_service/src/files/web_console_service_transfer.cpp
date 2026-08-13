@@ -16,6 +16,7 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "sdkconfig.h"
+#include "web_console_http_common.hpp"
 
 /**
  * @brief 覆盖栈上的认证头副本
@@ -31,49 +32,6 @@ static void web_file_secure_clear(void *data, size_t size)
         *cursor++ = 0U;
         --size;
     }
-}
-
-/**
- * @brief 设置 UTF-8 JSON 响应的通用安全头
- *
- * @param[in] request HTTP 请求
- * @param[in] status HTTP 状态文本
- * @return ESP_OK 成功；其他错误码来自 HTTPD
- */
-esp_err_t web_file_set_json_response(httpd_req_t *request, const char *status)
-{
-    esp_err_t error = httpd_resp_set_status(request, status);
-    if (error == ESP_OK)
-    {
-        error = httpd_resp_set_type(request, "application/json; charset=utf-8");
-    }
-    if (error == ESP_OK)
-    {
-        error = httpd_resp_set_hdr(request, "Cache-Control", "no-store");
-    }
-    if (error == ESP_OK)
-    {
-        error = httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
-    }
-    return error;
-}
-
-/**
- * @brief 发送固定 JSON 错误响应
- *
- * @param[in] request HTTP 请求
- * @param[in] status HTTP 状态文本
- * @param[in] body 固定 JSON 正文
- * @return ESP_OK 成功；其他错误码来自 HTTPD
- */
-static esp_err_t web_file_send_json_error(httpd_req_t *request, const char *status, const char *body)
-{
-    const esp_err_t error = web_file_set_json_response(request, status);
-    if (error != ESP_OK)
-    {
-        return error;
-    }
-    return httpd_resp_send(request, body, HTTPD_RESP_USE_STRLEN);
 }
 
 /**
@@ -552,7 +510,7 @@ static web_file_operation_result_t web_file_upload_receive_part(httpd_req_t *req
  */
 static esp_err_t web_file_send_upload_success(httpd_req_t *request, bool overwritten)
 {
-    const esp_err_t error = web_file_set_json_response(request, overwritten ? "200 OK" : "201 Created");
+    const esp_err_t error = web_console_http_set_json_response(request, overwritten ? "200 OK" : "201 Created");
     if (error != ESP_OK)
     {
         return error;
@@ -581,15 +539,15 @@ esp_err_t web_file_send_guard_error(httpd_req_t *request, web_file_guard_result_
     switch (result)
     {
         case WEB_FILE_GUARD_UNAUTHORIZED:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "401 Unauthorized",
                                             "{\"error\":\"unauthorized\",\"message\":\"认证信息无效或已过期\"}");
         case WEB_FILE_GUARD_BUSY:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "409 Conflict",
                                             "{\"error\":\"busy\",\"message\":\"另一个文件请求正在进行\"}");
         case WEB_FILE_GUARD_UNAVAILABLE:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "503 Service Unavailable",
                                             "{\"error\":\"service_unavailable\",\"message\":\"服务正在停止\"}");
         case WEB_FILE_GUARD_OK:
@@ -610,58 +568,58 @@ esp_err_t web_file_send_operation_error(httpd_req_t *request, web_file_operation
     switch (result)
     {
         case WEB_FILE_OPERATION_BAD_REQUEST:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "400 Bad Request",
                                             "{\"error\":\"invalid_request\",\"message\":\"查询参数或路径无效\"}");
         case WEB_FILE_OPERATION_NOT_FOUND:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "404 Not Found",
                                             "{\"error\":\"not_found\",\"message\":\"文件或目录不存在\"}");
         case WEB_FILE_OPERATION_WRONG_TYPE:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "409 Conflict",
                                             "{\"error\":\"wrong_type\",\"message\":\"请求路径类型不匹配\"}");
         case WEB_FILE_OPERATION_LENGTH_REQUIRED:
-            return web_file_send_json_error(
+            return web_console_http_send_json_error(
                 request,
                 "411 Length Required",
                 "{\"error\":\"length_required\",\"message\":\"上传必须提供有效的 Content-Length\"}");
         case WEB_FILE_OPERATION_TOO_LARGE:
-            return web_file_send_json_error(
+            return web_console_http_send_json_error(
                 request,
                 "413 Content Too Large",
                 "{\"error\":\"content_too_large\",\"message\":\"上传正文超过配置上限\"}");
         case WEB_FILE_OPERATION_OVERWRITE_REQUIRED:
-            return web_file_send_json_error(
+            return web_console_http_send_json_error(
                 request,
                 "409 Conflict",
                 "{\"error\":\"overwrite_required\",\"message\":\"同名文件需要明确确认覆盖\"}");
         case WEB_FILE_OPERATION_ALREADY_EXISTS:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "409 Conflict",
                                             "{\"error\":\"already_exists\",\"message\":\"目标文件或目录已存在\"}");
         case WEB_FILE_OPERATION_DIRECTORY_NOT_EMPTY:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "409 Conflict",
                                             "{\"error\":\"directory_not_empty\",\"message\":\"目录不为空，不能删除\"}");
         case WEB_FILE_OPERATION_ROOT_FORBIDDEN:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "403 Forbidden",
                                             "{\"error\":\"root_forbidden\",\"message\":\"不能修改或删除根目录\"}");
         case WEB_FILE_OPERATION_INSUFFICIENT_STORAGE:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "507 Insufficient Storage",
                                             "{\"error\":\"insufficient_storage\",\"message\":\"存储可用空间不足\"}");
         case WEB_FILE_OPERATION_NO_MEMORY:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "500 Internal Server Error",
                                             "{\"error\":\"out_of_memory\",\"message\":\"传输内存分配失败\"}");
         case WEB_FILE_OPERATION_IN_USE:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "409 Conflict",
                                             "{\"error\":\"file_in_use\",\"message\":\"文件正在使用\"}");
         case WEB_FILE_OPERATION_IO_ERROR:
-            return web_file_send_json_error(request,
+            return web_console_http_send_json_error(request,
                                             "500 Internal Server Error",
                                             "{\"error\":\"filesystem\",\"message\":\"文件系统操作失败\"}");
         case WEB_FILE_OPERATION_CANCELLED:
