@@ -73,26 +73,10 @@ extern "C"
         uint32_t retry_delay_ms;                /*!< 暂时不可睡眠时的重试间隔，单位毫秒 */
     } app_power_config_t;
 
-    /** @brief 电源 Application 的有界运行摘要 */
-    typedef struct
-    {
-        app_power_state_t         state;                         /*!< 当前主状态 */
-        app_power_step_t          step;                          /*!< 当前显式步骤 */
-        app_power_wakeup_source_t wakeup_source;                 /*!< 最近唤醒来源 */
-        bool                      automatic_light_sleep_enabled; /*!< 自动睡眠开关 */
-        uint32_t                  activity_generation;           /*!< 已接收用户活动代次 */
-        uint32_t                  cycle_id;                      /*!< 睡眠尝试编号 */
-        uint32_t                  success_count;                 /*!< 按键唤醒并恢复交互次数 */
-        uint32_t                  timer_refresh_count;           /*!< Timer 唤醒并刷新屏幕次数 */
-        uint32_t                  blockers;                      /*!< app_power_blocker_t 位组合 */
-        esp_err_t                 primary_error;                 /*!< 最近主操作错误 */
-        esp_err_t                 recovery_error;                /*!< 最近诊断或恢复错误 */
-    } app_power_status_t;
-
     /**
      * @brief 初始化电源 Application 的配置和停止同步资源
      *
-     * 本函数不创建 Task。调用前只需保证状态查询所依赖的 Application 与 Service 已经初始化。
+     * 本函数不创建 Task。
      *
      * @param[in] config 初始化配置
      * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 配置无效；ESP_ERR_INVALID_STATE 重复初始化；
@@ -119,14 +103,6 @@ extern "C"
      * @return ESP_OK 已记录；ESP_ERR_INVALID_STATE 尚未启动
      */
     esp_err_t app_power_notify_activity(void);
-
-    /**
-     * @brief 复制完整电源 Application 运行摘要
-     *
-     * @param[out] out_status 运行摘要输出
-     * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数为空；ESP_ERR_INVALID_STATE 尚未初始化
-     */
-    esp_err_t app_power_get_status_copy(app_power_status_t *out_status);
 
     /**
      * @brief 同步请求停止电源 Task

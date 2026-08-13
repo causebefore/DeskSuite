@@ -43,8 +43,8 @@
   回执后才返回，是同步完成 API，不添加 `request_`。
 - `NETWORK_COMMAND_START_*`、`STOP`、`SUSPEND` 是所有者 Task 已接收后的内部执行动作，不把
   公共提交阶段的 `request` 前缀机械复制到内部命令。
-- `app_power_state_t` 等离散阶段 enum 和 `app_power_status_t` 等复合运行摘要原命名正确；
-  只修正文档中的形态称谓。
+- `app_power_state_t` 等离散阶段 enum 原命名正确；审计时存在的 `app_power_status_t` 命名也
+  符合规则，后续因全仓无调用而删除，并非再次改名。
 - 局部 `ctx`、`cb` 已在受控短缩写表登记，不进行无收益的全量展开。
 
 ## 4. 后续独立迁移

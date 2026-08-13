@@ -60,5 +60,5 @@ SRAM，禁止改回 `MALLOC_CAP_SPIRAM`。大容量 LVGL draw buffer 仍放在 P
 
 - `ui_platform/include/ui_platform_lvgl.h`：LVGL 生命周期、锁和按需/连续刷新机制。
 - `ui_platform/include/ui_platform_font.h`：字体初始化、状态和字体查询。
-- `ui_platform/include/ui_platform_image.h`：静态图片 catalog、查询和应用。
+- `ui_platform/include/ui_platform_image.h`：静态图片 catalog 和查询。
 - 组件名保持 `ui_platform`，调用方无需感知分组目录。

@@ -6,7 +6,7 @@
 ## 职责
 
 - 串行化同步硬件采样，避免多个调用方并发访问设备。
-- 提供联合、仅电池和仅温湿度三种同步采样入口。
+- 提供仅电池和仅温湿度两种同步采样入口。
 - 单项失败保留最近成功值，同时记录该项 `last_error`。
 - 不创建 Task、Timer 或 Queue；采样周期由 Application 的 `app_environment` 决定。
 - 不初始化或释放两个 Device，不决定 UI 显示与产品故障策略。
@@ -17,10 +17,10 @@
 UNINITIALIZED -> INITIALIZED -> UNINITIALIZED
 ```
 
-`environment_service_sample()` 是同步联合采样；单项入口用于保留 DeskMate 原有的 2 秒电池
-周期和 30 秒温湿度周期。返回 `ESP_OK` 表示尝试结果已提交，不代表硬件采样成功，消费者
-应通过 `environment_service_get_snapshot_copy()` 复制联合快照，再读取 `valid`、
-`last_error` 和 `updated_at_ms`。
+单项入口分别保留 DeskMate 原有的 2 秒电池周期和 30 秒温湿度周期。返回 `ESP_OK` 表示
+尝试结果已提交，不代表硬件采样成功；消费者应通过
+`environment_service_get_snapshot_copy()` 复制联合快照，再读取 `valid`、`last_error` 和
+`updated_at_ms`。
 
 该组件保持 PhotoPainter 的按需采样与采样事务设计。DeskMate 的首页和状态栏是常驻消费者，
 所以产品周期由 `app_environment` 调用 Service，Presentation 不直接监听 Device。

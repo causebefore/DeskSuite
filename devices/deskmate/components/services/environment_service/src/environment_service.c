@@ -183,11 +183,6 @@ esp_err_t environment_service_init(void)
     return ESP_OK;
 }
 
-esp_err_t environment_service_sample(void)
-{
-    return sample_selected(true, true);
-}
-
 esp_err_t environment_service_sample_environment(void)
 {
     return sample_selected(true, false);

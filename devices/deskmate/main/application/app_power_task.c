@@ -49,10 +49,8 @@ static app_power_step_t          s_step;
 static app_power_wakeup_source_t s_wakeup_source;
 static int64_t                   s_last_activity_us;
 static uint32_t                  s_activity_generation;
-static uint32_t                  s_cycle_id;
 static uint32_t                  s_success_count;
 static uint32_t                  s_timer_refresh_count;
-static uint32_t                  s_blockers;
 static esp_err_t                 s_primary_error;
 static esp_err_t                 s_recovery_error;
 static bool                      s_initialized;
@@ -214,14 +212,6 @@ static uint32_t collect_runtime_blockers(void)
     return blockers;
 }
 
-/** @brief 更新当前只读产品阻止原因 */
-static void set_blockers(uint32_t blockers)
-{
-    taskENTER_CRITICAL(&s_lock);
-    s_blockers = blockers;
-    taskEXIT_CRITICAL(&s_lock);
-}
-
 /** @brief 等待通知或给定毫秒数，通知用于活动和停止请求 */
 static void wait_notification(uint32_t timeout_ms)
 {
@@ -266,11 +256,9 @@ static void wait_awake_window(void)
 static uint32_t begin_cycle(void)
 {
     taskENTER_CRITICAL(&s_lock);
-    s_cycle_id++;
     s_state                   = APP_POWER_STATE_PREPARING;
     s_step                    = APP_POWER_STEP_CHECK_BLOCKERS;
     s_wakeup_source           = APP_POWER_WAKEUP_NONE;
-    s_blockers                = APP_POWER_BLOCKER_NONE;
     s_primary_error           = ESP_OK;
     s_recovery_error          = ESP_OK;
     const uint32_t generation = s_activity_generation;
@@ -285,7 +273,6 @@ static uint32_t begin_offline_display_attempt(void)
     s_state                   = APP_POWER_STATE_PREPARING;
     s_step                    = APP_POWER_STEP_CHECK_BLOCKERS;
     s_wakeup_source           = APP_POWER_WAKEUP_NONE;
-    s_blockers                = APP_POWER_BLOCKER_NONE;
     s_primary_error           = ESP_OK;
     s_recovery_error          = ESP_OK;
     const uint32_t generation = s_activity_generation;
@@ -752,7 +739,6 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
 
         set_state_step(APP_POWER_STATE_PREPARING, APP_POWER_STEP_CHECK_BLOCKERS);
         const uint32_t blockers = collect_runtime_blockers();
-        set_blockers(blockers);
         if (blockers != APP_POWER_BLOCKER_NONE || preparation_was_interrupted(expected_generation))
         {
             result = ESP_ERR_INVALID_STATE;
@@ -846,7 +832,6 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
             taskENTER_CRITICAL(&s_lock);
             s_success_count++;
             s_last_activity_us           = esp_timer_get_time();
-            s_blockers                   = APP_POWER_BLOCKER_NONE;
             s_primary_error              = ESP_OK;
             s_recovery_error             = ESP_OK;
             const uint32_t success_count = s_success_count;
@@ -897,7 +882,6 @@ static esp_err_t run_sleep_session(uint32_t initial_generation)
         }
 
         const uint32_t refresh_blockers = collect_runtime_blockers();
-        set_blockers(refresh_blockers);
         if (refresh_blockers != APP_POWER_BLOCKER_NONE)
         {
             result = restore_awake_runtime(&network_suspended, &voice_stopped, &ui_stopped);
@@ -958,7 +942,6 @@ static void app_power_task(void *arg)
         set_state_step(APP_POWER_STATE_AWAKE, APP_POWER_STEP_CHECK_BLOCKERS);
         (void) app_voice_reconcile_network_lease(APP_POWER_VOICE_LIFECYCLE_TIMEOUT_MS);
         const uint32_t blockers = collect_runtime_blockers();
-        set_blockers(blockers);
         if (blockers != APP_POWER_BLOCKER_NONE)
         {
             wait_notification(s_config.retry_delay_ms);
@@ -1046,10 +1029,8 @@ esp_err_t app_power_init(const app_power_config_t *config)
     s_wakeup_source       = APP_POWER_WAKEUP_NONE;
     s_last_activity_us    = 0;
     s_activity_generation = 0U;
-    s_cycle_id            = 0U;
     s_success_count       = 0U;
     s_timer_refresh_count = 0U;
-    s_blockers            = APP_POWER_BLOCKER_NONE;
     s_primary_error       = ESP_OK;
     s_recovery_error      = ESP_OK;
     s_initialized         = true;
@@ -1113,36 +1094,6 @@ esp_err_t app_power_notify_activity(void)
     return ESP_OK;
 }
 
-esp_err_t app_power_get_status_copy(app_power_status_t *out_status)
-{
-    if (out_status == NULL)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    taskENTER_CRITICAL(&s_lock);
-    if (!s_initialized)
-    {
-        taskEXIT_CRITICAL(&s_lock);
-        return ESP_ERR_INVALID_STATE;
-    }
-    *out_status = (app_power_status_t) {
-        .state                         = s_state,
-        .step                          = s_step,
-        .wakeup_source                 = s_wakeup_source,
-        .automatic_light_sleep_enabled = s_config.automatic_light_sleep_enabled,
-        .activity_generation           = s_activity_generation,
-        .cycle_id                      = s_cycle_id,
-        .success_count                 = s_success_count,
-        .timer_refresh_count           = s_timer_refresh_count,
-        .blockers                      = s_blockers,
-        .primary_error                 = s_primary_error,
-        .recovery_error                = s_recovery_error,
-    };
-    taskEXIT_CRITICAL(&s_lock);
-    return ESP_OK;
-}
-
 esp_err_t app_power_stop(uint32_t timeout_ms)
 {
     if (timeout_ms == 0U)
@@ -1189,10 +1140,8 @@ esp_err_t app_power_deinit(void)
     s_wakeup_source       = APP_POWER_WAKEUP_NONE;
     s_last_activity_us    = 0;
     s_activity_generation = 0U;
-    s_cycle_id            = 0U;
     s_success_count       = 0U;
     s_timer_refresh_count = 0U;
-    s_blockers            = APP_POWER_BLOCKER_NONE;
     s_primary_error       = ESP_OK;
     s_recovery_error      = ESP_OK;
     s_initialized         = false;

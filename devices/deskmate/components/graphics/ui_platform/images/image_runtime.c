@@ -66,24 +66,3 @@ const lv_image_dsc_t *ui_platform_image_find(const ui_platform_image_catalog_t *
     }
     return NULL;
 }
-
-esp_err_t ui_platform_image_apply(lv_obj_t *image_obj, const ui_platform_image_catalog_t *catalog, uint32_t key,
-                                  ui_platform_image_variant_t variant, bool hide_when_missing)
-{
-    if (image_obj == NULL || catalog == NULL)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-    const lv_image_dsc_t *image = ui_platform_image_find(catalog, key, variant);
-    if (image == NULL)
-    {
-        if (hide_when_missing)
-        {
-            lv_obj_add_flag(image_obj, LV_OBJ_FLAG_HIDDEN);
-        }
-        return ESP_ERR_NOT_FOUND;
-    }
-    lv_image_set_src(image_obj, image);
-    lv_obj_remove_flag(image_obj, LV_OBJ_FLAG_HIDDEN);
-    return ESP_OK;
-}

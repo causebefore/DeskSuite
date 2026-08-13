@@ -85,15 +85,6 @@ extern "C"
     esp_err_t system_clock_init(void);
 
     /**
- * @brief 获取当前系统时间
- *
- * @param[out] timestamp 当前 UTC 时间戳
- *
- * @return ESP_OK 成功，或其他错误码
- */
-    esp_err_t system_clock_get_time(time_t *timestamp);
-
-    /**
  * @brief 复制获取当前系统时钟快照
  *
  * 时间尚不可信时仍返回 ESP_OK，并将 valid 设为 false、source 设为
@@ -147,13 +138,6 @@ extern "C"
  *         ESP_ERR_INVALID_RESPONSE RTC 日历字段无效；或底层错误码
  */
     esp_err_t system_clock_sync_from_rtc(void);
-
-    /**
- * @brief 判断当前系统时间是否可信
- *
- * @return true 当前时间已由可信来源校准且仍处于有效范围，false 否则
- */
-    bool system_clock_is_valid(void);
 
 #ifdef __cplusplus
 }

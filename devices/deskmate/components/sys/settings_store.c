@@ -216,30 +216,3 @@ esp_err_t settings_store_save(const device_settings_t *config)
     }
     return save_network_to_system_storage(config);
 }
-
-esp_err_t settings_store_reset(void)
-{
-    ESP_RETURN_ON_ERROR(settings_store_init(), TAG, "初始化设置存储失败");
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    nvs_handle_t nvs   = 0;
-    esp_err_t    error = open_config_nvs(NVS_READWRITE, &nvs);
-    if (error == ESP_OK)
-    {
-        error = nvs_erase_all(nvs);
-    }
-    if (error == ESP_OK)
-    {
-        error = nvs_commit(nvs);
-    }
-    if (nvs != 0)
-    {
-        nvs_close(nvs);
-    }
-    xSemaphoreGive(s_lock);
-    const esp_err_t network_error = system_storage_erase_network_config();
-    if (error != ESP_OK)
-    {
-        return error;
-    }
-    return network_error == ESP_ERR_NOT_FOUND ? ESP_OK : network_error;
-}

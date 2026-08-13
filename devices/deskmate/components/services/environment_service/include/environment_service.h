@@ -61,14 +61,6 @@ extern "C"
      */
     esp_err_t environment_service_init(void);
 
-    /**
-     * @brief 在调用者上下文同步执行一次环境与电池联合采样
-     *
-     * 返回 ESP_OK 表示尝试结果已经提交；每个硬件项目是否成功由快照中的
-     * `valid` 与 `last_error` 独立表示。
-     */
-    esp_err_t environment_service_sample(void);
-
     /** @brief 在调用者上下文同步执行一次温湿度采样 */
     esp_err_t environment_service_sample_environment(void);
 

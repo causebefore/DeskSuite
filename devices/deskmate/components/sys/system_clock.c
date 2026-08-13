@@ -504,23 +504,6 @@ esp_err_t system_clock_init(void)
 }
 
 /**
- * @brief 获取已经校准的系统时间
- *
- * @param[out] timestamp 当前 UTC 时间戳
- * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 时间尚未校准；或其他错误码
- */
-esp_err_t system_clock_get_time(time_t *timestamp)
-{
-    ESP_RETURN_ON_FALSE(timestamp != NULL, ESP_ERR_INVALID_ARG, TAG, "参数无效");
-
-    system_clock_snapshot_t snapshot;
-    ESP_RETURN_ON_ERROR(system_clock_get_snapshot_copy(&snapshot), TAG, "读取系统时钟快照失败");
-    ESP_RETURN_ON_FALSE(snapshot.valid, ESP_ERR_INVALID_STATE, TAG, "系统时间尚未校准");
-    *timestamp = snapshot.utc_timestamp;
-    return ESP_OK;
-}
-
-/**
  * @brief 复制获取当前系统时钟快照
  *
  * @param[out] out_snapshot 系统时钟快照输出指针
@@ -764,15 +747,4 @@ esp_err_t system_clock_sync_from_rtc(void)
 done:
     (void) xSemaphoreGive(s_writer_mutex);
     return result;
-}
-
-/**
- * @brief 判断系统时间是否已经由可信来源校准
- *
- * @return true 已校准，false 尚未校准
- */
-bool system_clock_is_valid(void)
-{
-    system_clock_snapshot_t snapshot;
-    return system_clock_get_snapshot_copy(&snapshot) == ESP_OK && snapshot.valid;
 }

@@ -63,9 +63,6 @@ extern "C"
      */
     esp_err_t settings_store_save(const device_settings_t *config);
 
-    /** @brief 清除 DeskMate 设置和通用网络配置 */
-    esp_err_t settings_store_reset(void);
-
 #ifdef __cplusplus
 }
 #endif
