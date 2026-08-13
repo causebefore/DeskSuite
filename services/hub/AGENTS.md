@@ -12,7 +12,6 @@
 - 不要使用 Bash 语法替代 PowerShell cmdlet。
 - 常用命令：
   - 安装依赖：`uv sync --extra dev`
-  - 运行测试：`uv run pytest -q`
   - 启动服务：`.\start_server.ps1`
 
 ## 项目概览
@@ -57,10 +56,4 @@
 
 ## 验证
 
-完成改动后至少运行：
-
-```powershell
-uv run pytest -q
-```
-
-如果改动涉及启动配置或静态文件挂载，再额外执行一次服务启动冒烟验证。
+改动涉及启动配置或静态文件挂载时，执行一次服务启动冒烟验证。

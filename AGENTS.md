@@ -19,11 +19,7 @@ Agent 默认不主动编译固件；只有用户明确要求编译时，才可�
 & .\ds.ps1 build deskmate
 ```
 
-不得绕过脚本直接调用 `idf.py`、`cmake` 或 `ninja`。Hub 的测试在 `services/hub/` 中使用：
-
-```powershell
-uv run pytest -q
-```
+不得绕过脚本直接调用 `idf.py`、`cmake` 或 `ninja`。
 
 ## 跨项目约定
 
