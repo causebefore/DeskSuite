@@ -16,7 +16,7 @@ from loguru import logger
 from PIL import Image
 
 from app.schemas.display import DisplayCollectionManifest, DisplayPageManifest
-from app.services.display_page_registry import select_page_context, validate_page_set
+from app.workflows.display.pages import select_page_context, validate_page_set
 
 
 DISPLAY_WIDTH = 800

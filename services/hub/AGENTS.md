@@ -19,7 +19,9 @@
 - `app/main.py` 是 FastAPI 应用工厂和路由装配入口。
 - `app/core/config.py` 负责加载运行配置。
 - `app/api/` 放 HTTP 路由。
-- `app/services/` 放网页渲染、天气/日历/邮件数据源、语音、OTA、日志等业务服务。
+- `app/services/` 放外部数据源、设备状态、OTA 和日志等单一能力。
+- `app/providers/` 放 LLM、ASR、TTS 等第三方供应商适配。
+- `app/workflows/` 放 Assistant、Voice、Display 和 Dashboard 的跨服务编排。
 - `app/schemas/` 放 Pydantic 请求和响应模型。
 - `web/pages/` 放受信任的本地 HTML/CSS/JavaScript 显示模板。
 - `web/vendor/trmnl/` 放页面直接复用的本地 TRMNL Framework。
@@ -48,7 +50,9 @@
 
 ## 开发约定
 
-- ESP32 只接收最终 PPF 图片帧；天气、日历、邮件、额度和 memory JSON 不得重新暴露给设备。
+- PhotoPainter 的显示接口只向设备下发最终 PPF 图片帧；DeskMate 通过 Dashboard
+  schema 3 获取裁剪后的天气、日历、邮件和额度投影。两类设备都不得直接获取
+  Hub 内部 Provider 响应或 memory 存储结构。
 - 对行为变化补测试，尤其是配置加载、PPF 格式、四级灰阶量化、OTA、日志和数据源降级逻辑。
 - 不提交或展示真实 API Key。
 - 生成文件缓存可以清理：`__pycache__`、`.pytest_cache`。

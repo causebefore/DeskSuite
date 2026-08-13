@@ -21,16 +21,16 @@ from app.schemas.display import (
     DisplayRenderRequest,
     DisplayScheduledManifest,
 )
-from app.services.display_page_registry import validate_page_set
-from app.services.display_context_service import DisplayContextService
-from app.services.display_refresh_service import (
-    DisplayRefreshService,
-    schedule_display_manifest,
-)
-from app.services.display_render_service import (
+from app.workflows.display.context import DisplayContextService
+from app.workflows.display.pages import validate_page_set
+from app.workflows.display.renderer import (
     DISPLAY_PAYLOAD_SIZE,
     DisplayRenderService,
     PPF_HEADER,
+)
+from app.workflows.display.workflow import (
+    DisplayRefreshService,
+    schedule_display_manifest,
 )
 
 
@@ -618,7 +618,6 @@ def test_same_visible_content_skips_capture_and_survives_restart(tmp_path: Path)
         {
             "device_id": "stable-device",
             "generated_at": "2026-07-15T20:00:00+08:00",
-            "memory": ["不可见内容 A"],
             "time": "下午8时",
         },
     )
@@ -628,7 +627,6 @@ def test_same_visible_content_skips_capture_and_survives_restart(tmp_path: Path)
         {
             "device_id": "another-ignored-id",
             "generated_at": "2026-07-15T20:10:00+08:00",
-            "memory": ["不可见内容 B"],
             "time": "下午8时",
         },
     )
@@ -640,7 +638,6 @@ def test_same_visible_content_skips_capture_and_survives_restart(tmp_path: Path)
     assert state["manifest_version"] == first.content_version
     assert "generated_at" not in state["visible_snapshot"]
     assert "device_id" not in state["visible_snapshot"]
-    assert "memory" not in state["visible_snapshot"]
 
     restarted = DisplayRenderService(settings)
 
@@ -966,8 +963,6 @@ def test_template_inlines_local_trmnl_framework(tmp_path: Path):
     assert 'id="device-id"' not in html
     assert "DEVICE ·" not in html
     assert "HTML · TRMNL" not in html
-    assert 'id="memory"' not in html
-    assert "备忘 MEMORY" not in html
     assert 'id="weather-main-icon"' in html
     assert 'id="weather-mark"' not in html
     assert 'class="device-status grid"' in html
@@ -1722,7 +1717,6 @@ def test_live_context_uses_internal_real_data_services():
     mail = SimpleNamespace(unread_count=2, messages=[])
     quota = SimpleNamespace(available=True, level="Pro", limits=[])
     rss = SimpleNamespace(available=True, stale=False, feeds=[], items=[])
-    memory = SimpleNamespace(query_memory=lambda device_id, query: "- 真实记忆")
     device_status = SimpleNamespace(
         environment=SimpleNamespace(temperature_c=28.58, humidity_percent=35.89),
         battery=SimpleNamespace(percent=99.6),
@@ -1742,7 +1736,6 @@ def test_live_context_uses_internal_real_data_services():
         ),
         mail_service=SimpleNamespace(get_mail_summary=lambda timezone: mail),
         quota_service=SimpleNamespace(check_glm=lambda: quota),
-        memory_service=memory,
         device_status_service=SimpleNamespace(get=lambda device_id: device_status),
         rss_service=SimpleNamespace(get_latest_articles=lambda timezone: rss),
     )
@@ -1753,7 +1746,6 @@ def test_live_context_uses_internal_real_data_services():
     assert context["weather"]["icon"] == "100"
     assert context["mail"]["unread_count"] == 2
     assert context["quota"]["level"] == "Pro"
-    assert context["memory"] == ["真实记忆"]
     assert context["availability"] == {
         "weather": True,
         "moon": True,
@@ -1815,7 +1807,6 @@ def test_live_context_marks_failed_sources_unavailable():
         ),
         mail_service=SimpleNamespace(get_mail_summary=lambda timezone: mail),
         quota_service=SimpleNamespace(check_glm=lambda: quota),
-        memory_service=SimpleNamespace(query_memory=lambda device_id, query: ""),
         device_status_service=SimpleNamespace(get=lambda device_id: None),
         rss_service=SimpleNamespace(get_latest_articles=lambda timezone: rss),
     )

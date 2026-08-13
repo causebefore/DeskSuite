@@ -7,6 +7,7 @@ import os
 import re
 import tomllib
 from datetime import time
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -93,6 +94,24 @@ class ServerSettings:
         providers = _section(data, "providers")
         dashboard = _section(data, "dashboard")
         zhipu = _section(data, "zhipu")
+        assistant = data.get("assistant") or {}
+        if not isinstance(assistant, dict):
+            raise ValueError("config.toml [assistant] 必须是配置段")
+        assistant_memory = assistant.get("memory") or {}
+        if not isinstance(assistant_memory, dict):
+            raise ValueError("config.toml [assistant.memory] 必须是配置段")
+        mcp = data.get("mcp") or {}
+        if not isinstance(mcp, dict):
+            raise ValueError("config.toml [mcp] 必须是配置段")
+        web_search_mcp = mcp.get("web_search_prime") or {}
+        if not isinstance(web_search_mcp, dict):
+            raise ValueError("config.toml [mcp.web_search_prime] 必须是配置段")
+        voice = data.get("voice") or {}
+        if not isinstance(voice, dict):
+            raise ValueError("config.toml [voice] 必须是配置段")
+        voice_debug_audio = voice.get("debug_audio") or {}
+        if not isinstance(voice_debug_audio, dict):
+            raise ValueError("config.toml [voice.debug_audio] 必须是配置段")
         qweather = _section(data, "qweather")
         weather_cache = _nested_section(data, "weather", "cache")
         caldav = _section(data, "caldav")
@@ -112,6 +131,7 @@ class ServerSettings:
         self.app_title = str(app["title"])
         self.app_version = str(app["version"])
         self.app_description = str(app["description"])
+        self.build_id = os.getenv("DESKSUITE_BUILD_ID", "").strip()
         self.server_host = str(server["host"])
         self.server_port = int(server["port"])
         self.server_log_level = str(server["log_level"])
@@ -119,6 +139,17 @@ class ServerSettings:
         self.weather_provider = str(providers["weather"]).lower()
         self.calendar_provider = str(providers["calendar"]).lower()
         self.mail_provider = str(providers["mail"]).lower()
+        self.llm_provider = str(providers.get("llm", "zhipu")).lower()
+        self.speech_provider = str(providers.get("speech", "zhipu")).lower()
+        self.embedding_provider = str(providers.get("embedding", "zhipu")).lower()
+        if self.llm_provider not in {"zhipu"}:
+            raise ValueError(f"不支持的 LLM provider: {self.llm_provider}")
+        if self.speech_provider not in {"zhipu"}:
+            raise ValueError(f"不支持的 speech provider: {self.speech_provider}")
+        if self.embedding_provider not in {"zhipu"}:
+            raise ValueError(
+                f"不支持的 embedding provider: {self.embedding_provider}"
+            )
         self.dashboard_source_timeout_seconds = float(
             dashboard["source_timeout_seconds"]
         )
@@ -133,6 +164,14 @@ class ServerSettings:
         self.device_api_token = os.getenv(
             "DEVICE_API_TOKEN", secrets.get("DEVICE_API_TOKEN", "")
         )
+        debug_audio_enabled = voice_debug_audio.get("enabled", False)
+        if not isinstance(debug_audio_enabled, bool):
+            raise ValueError("voice.debug_audio.enabled 必须是布尔值")
+        self.voice_debug_audio_enabled = debug_audio_enabled
+        if self.voice_debug_audio_enabled and not self.device_api_token:
+            raise ValueError(
+                "voice.debug_audio.enabled=true 时必须配置 DEVICE_API_TOKEN"
+            )
         self.qweather_api_key = os.getenv(
             "QWEATHER_API_KEY", secrets.get("QWEATHER_API_KEY", "")
         )
@@ -154,6 +193,96 @@ class ServerSettings:
         self.zhipu_tts_model = str(zhipu["tts_model"])
         self.zhipu_tts_voice = str(zhipu["tts_voice"])
         self.quota_cache_seconds = int(zhipu.get("quota_cache_seconds", 300))
+
+        self.assistant_principal_id = str(
+            assistant.get("principal_id", "owner")
+        ).strip()
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", self.assistant_principal_id):
+            raise ValueError("assistant.principal_id 只能包含字母、数字、点、下划线和连字符")
+        self.assistant_checkpoint_path = _path_from_root(
+            self.project_root,
+            str(
+                assistant.get(
+                    "checkpoint_path",
+                    "data/assistant/checkpoints.sqlite3",
+                )
+            ),
+        )
+        self.assistant_max_input_chars = int(
+            assistant.get("max_input_chars", 4000)
+        )
+        if not 1 <= self.assistant_max_input_chars <= 4000:
+            raise ValueError("assistant.max_input_chars 必须在 1 到 4000 之间")
+        self.assistant_model_timeout_seconds = float(
+            assistant.get("model_timeout_seconds", 30)
+        )
+        if not 5 <= self.assistant_model_timeout_seconds <= 120:
+            raise ValueError("assistant.model_timeout_seconds 必须在 5 到 120 秒之间")
+        self.assistant_recursion_limit = int(assistant.get("recursion_limit", 12))
+        if not 4 <= self.assistant_recursion_limit <= 64:
+            raise ValueError("assistant.recursion_limit 必须在 4 到 64 之间")
+        self.assistant_memory_enabled = bool(
+            assistant_memory.get("enabled", False)
+        )
+        self.assistant_memory_store_path = _path_from_root(
+            self.project_root,
+            str(
+                assistant_memory.get(
+                    "store_path",
+                    "data/assistant/memories.sqlite3",
+                )
+            ),
+        )
+        if (
+            self.assistant_memory_store_path.resolve()
+            == self.assistant_checkpoint_path.resolve()
+        ):
+            raise ValueError(
+                "assistant.memory.store_path 不能与 assistant.checkpoint_path 相同"
+            )
+        self.assistant_memory_embedder_model = str(
+            assistant_memory.get("embedder_model", "embedding-3")
+        ).strip()
+        if not self.assistant_memory_embedder_model:
+            raise ValueError("assistant.memory.embedder_model 不能为空")
+        self.assistant_memory_embedder_dims = int(
+            assistant_memory.get("embedder_dims", 1024)
+        )
+        if not 1 <= self.assistant_memory_embedder_dims <= 4096:
+            raise ValueError("assistant.memory.embedder_dims 必须在 1 到 4096 之间")
+        self.assistant_memory_search_limit = int(
+            assistant_memory.get("search_limit", 5)
+        )
+        if not 1 <= self.assistant_memory_search_limit <= 20:
+            raise ValueError("assistant.memory.search_limit 必须在 1 到 20 之间")
+        self.assistant_memory_search_threshold = float(
+            assistant_memory.get("search_threshold", 0.3)
+        )
+        if not -1 <= self.assistant_memory_search_threshold <= 1:
+            raise ValueError(
+                "assistant.memory.search_threshold 必须在 -1 到 1 之间"
+            )
+
+        self.web_search_mcp_enabled = bool(web_search_mcp.get("enabled", False))
+        self.web_search_mcp_transport = str(
+            web_search_mcp.get("transport", "streamable_http")
+        )
+        if self.web_search_mcp_transport != "streamable_http":
+            raise ValueError("mcp.web_search_prime.transport 必须是 streamable_http")
+        self.web_search_mcp_url = str(
+            web_search_mcp.get(
+                "url",
+                "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
+            )
+        )
+        parsed_mcp_url = urlsplit(self.web_search_mcp_url)
+        if parsed_mcp_url.scheme != "https" or not parsed_mcp_url.netloc:
+            raise ValueError("mcp.web_search_prime.url 必须是有效的 HTTPS URL")
+        self.web_search_mcp_timeout_seconds = float(
+            web_search_mcp.get("timeout_seconds", 20)
+        )
+        if not 5 <= self.web_search_mcp_timeout_seconds <= 60:
+            raise ValueError("mcp.web_search_prime.timeout_seconds 必须在 5 到 60 秒之间")
 
         self.qweather_host = str(qweather["host"])
         self.qweather_timeout_seconds = float(qweather["timeout_seconds"])
@@ -310,20 +439,6 @@ class ServerSettings:
         self.ota_artifact_dir = _path_from_root(
             self.project_root, str(storage["ota_artifact_dir"])
         )
-
-        memory = data.get("memory") or {}
-        self.memory_enabled = bool(memory.get("enabled", False))
-        self.memory_vector_store_path = _path_from_root(
-            self.project_root,
-            str(memory.get("vector_store_path", "data/mem0_chroma")),
-        )
-        self.memory_collection_name = str(memory.get("collection_name", "photopainter"))
-        self.memory_llm_model = str(memory.get("llm_model", "glm-4-plus"))
-        self.memory_embedder_model = str(memory.get("embedder_model", "embedding-3"))
-        self.memory_embedder_dims = int(memory.get("embedder_dims", 1024))
-        self.memory_search_top_k = int(memory.get("search_top_k", 5))
-        self.memory_search_threshold = float(memory.get("search_threshold", 0.3))
-
 
 @lru_cache
 def get_server_settings() -> ServerSettings:

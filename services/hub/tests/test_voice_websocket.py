@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.api.voice_ws import router
-from app.services.voice_protocol import (
+from app.workflows.voice.protocol import (
     FRAME_TYPE_ASR_TEXT,
     FRAME_TYPE_END,
     FRAME_TYPE_ERROR,
@@ -24,11 +24,12 @@ class _Settings:
 
 class _VoiceService:
     def __init__(self) -> None:
-        self.calls: list[tuple[bytes, int, str | None]] = []
+        self.calls: list[tuple[bytes, int, str | None, str | None]] = []
 
     def chat_stream(self, pcm: bytes, sample_rate: int = 24000,
-                    cancel_event=None, device_id: str | None = None):
-        self.calls.append((pcm, sample_rate, device_id))
+                    cancel_event=None, device_id: str | None = None,
+                    thread_id: str | None = None):
+        self.calls.append((pcm, sample_rate, device_id, thread_id))
         yield FRAME_TYPE_ASR_TEXT, "测试".encode()
         yield FRAME_TYPE_TTS_PCM, b"\x00\x00\x01\x00"
         yield FRAME_TYPE_END, b""
@@ -80,7 +81,7 @@ def test_normal_flow_uses_native_16k_and_emits_end():
         while not any(frame_type == FRAME_TYPE_END for frame_type, _ in frames):
             frames.extend(decoder.feed(ws.receive_bytes()))
 
-    assert service.calls == [(b"\x01\x00\x02\x00", 16000, "dev-ws")]
+    assert service.calls == [(b"\x01\x00\x02\x00", 16000, "dev-ws", None)]
     assert [frame_type for frame_type, _ in frames] == [
         FRAME_TYPE_ASR_TEXT,
         FRAME_TYPE_TTS_PCM,
@@ -131,8 +132,8 @@ def test_rejects_odd_length_pcm():
 def test_cancel_stops_before_later_tts():
     class SlowVoiceService(_VoiceService):
         def chat_stream(self, pcm: bytes, sample_rate: int = 24000,
-                        cancel_event=None, device_id=None):
-            self.calls.append((pcm, sample_rate, device_id))
+                        cancel_event=None, device_id=None, thread_id=None):
+            self.calls.append((pcm, sample_rate, device_id, thread_id))
             yield FRAME_TYPE_ASR_TEXT, b"ok"
             time.sleep(1)
             yield FRAME_TYPE_TTS_PCM, b"\x00\x00"
@@ -155,8 +156,8 @@ def test_cancel_stops_before_later_tts():
 def test_unexpected_service_exception_still_emits_error_and_end():
     class BrokenVoiceService(_VoiceService):
         def chat_stream(self, pcm: bytes, sample_rate: int = 24000,
-                        cancel_event=None, device_id=None):
-            self.calls.append((pcm, sample_rate, device_id))
+                        cancel_event=None, device_id=None, thread_id=None):
+            self.calls.append((pcm, sample_rate, device_id, thread_id))
             raise RuntimeError("boom")
             yield  # pragma: no cover - 保持该函数为生成器
 

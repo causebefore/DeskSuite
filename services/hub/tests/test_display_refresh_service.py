@@ -5,12 +5,12 @@ from threading import Barrier, Event, Lock
 import time
 from types import SimpleNamespace
 
-from app.services.display_context_service import DisplayContextService
-from app.services.display_page_registry import (
+from app.workflows.display.context import DisplayContextService
+from app.workflows.display.pages import (
     required_sources_for_pages,
     select_page_context,
 )
-from app.services.display_refresh_service import DisplayRefreshService
+from app.workflows.display.workflow import DisplayRefreshService
 
 
 def _settings(pages=("demo", "calendar"), default_page="demo"):
@@ -30,7 +30,6 @@ def test_page_registry_selects_context_and_availability_by_dependency():
         "quota": {"available": True},
         "rss": {"article_count": 1},
         "device_status": {"available": True},
-        "memory": ["不可见"],
         "availability": {
             "weather": True,
             "moon": True,
@@ -100,7 +99,6 @@ def test_unregistered_page_uses_legacy_visible_context():
         "mail": {"unread_count": 1},
         "quota": {"available": True},
         "device_status": {"available": True},
-        "memory": ["不应进入旧页面快照"],
         "availability": {"weather": True, "mail": True},
     }
 
@@ -108,7 +106,6 @@ def test_unregistered_page_uses_legacy_visible_context():
 
     assert context["weather"] == {"text": "晴"}
     assert context["mail"] == {"unread_count": 1}
-    assert "memory" not in context
 
 
 def test_context_service_only_calls_required_sources():
@@ -129,9 +126,6 @@ def test_context_service_only_calls_required_sources():
             get_mail_summary=lambda timezone: calls.append("mail")
         ),
         quota_service=SimpleNamespace(check_glm=lambda: calls.append("quota")),
-        memory_service=SimpleNamespace(
-            query_memory=lambda device_id, query: calls.append("memory")
-        ),
         device_status_service=SimpleNamespace(
             get=lambda device_id: calls.append("device_status")
         ),
@@ -165,7 +159,6 @@ def test_context_service_reuses_month_query_for_agenda():
         ),
         mail_service=SimpleNamespace(),
         quota_service=SimpleNamespace(),
-        memory_service=SimpleNamespace(),
         device_status_service=SimpleNamespace(),
         rss_service=SimpleNamespace(),
     )

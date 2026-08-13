@@ -20,6 +20,9 @@ log_level = "debug"
 weather = "mock"
 calendar = "mock"
 mail = "mock"
+llm = "zhipu"
+speech = "zhipu"
+embedding = "zhipu"
 [dashboard]
 source_timeout_seconds = 20
 [zhipu]
@@ -28,6 +31,26 @@ llm_model = "llm"
 tts_model = "tts"
 tts_voice = "voice"
 quota_cache_seconds = 60
+[voice.debug_audio]
+enabled = false
+[assistant]
+principal_id = "owner"
+checkpoint_path = "data/assistant/test-checkpoints.sqlite3"
+max_input_chars = 4000
+model_timeout_seconds = 30
+recursion_limit = 12
+[assistant.memory]
+enabled = true
+store_path = "data/assistant/test-memories.sqlite3"
+embedder_model = "embedding-test"
+embedder_dims = 3
+search_limit = 4
+search_threshold = 0.25
+[mcp.web_search_prime]
+enabled = false
+transport = "streamable_http"
+url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+timeout_seconds = 20
 [qweather]
 host = "api.example.test"
 timeout_seconds = 1
@@ -92,8 +115,6 @@ device_status_dir = "data/device_status"
 log_keep_sessions = 7
 ota_manifest_dir = "bins/manifests"
 ota_artifact_dir = "bins/artifacts"
-[memory]
-enabled = false
 """
 
 
@@ -111,6 +132,29 @@ def test_settings_load_display_and_internal_provider_config(tmp_path: Path):
     assert settings.server_port == 4321
     assert settings.zhipu_api_key == "test-key"
     assert settings.device_api_token == "device-secret"
+    assert settings.voice_debug_audio_enabled is False
+    assert settings.llm_provider == "zhipu"
+    assert settings.speech_provider == "zhipu"
+    assert settings.embedding_provider == "zhipu"
+    assert settings.assistant_principal_id == "owner"
+    assert settings.assistant_checkpoint_path == (
+        tmp_path / "data" / "assistant" / "test-checkpoints.sqlite3"
+    )
+    assert settings.assistant_max_input_chars == 4000
+    assert settings.assistant_model_timeout_seconds == 30
+    assert settings.assistant_recursion_limit == 12
+    assert settings.assistant_memory_enabled is True
+    assert settings.assistant_memory_store_path == (
+        tmp_path / "data" / "assistant" / "test-memories.sqlite3"
+    )
+    assert settings.assistant_memory_embedder_model == "embedding-test"
+    assert settings.assistant_memory_embedder_dims == 3
+    assert settings.assistant_memory_search_limit == 4
+    assert settings.assistant_memory_search_threshold == 0.25
+    assert settings.web_search_mcp_enabled is False
+    assert settings.web_search_mcp_transport == "streamable_http"
+    assert settings.web_search_mcp_url.endswith("/web_search_prime/mcp")
+    assert settings.web_search_mcp_timeout_seconds == 20
     assert settings.dashboard_source_timeout_seconds == 20
     assert settings.display_default_city == "上海"
     assert settings.display_default_device_id == "screen-1"
@@ -142,6 +186,52 @@ def test_settings_load_display_and_internal_provider_config(tmp_path: Path):
     assert settings.device_status_dir == tmp_path / "data" / "device_status"
     assert settings.ota_manifest_dir == tmp_path / "bins" / "manifests"
     assert settings.ota_artifact_dir == tmp_path / "bins" / "artifacts"
+
+
+def test_settings_loads_optional_build_id_from_process_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(CONFIG, encoding="utf-8")
+    env_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("DESKSUITE_BUILD_ID", "git-test-sha")
+
+    settings = ServerSettings(config_path, env_path, tmp_path)
+
+    assert settings.build_id == "git-test-sha"
+
+
+def test_debug_audio_requires_device_token_when_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(
+        CONFIG.replace("enabled = false", "enabled = true", 1),
+        encoding="utf-8",
+    )
+    env_path.write_text("", encoding="utf-8")
+    monkeypatch.delenv("DEVICE_API_TOKEN", raising=False)
+
+    with pytest.raises(ValueError, match="必须配置 DEVICE_API_TOKEN"):
+        ServerSettings(config_path, env_path, tmp_path)
+
+
+def test_debug_audio_can_be_enabled_with_device_token(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(
+        CONFIG.replace("enabled = false", "enabled = true", 1),
+        encoding="utf-8",
+    )
+    env_path.write_text("DEVICE_API_TOKEN=test-token\n", encoding="utf-8")
+
+    settings = ServerSettings(config_path, env_path, tmp_path)
+
+    assert settings.voice_debug_audio_enabled is True
 
 
 def test_project_text_pages_disable_dither(tmp_path: Path):
@@ -277,3 +367,120 @@ def test_settings_without_daily_schedule_uses_legacy_interval(tmp_path: Path):
 
     assert settings.display_refresh_daily_times == ()
     assert settings.display_refresh_interval_seconds == 3600
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        (
+            'transport = "streamable_http"',
+            'transport = "sse"',
+            "streamable_http",
+        ),
+        (
+            'url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"',
+            'url = "http://example.test/mcp"',
+            "HTTPS URL",
+        ),
+        (
+            'url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"\n'
+            "timeout_seconds = 20",
+            'url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"\n'
+            "timeout_seconds = 61",
+            "5 到 60",
+        ),
+    ],
+)
+def test_settings_rejects_unsafe_web_search_mcp_config(
+    tmp_path: Path,
+    old: str,
+    new: str,
+    message: str,
+):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(CONFIG.replace(old, new, 1), encoding="utf-8")
+    env_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        ServerSettings(config_path, env_path, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("llm", "LLM provider"),
+        ("speech", "speech provider"),
+        ("embedding", "embedding provider"),
+    ],
+)
+def test_settings_rejects_unknown_ai_provider(
+    tmp_path: Path,
+    field: str,
+    message: str,
+):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(
+        CONFIG.replace(f'{field} = "zhipu"', f'{field} = "unknown"'),
+        encoding="utf-8",
+    )
+    env_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        ServerSettings(config_path, env_path, tmp_path)
+
+
+def test_settings_rejects_assistant_input_limit_above_schema_cap(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(
+        CONFIG.replace("max_input_chars = 4000", "max_input_chars = 4001"),
+        encoding="utf-8",
+    )
+    env_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="1 到 4000"):
+        ServerSettings(config_path, env_path, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ("embedder_dims = 3", "embedder_dims = 0", "1 到 4096"),
+        ("search_limit = 4", "search_limit = 21", "1 到 20"),
+        ("search_threshold = 0.25", "search_threshold = 1.1", "-1 到 1"),
+        ('embedder_model = "embedding-test"', 'embedder_model = ""', "不能为空"),
+    ],
+)
+def test_settings_rejects_invalid_assistant_memory_config(
+    tmp_path: Path,
+    old: str,
+    new: str,
+    message: str,
+):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(CONFIG.replace(old, new), encoding="utf-8")
+    env_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        ServerSettings(config_path, env_path, tmp_path)
+
+
+def test_settings_keeps_checkpoint_and_long_term_store_in_separate_files(
+    tmp_path: Path,
+):
+    config_path = tmp_path / "config.toml"
+    env_path = tmp_path / ".env"
+    config_path.write_text(
+        CONFIG.replace(
+            'store_path = "data/assistant/test-memories.sqlite3"',
+            'store_path = "data/assistant/test-checkpoints.sqlite3"',
+        ),
+        encoding="utf-8",
+    )
+    env_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="不能与 assistant.checkpoint_path 相同"):
+        ServerSettings(config_path, env_path, tmp_path)

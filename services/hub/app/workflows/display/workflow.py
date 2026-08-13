@@ -6,7 +6,7 @@ from threading import Lock, RLock
 from zoneinfo import ZoneInfo
 
 from app.schemas.display import DisplayCollectionManifest, DisplayScheduledManifest
-from app.services.display_page_registry import (
+from app.workflows.display.pages import (
     required_sources_for_pages,
     validate_page_set,
 )

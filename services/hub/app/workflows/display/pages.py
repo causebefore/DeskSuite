@@ -1,4 +1,4 @@
-"""显示页面的数据依赖注册表。"""
+"""显示工作流的页面数据依赖注册表。"""
 
 from dataclasses import dataclass
 from functools import lru_cache
@@ -17,7 +17,6 @@ ALL_DATA_SOURCE_KEYS = frozenset(
         "calendar_month",
         "mail",
         "quota",
-        "memory",
         "device_status",
         "rss",
     }
@@ -36,7 +35,6 @@ _CONTEXT_DEFAULTS = {
     "calendar_month": {},
     "mail": {},
     "quota": {},
-    "memory": [],
     "rss": {},
 }
 

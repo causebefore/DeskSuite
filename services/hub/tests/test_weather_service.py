@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from app.services.display_context_service import DisplayContextService
+from app.workflows.display.context import DisplayContextService
 from app.services.weather_service import WeatherService
 from app.schemas.moon import MoonPayload, MoonPhasePoint
 from app.schemas.weather import WeatherLocation
@@ -216,7 +216,6 @@ def test_weather_context_exposes_seven_day_chart_and_detail_data():
         calendar_service=SimpleNamespace(),
         mail_service=SimpleNamespace(),
         quota_service=SimpleNamespace(),
-        memory_service=SimpleNamespace(),
         device_status_service=SimpleNamespace(),
         rss_service=SimpleNamespace(),
     )
@@ -265,7 +264,6 @@ def test_moon_context_exposes_current_phase_and_timeline():
         calendar_service=SimpleNamespace(),
         mail_service=SimpleNamespace(),
         quota_service=SimpleNamespace(),
-        memory_service=SimpleNamespace(),
         device_status_service=SimpleNamespace(),
         rss_service=SimpleNamespace(),
     )

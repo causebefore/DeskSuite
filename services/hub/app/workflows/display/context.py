@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
-from app.services.display_page_registry import ALL_DATA_SOURCE_KEYS
+from app.workflows.display.pages import ALL_DATA_SOURCE_KEYS
 
 
 class DisplayContextService:
@@ -19,7 +19,6 @@ class DisplayContextService:
         calendar_service,
         mail_service,
         quota_service,
-        memory_service,
         device_status_service,
         rss_service,
     ) -> None:
@@ -28,7 +27,6 @@ class DisplayContextService:
         self._calendar = calendar_service
         self._mail = mail_service
         self._quota = quota_service
-        self._memory = memory_service
         self._device_status = device_status_service
         self._rss = rss_service
 
@@ -79,14 +77,6 @@ class DisplayContextService:
             loaders["mail"] = (self._mail.get_mail_summary, (timezone_name,))
         if "quota" in requested:
             loaders["quota"] = (self._quota.check_glm, ())
-        if "memory" in requested:
-            loaders["memory"] = (
-                self._memory.query_memory,
-                (
-                    device_id,
-                    "适合显示在桌面画面中的近期重要事项、偏好和提醒",
-                ),
-            )
         if "rss" in requested:
             loaders["rss"] = (self._rss.get_latest_articles, (timezone_name,))
         async_sources = sorted(loaders)
@@ -288,8 +278,6 @@ class DisplayContextService:
                     for item in quota.limits[:3]
                 ],
             }
-        if "memory" in requested:
-            context["memory"] = self._memory_lines(results["memory"])
         if "rss" in requested:
             rss = results["rss"]
             availability["rss"] = bool(rss.available)
@@ -408,12 +396,3 @@ class DisplayContextService:
             else None,
             "icon": getattr(item, "icon", ""),
         }
-
-    @staticmethod
-    def _memory_lines(memory_text: str) -> list[str]:
-        """把 mem0 多行文本整理为页面列表。"""
-        return [
-            line.removeprefix("- ").strip()
-            for line in memory_text.splitlines()
-            if line.strip()
-        ][:3]

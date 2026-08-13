@@ -1,6 +1,11 @@
 # DeskSuite Hub
 
-DeskSuite Hub 使用 FastAPI 为 PhotoPainter 和 DeskMate 提供通用设备身份、OTA、日志、语音及产品业务服务。天气、月相、日历、邮件、RSS、AI 额度与长期记忆由 Hub 统一取数；PhotoPainter 的数据会聚合后注入 HTML/JS 页面，ESP32-S3 只上传本地温湿度/电池状态并下载最终的 PPF2 四灰阶页面集合。
+DeskSuite Hub 使用 FastAPI 为 PhotoPainter 和 DeskMate 提供通用设备身份、OTA、日志、语音及产品业务服务。天气、月相、日历、邮件、RSS 与 AI 额度由 Hub 统一取数；PhotoPainter 的数据会聚合后注入 HTML/JS 页面，ESP32-S3 只上传本地温湿度/电池状态并下载最终的 PPF2 四灰阶页面集合。
+
+Hub 现在将跨服务职责拆成四个工作流：Assistant 统一处理文字/语音的 LangChain
+Agent、工具和记忆；Voice 只适配 ASR/TTS 与既有设备帧；Display 和 Dashboard 保持
+确定性，不经过大模型。第三方 LLM/语音协议位于 `app/providers/`，以后可在装配处替换
+供应商。详细边界见 [`app/workflows/README.md`](app/workflows/README.md)。
 
 后端目录职责和代码放置规则见 [`app/README.md`](app/README.md)。
 
@@ -14,15 +19,45 @@ uv run playwright install chromium
 Copy-Item .env.example .env
 ```
 
-生产环境如果启用 `[memory].enabled = true`，使用：
+密钥写入 `.env`，普通配置写入 `config.toml`。`DEVICE_API_TOKEN` 留空时既有设备接口允许局域网开发访问；
+文字 Assistant 为避免意外公开，始终要求先配置该 Token。配置后，语音、显示、OTA 和三个日志写入接口必须携带
+`Authorization: Bearer <token>`。日志查询接口保持只读访问。
+
+容器与进程探活使用无需鉴权的 `GET /healthz`。该接口只返回 `status` 和应用
+`version`，不会请求天气、邮箱、模型或 MCP；构建镜像时可通过进程环境变量
+`DESKSUITE_BUILD_ID` 注入 Git SHA，此时响应会额外包含 `build_id`。
+
+上传语音默认不会落盘，三个 `/api/v1/voice/debug/audio/*` 路由也不会注册。仅在临时排查
+录音质量时设置 `[voice.debug_audio].enabled = true`；此模式要求 `.env` 中存在非空
+`DEVICE_API_TOKEN`，访问调试路由时也必须携带同一 Bearer Token。
+
+## Assistant 与文字输入
+
+最小文字入口为 `POST /api/v1/assistant/text`：
 
 ```powershell
-uv sync --extra memory
+$headers = @{ Authorization = "Bearer <DEVICE_API_TOKEN>" }
+$body = @{ text = "今天天气怎么样"; thread_id = "home-chat" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/api/v1/assistant/text `
+  -Headers $headers -ContentType 'application/json' -Body $body
 ```
 
-密钥写入 `.env`，普通配置写入 `config.toml`。`DEVICE_API_TOKEN` 留空时允许局域网开发访问；
-配置后，语音、显示、OTA 和三个日志写入接口必须携带
-`Authorization: Bearer <token>`。日志查询接口保持只读访问。
+`thread_id` 可省略，服务端会生成新会话；重复使用同一个值可继续多轮对话。当前只有一个
+用户，长期身份由 `[assistant].principal_id = "owner"` 固定，客户端不能声明身份。
+语音设备默认使用 `voice:<device_id>`，也可通过 `X-Thread-Id` 和文字入口共享会话。
+短期完整历史存入 `[assistant].checkpoint_path` 指定的 LangGraph Checkpoint；跨 thread 的
+长期事实存入 `[assistant.memory].store_path` 指定的 LangGraph Store。只有问题确实涉及过去
+保存的事实或偏好、且当前会话没有答案时，Agent 才调用 `search_user_memory`；只有用户明确
+要求长期记住时，才调用 `remember_user_fact` 执行 `put`。普通问候、复述和实时查询不会
+发起 embedding 请求。
+语义检索使用 `[providers].embedding` 指定的供应商，当前复用智谱 `embedding-3`。
+旧版 `data/mem0_chroma` 不会被自动读取或删除；若部署环境曾启用 mem0，应先单独检查并
+决定迁移或归档。
+
+智谱联网搜索 MCP 由 `[mcp.web_search_prime].enabled` 控制；URL 留在 `config.toml`，
+Authorization 在运行时复用现有 `ZHIPU_API_KEY`，不会写入配置或日志。Hub 启动时预热并
+发现工具；真正搜索时由适配器创建并清理独立 session，当前只白名单允许
+`webSearchPrime` 及适配后的 `web_search_prime`。
 
 RSS 订阅地址在 `config.toml [rss].feeds` 中配置，支持最多 8 个 RSS/Atom URL。服务端使用 `feedparser` 解析，按 `cache_seconds` 缓存；单个源失败不影响其他源，全部失败时优先回退到最近缓存。
 
@@ -44,7 +79,7 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8765
 
 ## 使用真实数据生成四灰阶页面集合
 
-渲染入口只使用 `.env` 和 `config.toml` 中已配置的真实天气/月相、iCloud 日程、QQ 邮箱、RSS、智谱额度和 memory 数据。设备 ID 缺省时读取 `config.toml [display.defaults]`：
+渲染入口只使用 `.env` 和 `config.toml` 中已配置的真实天气/月相、iCloud 日程、QQ 邮箱、RSS 和智谱额度数据。设备 ID 缺省时读取 `config.toml [display.defaults]`：
 
 ```powershell
 uv run python .\scripts\render_display.py
@@ -72,7 +107,7 @@ uv run python .\scripts\render_display.py --device-id photopainter-001
 
 显示 API 默认使用真实数据；日常生成和设备同步都不使用固定 demo 数据。
 
-每个页面只比较自己依赖的可见内容与模板静态资源 SHA-256 指纹。例如邮件变化只影响 `demo`；天气变化影响 `demo` 和 `weather`；月相变化只影响 `moon`；RSS 变化只影响 `rss`；近期日程变化影响 `demo` 和 `calendar`，自然月日程变化影响 `month-calendar`。页面依赖的数据、取整后的设备状态及对应数据源可用状态都不变时，不启动 Chromium，直接沿用该页面原版本。请求时间、状态接收时间、设备 ID、原始未取整传感器值和已从页面删除的 memory 内容不参与判定。语义内容变化但最终四灰阶 payload 相同时，只更新该页面的 `render_state.json`，不创建新版本。
+每个页面只比较自己依赖的可见内容与模板静态资源 SHA-256 指纹。例如邮件变化只影响 `demo`；天气变化影响 `demo` 和 `weather`；月相变化只影响 `moon`；RSS 变化只影响 `rss`；近期日程变化影响 `demo` 和 `calendar`，自然月日程变化影响 `month-calendar`。页面依赖的数据、取整后的设备状态及对应数据源可用状态都不变时，不启动 Chromium，直接沿用该页面原版本。请求时间、状态接收时间、设备 ID 和原始未取整传感器值不参与判定。语义内容变化但最终四灰阶 payload 相同时，只更新该页面的 `render_state.json`，不创建新版本。
 
 设备按照 `config.toml [display.refresh_schedule].daily_times` 配置的本地时间唤醒，时区由同一配置段的 `timezone` 指定；Manifest 只下发最近一次目标的 UTC Unix 时间戳。未配置每日时间表时，服务端兼容使用 `[display].refresh_interval_seconds` 对齐 UTC 周期。刷新由 Manifest 请求触发，服务端不运行显示后台调度任务；同一设备的刷新通过进程内锁串行执行。已显示的可用设备状态会在 `[display].device_status_min_refresh_seconds` 内保持不变；超过该时间后，温度不足 `1°C`、湿度不足 `3%RH`、电量不足 `5%` 的变化继续沿用旧显示值，避免小幅采样波动造成无意义刷新。
 
@@ -97,6 +132,7 @@ daily_times = ["11:15", "11:50"]
 - `POST /api/v1/logs/errors`
 - `PUT /api/v1/device/status`
 - `GET /api/v1/dashboard`
+- `POST /api/v1/assistant/text`
 - `POST /api/v1/voice/chat`
 - `GET /api/v1/voice/ws`（WebSocket）
 - `/api/v2/display/*`
@@ -131,3 +167,7 @@ firmwares/
 ```powershell
 uv run pytest -q
 ```
+
+普通测试即使本机存在真实密钥也不会访问 GLM、MCP 或邮箱。真实测试必须分别显式传入
+`--run-live-glm`、`--run-live-mcp` 或 `--run-live-mail`；不要在五分钟内进行十次以上真实
+调用，也不要为失败自动重试。

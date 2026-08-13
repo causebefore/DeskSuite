@@ -13,6 +13,9 @@ log_level = "info"
 weather = "qweather"
 calendar = "icloud"
 mail = "qq"
+llm = "zhipu"
+speech = "zhipu"
+embedding = "zhipu"
 
 [dashboard]
 source_timeout_seconds = 20
@@ -23,6 +26,34 @@ llm_model = "glm-4.7"
 tts_model = "glm-tts"
 tts_voice = "female"
 quota_cache_seconds = 300
+
+[voice.debug_audio]
+# 仅临时排查录音质量时开启；开启后必须在 .env 配置 DEVICE_API_TOKEN。
+enabled = false
+
+[assistant]
+# 当前 Hub 为单用户部署；该值只在服务端使用，不允许文字客户端覆盖。
+principal_id = "owner"
+checkpoint_path = "data/assistant/checkpoints.sqlite3"
+max_input_chars = 4000
+model_timeout_seconds = 30
+recursion_limit = 12
+
+[assistant.memory]
+# 仅在用户明确要求时写入；只有 Agent 判断当前问题需要旧事实时才调用检索工具。
+enabled = true
+store_path = "data/assistant/memories.sqlite3"
+embedder_model = "embedding-3"
+embedder_dims = 1024
+search_limit = 5
+search_threshold = 0.3
+
+[mcp.web_search_prime]
+# 可选能力，默认关闭。启用后运行期复用 .env 的 ZHIPU_API_KEY。
+enabled = true
+transport = "streamable_http"
+url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+timeout_seconds = 20
 
 [qweather]
 host = "m5759hrw2e.re.qweatherapi.com"
@@ -107,13 +138,3 @@ device_status_dir = "data/device_status"
 log_keep_sessions = 30
 ota_manifest_dir = "firmwares/manifests"
 ota_artifact_dir = "firmwares/artifacts"
-
-[memory]
-enabled = false
-vector_store_path = "data/mem0_chroma"
-collection_name = "photopainter"
-llm_model = "glm-4-plus"
-embedder_model = "embedding-3"
-embedder_dims = 1024
-search_top_k = 5
-search_threshold = 0.3

@@ -1,5 +1,8 @@
 # DeskMate 服务端代码评审备忘
 
+> 历史说明：本文记录的是 2026-07-14 的旧 `VoiceService` 架构，已被
+> `WORKFLOW_REFACTOR_REPORT.md` 所述的 Assistant/Voice 工作流取代，不代表当前实现。
+
 评审日期：2026-07-14  
 当前阶段：局域网联调  
 重点范围：TTS、LLM、长期记忆及语音接入链路

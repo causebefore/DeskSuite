@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.services.device_status_service import DeviceStatusService
-from app.services.display_context_service import DisplayContextService
+from app.workflows.display.context import DisplayContextService
 
 
 def _battery_payload() -> dict:

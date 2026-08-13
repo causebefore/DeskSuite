@@ -2,25 +2,28 @@
 
 ## 1. 边界
 
-PhotoPainter 设备使用设备状态、显示、OTA、日志和语音接口；DeskMate 另使用 Dashboard
-schema 3 业务投影。两种设备共用 Hub 的基础能力和显示刷新时间表。
+PhotoPainter 设备使用设备状态、显示、OTA 和日志接口；DeskMate 使用 Dashboard
+schema 3 业务投影、语音、OTA 和日志接口。两种设备共用 Hub 的身份、OTA、
+日志和刷新时间表等基础能力。
 
 Base URL 示例：`http://192.168.1.100:8765`。
 
 ## 2. 设备身份
 
-设备状态、显示、语音、OTA 与日志写入接口使用同一组请求头：
+设备状态、显示、Dashboard 与语音接口使用以下请求头：
 
 ```http
 Authorization: Bearer <DEVICE_API_TOKEN>
 X-Device-Id: esp32-001122aabbcc
 ```
 
-固件使用 Wi-Fi Station 基础 MAC 生成稳定的 `esp32-xxxxxxxxxxxx` 设备 ID，并在所有协议中
-复用。仅显示类客户端省略 `X-Device-Id` 时，Hub 才使用
-`config.toml [display.defaults].device_id`。当服务端 `.env` 中 `DEVICE_API_TOKEN` 为空时，
-开发期允许省略 Authorization；一旦配置，所有设备写入和受保护读取都必须提供正确 Bearer
-Token。
+固件使用 Wi-Fi Station 基础 MAC 生成稳定的 `esp32-xxxxxxxxxxxx` 设备 ID，并在需要
+设备身份的协议中复用。上述四类接口都允许省略 `X-Device-Id`；省略时 Hub 使用
+`config.toml [display.defaults].device_id`。OTA 检查和三个日志写入接口只校验 Bearer Token，
+设备身份分别来自请求体中的 `device_id`；OTA 制品下载不需要设备 ID。
+
+当服务端 `.env` 中 `DEVICE_API_TOKEN` 为空时，开发期允许省略 Authorization；
+一旦配置，所有设备写入和受保护读取都必须提供正确 Bearer Token。
 
 ## 3. 设备状态
 
@@ -213,9 +216,9 @@ Hub 先按 `firmware_target` 选择清单，再要求清单中的 `product_id` �
 产品内再以 `device_id` 区分设备。服务端存储路径为
 `runtime_logs/products/<product_id>/devices/<device_id>/`，每台设备独立保留 `latest`、错误汇总和最近会话，日志不会互相覆盖。
 
-三个日志写入接口均要求 `Authorization: Bearer <DEVICE_API_TOKEN>`，并携带与其他设备协议
-相同的 `X-Device-Id`。Hub 同时校验请求体中的 `device_id` 数据格式；日志查询接口不要求
-设备 Token。
+三个日志写入接口均要求 `Authorization: Bearer <DEVICE_API_TOKEN>`，并从请求体的
+`device_id` 识别设备，不要求 `X-Device-Id`。Hub 校验请求体中的 `device_id`
+数据格式；日志查询接口不要求设备 Token。
 
 - `POST /api/v1/logs/boot`：创建启动日志会话。请求包含 `product_id`、`device_id`、`firmware_version`、`reset_reason`、`ip`。
 - `POST /api/v1/logs/batch`：批量上报运行日志。请求包含 `product_id`、`session_id`、`device_id`、`lines`。
@@ -255,6 +258,9 @@ GET /api/v1/dashboard
 Authorization: Bearer <DEVICE_API_TOKEN>
 X-Device-Id: <稳定设备 ID>
 ```
+
+建议固件显式携带稳定的 `X-Device-Id`；省略时 Hub 使用
+`config.toml [display.defaults].device_id`。
 
 响应保持 schema 3 的天气、日历、邮件和额度投影，并在顶层返回：
 

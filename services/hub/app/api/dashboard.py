@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 
 from app.api.dependencies import get_device_id
 from app.schemas.dashboard import DashboardResponse
-from app.services.dashboard_service import DashboardService
+from app.workflows.dashboard.workflow import DashboardService
 
 
 router = APIRouter()

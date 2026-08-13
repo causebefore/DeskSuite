@@ -1,39 +1,87 @@
-"""端到端：真起 mem0 + 临时 Chroma，验证智谱 OpenAI 兼容 + mem0 抽取确实可跑。
+"""LangGraph SQLite Store 的纯本地长期记忆持久化验收。"""
 
-无 ZHIPU_API_KEY 时自动跳过，不阻塞 CI。
-"""
+import asyncio
+from hashlib import sha256
+from pathlib import Path
 
-import os
-from unittest.mock import MagicMock
-
-import pytest
-
-pytestmark = pytest.mark.skipif(
-    not os.getenv("ZHIPU_API_KEY"),
-    reason="需要 ZHIPU_API_KEY 才能做智谱 + mem0 端到端验证",
-)
+from langchain_core.embeddings import Embeddings
+from langgraph.store.sqlite.aio import AsyncSqliteStore
 
 
-def _settings(tmp_path):
-    s = MagicMock()
-    s.memory_enabled = True
-    s.zhipu_api_key = os.getenv("ZHIPU_API_KEY")
-    s.memory_vector_store_path = str(tmp_path / "chroma")
-    s.memory_collection_name = "roundtrip"
-    s.memory_llm_model = "glm-4-plus"
-    s.memory_embedder_model = "embedding-3"
-    s.memory_embedder_dims = 1024
-    s.memory_search_top_k = 5
-    s.memory_search_threshold = 0.0  # 放宽阈值确保能召回
-    return s
+class KeywordEmbeddings(Embeddings):
+    """用固定三维向量验证 SQLite 语义索引，不调用外部 API。"""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [self._embed(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed(text)
+
+    @staticmethod
+    def _embed(text: str) -> list[float]:
+        if "温度" in text or "摄氏" in text:
+            return [1.0, 0.0, 0.0]
+        if "阅读" in text or "小说" in text:
+            return [0.0, 1.0, 0.0]
+        return [0.0, 0.0, 1.0]
 
 
-def test_add_then_search_roundtrip(tmp_path):
-    from app.services.memory_service import MemoryService
+def test_sqlite_store_put_search_and_reopen_roundtrip(tmp_path: Path):
+    store_path = tmp_path / "assistant-memory.sqlite3"
+    namespace = ("assistant_memories", "owner")
+    fact = "用户偏好使用摄氏温度"
+    key = sha256(fact.encode("utf-8")).hexdigest()
 
-    svc = MemoryService(_settings(tmp_path))
-    assert svc.enabled, "mem0 初始化失败——检查智谱兼容性与 mem0 配置键名"
+    async def write_and_search() -> None:
+        async with AsyncSqliteStore.from_conn_string(str(store_path)) as store:
+            await store.setup()
+            await store.aput(namespace, key, {"fact": fact})
+            results = await store.asearch(
+                namespace,
+                query="温度偏好",
+                limit=5,
+            )
+            assert [item.value for item in results] == [{"fact": fact}]
 
-    svc.save_memory("dev1", "我叫张三，住在苏州", "你好张三")
-    out = svc.query_memory("dev1", "我叫什么名字")
-    assert "张三" in out
+    async def reopen_and_read() -> None:
+        async with AsyncSqliteStore.from_conn_string(str(store_path)) as store:
+            await store.setup()
+            item = await store.aget(namespace, key)
+            assert item is not None
+            assert item.value == {"fact": fact}
+
+    asyncio.run(write_and_search())
+    asyncio.run(reopen_and_read())
+
+    # Windows 上仍有 SQLite 连接时删除会失败，同时验证异步上下文已释放句柄。
+    store_path.unlink()
+    assert not store_path.exists()
+
+
+def test_sqlite_store_semantic_search_uses_indexed_fact_field(tmp_path: Path):
+    store_path = tmp_path / "assistant-semantic-memory.sqlite3"
+    namespace = ("assistant_memories", "owner")
+
+    async def exercise_semantic_search() -> None:
+        async with AsyncSqliteStore.from_conn_string(
+            str(store_path),
+            index={
+                "embed": KeywordEmbeddings(),
+                "dims": 3,
+                "fields": ["fact"],
+            },
+        ) as store:
+            await store.setup()
+            await store.aput(namespace, "temperature", {"fact": "用户偏好摄氏温度"})
+            await store.aput(namespace, "reading", {"fact": "用户喜欢科幻小说"})
+
+            results = await store.asearch(namespace, query="温度单位偏好", limit=2)
+
+            assert results[0].key == "temperature"
+            assert results[0].score is not None
+            assert results[0].score > results[1].score
+
+    asyncio.run(exercise_semantic_search())
+
+    store_path.unlink()
+    assert not store_path.exists()

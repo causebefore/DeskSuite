@@ -1,0 +1,33 @@
+# 生产镜像采用最小允许列表，避免把密钥、测试和本机状态送入构建上下文。
+**
+
+!pyproject.toml
+!uv.lock
+!config.toml
+
+!app/
+!app/**
+!web/
+!web/**
+
+# 即使这些文件位于允许的源码目录中，也不得进入镜像。
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.coverage
+**/.DS_Store
+**/Thumbs.db
+
+# 明示安全边界，后续扩大允许列表时仍不会误带入这些内容。
+.env
+.env.*
+tests/
+docs/
+scripts/
+.venv/
+.pytest_cache/
+data/
+debug_audio/
+firmwares/
+rendered_frames/
+runtime_logs/

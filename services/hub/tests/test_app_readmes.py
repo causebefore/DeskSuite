@@ -8,9 +8,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def test_app_directories_have_current_readmes():
     expected_entries = {
-        "app": ("main.py", "api/", "core/", "schemas/", "services/"),
+        "app": (
+            "main.py",
+            "api/",
+            "core/",
+            "schemas/",
+            "services/",
+            "providers/",
+            "workflows/",
+        ),
         "app/api": (
             "dependencies.py",
+            "assistant.py",
             "display.py",
             "device_status.py",
             "ota.py",
@@ -28,13 +37,36 @@ def test_app_directories_have_current_readmes():
             "display.py",
             "ota.py",
             "logs.py",
+            "assistant.py",
         ),
-        "app/services": (
-            "display_page_registry.py",
-            "display_refresh_service.py",
-            "display_context_service.py",
-            "display_render_service.py",
-            "device_status_service.py",
+        "app/services": ("device_status_service.py",),
+        "app/providers": (
+            "chat_model.py",
+            "speech.py",
+            "zhipu_speech.py",
+        ),
+        "app/workflows": (
+            "assistant/",
+            "voice/",
+            "display/",
+            "dashboard/",
+        ),
+        "app/workflows/display": (
+            "workflow.py",
+            "context.py",
+            "renderer.py",
+            "pages.py",
+        ),
+        "app/workflows/dashboard": ("workflow.py",),
+        "app/workflows/assistant": (
+            "workflow.py",
+            "SYSTEM_PROMPT.md",
+            "tools.py",
+            "mcp.py",
+        ),
+        "app/workflows/voice": (
+            "workflow.py",
+            "protocol.py",
         ),
     }
 

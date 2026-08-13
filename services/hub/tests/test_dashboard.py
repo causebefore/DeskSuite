@@ -22,7 +22,7 @@ from app.schemas.weather import (
     WeatherNow,
     WeatherPayload,
 )
-from app.services.dashboard_service import DashboardService
+from app.workflows.dashboard.workflow import DashboardService
 
 
 def _settings(*, token: str = "shared-secret", timeout: float = 0.2):

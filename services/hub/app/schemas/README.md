@@ -16,6 +16,7 @@
 - `display.py`：显示渲染请求、页面 Manifest 和集合 Manifest。
 - `ota.py`：通用 OTA 制品状态、应用固件目标和运行时清单模型。
 - `logs.py`：设备日志请求和查询结果。
+- `assistant.py`：单用户文字对话的请求、线程 ID 与最终回复模型。
 - `__init__.py`：Schema 包说明。
 
 新增模型时应保持字段语义明确，并为边界、兼容性或行为变化补充测试。ESP32 不需要的业务数据不得加入显示 Manifest。

@@ -26,10 +26,10 @@ from app.schemas.mail import MailPayload
 from app.schemas.quota import ProviderQuota
 from app.schemas.weather import WeatherPayload
 from app.services.calendar_service import CalendarService
-from app.services.display_refresh_service import next_refresh_at_utc
 from app.services.mail_service import MailService
 from app.services.quota_service import QuotaService
 from app.services.weather_service import WeatherService
+from app.workflows.display.workflow import next_refresh_at_utc
 
 
 _SOURCE_BYTES = 15

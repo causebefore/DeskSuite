@@ -12,7 +12,7 @@
 - 响应为 HTTP chunked 二进制帧流，每帧格式：[1字节type][4字节len][payload]
 - 设备端边收帧边处理：ASR_TEXT 显示识别结果，TTS_PCM 送播放，END 表示结束
 
-帧类型（见 voice_protocol.py）：
+帧类型（见 app/workflows/voice/protocol.py）：
 - 0x00 END: 流结束
 - 0x01 ASR_TEXT: 用户原话
 - 0x02 REPLY_TEXT: LLM 回复文本片段
@@ -30,11 +30,16 @@ from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 from starlette.requests import ClientDisconnect
 
-from app.api.dependencies import get_device_id
-from app.services.voice_protocol import encode_frame
-from app.services.voice_service import VoiceService
+from app.api.dependencies import (
+    get_device_id,
+    get_optional_thread_id,
+    require_device_token,
+)
+from app.workflows.voice.protocol import encode_frame
+from app.workflows.voice.workflow import VoiceWorkflow
 
 router = APIRouter()
+debug_router = APIRouter(dependencies=[Depends(require_device_token)])
 
 # 调试：保存上传的原始 PCM 为 WAV 文件，方便检查音频质量
 _DEBUG_AUDIO_DIR = Path(__file__).resolve().parent.parent.parent / "debug_audio"
@@ -55,8 +60,8 @@ def _save_debug_wav(pcm: bytes, sample_rate: int, tag: str = "upload") -> Path:
     return wav_path
 
 
-def get_voice_service(request: Request) -> VoiceService:
-    """从请求上下文获取 VoiceService 单例。"""
+def get_voice_service(request: Request) -> VoiceWorkflow:
+    """从请求上下文获取 Voice 工作流单例。"""
     return request.app.state.voice_service
 
 
@@ -65,7 +70,8 @@ async def voice_chat(
     request: Request,
     x_audio_sample_rate: int = Header(default=24000, alias="X-Audio-Sample-Rate"),
     device_id: str = Depends(get_device_id),
-    voice_service: VoiceService = Depends(get_voice_service),
+    thread_id: str | None = Depends(get_optional_thread_id),
+    voice_service: VoiceWorkflow = Depends(get_voice_service),
 ) -> StreamingResponse:
     """
     流式语音对话回合。
@@ -104,15 +110,20 @@ async def voice_chat(
             detail=f"不支持的采样率: {x_audio_sample_rate}",
         )
 
-    global _last_debug_wav
-    _last_debug_wav = _save_debug_wav(body, x_audio_sample_rate, "upload")
+    settings = request.app.state.server_settings
+    if getattr(settings, "voice_debug_audio_enabled", False) is True:
+        global _last_debug_wav
+        _last_debug_wav = _save_debug_wav(body, x_audio_sample_rate, "upload")
 
     def frame_stream():
         # 直接把设备采样率传给 ASR 入口。16kHz PCM 不再经历
         # 16kHz -> 24kHz -> 16kHz 的二次重采样。
-        # device_id 用于语音助手的长期记忆按设备归属。
+        # device_id 只标识设备，并用于缺省语音 thread 的稳定映射。
         for ftype, payload in voice_service.chat_stream(
-            body, sample_rate=x_audio_sample_rate, device_id=device_id
+            body,
+            sample_rate=x_audio_sample_rate,
+            device_id=device_id,
+            thread_id=thread_id,
         ):
             yield encode_frame(ftype, payload)
 
@@ -122,7 +133,7 @@ async def voice_chat(
     )
 
 
-@router.get("/debug/audio/last")
+@debug_router.get("/debug/audio/last")
 async def debug_get_last_audio() -> FileResponse:
     """调试接口：下载最近一次上传的录音 WAV 文件。"""
     if _last_debug_wav is None or not _last_debug_wav.exists():
@@ -134,7 +145,7 @@ async def debug_get_last_audio() -> FileResponse:
     )
 
 
-@router.get("/debug/audio/list")
+@debug_router.get("/debug/audio/list")
 async def debug_list_audio() -> dict:
     """调试接口：列出所有保存的录音文件。"""
     if not _DEBUG_AUDIO_DIR.exists():
@@ -143,11 +154,12 @@ async def debug_list_audio() -> dict:
     return {"files": [f.name for f in files]}
 
 
-@router.get("/debug/audio/{filename}")
+@debug_router.get("/debug/audio/{filename}")
 async def debug_get_audio(filename: str) -> FileResponse:
     """调试接口：按文件名下载指定录音。"""
-    safe = _DEBUG_AUDIO_DIR / filename
-    if not safe.exists() or not safe.is_relative_to(_DEBUG_AUDIO_DIR):
+    debug_audio_dir = _DEBUG_AUDIO_DIR.resolve()
+    safe = (_DEBUG_AUDIO_DIR / filename).resolve()
+    if safe.parent != debug_audio_dir or not safe.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")
     return FileResponse(
         path=str(safe),

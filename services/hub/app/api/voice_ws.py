@@ -10,8 +10,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 from starlette.websockets import WebSocketState
 
-from app.api.dependencies import device_token_is_valid
-from app.services.voice_protocol import FRAME_TYPE_END, FRAME_TYPE_ERROR, encode_frame
+from app.api.dependencies import device_token_is_valid, thread_id_is_valid
+from app.workflows.voice.protocol import FRAME_TYPE_END, FRAME_TYPE_ERROR, encode_frame
 
 router = APIRouter()
 
@@ -20,8 +20,12 @@ _START = {"type": "start", "codec": "pcm_s16le", "sample_rate": 16000, "channels
 _VOICE_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="voice_ws_stream")
 
 
-async def _send_stream(websocket: WebSocket, pcm_16k: bytes,
-                       device_id: str | None = None) -> None:
+async def _send_stream(
+    websocket: WebSocket,
+    pcm_16k: bytes,
+    device_id: str | None = None,
+    thread_id: str | None = None,
+) -> None:
     """在线程中消费阻塞式 AI 生成器，并让 WebSocket 接收循环可随时取消。"""
     queue: asyncio.Queue[tuple[int, bytes] | None] = asyncio.Queue(maxsize=64)
     loop = asyncio.get_running_loop()
@@ -40,8 +44,11 @@ async def _send_stream(websocket: WebSocket, pcm_16k: bytes,
     def produce() -> None:
         try:
             for frame in voice_service.chat_stream(
-                pcm_16k, sample_rate=16000, cancel_event=cancelled,
+                pcm_16k,
+                sample_rate=16000,
+                cancel_event=cancelled,
                 device_id=device_id,
+                thread_id=thread_id,
             ):
                 if cancelled.is_set():
                     break
@@ -127,6 +134,12 @@ async def voice_ws(websocket: WebSocket) -> None:
     if not device_id or len(device_id) > 80:
         await websocket.close(code=4400, reason="Invalid X-Device-Id")
         return
+    thread_id = websocket.headers.get("x-thread-id")
+    if thread_id is not None:
+        thread_id = thread_id.strip()
+        if not thread_id_is_valid(thread_id):
+            await websocket.close(code=4400, reason="Invalid X-Thread-Id")
+            return
     await websocket.accept()
     logger.info("WebSocket 语音会话已连接: client={}", websocket.client)
     chunks: list[bytes] = []
@@ -167,7 +180,12 @@ async def voice_ws(websocket: WebSocket) -> None:
                     total,
                     total * 1000 // (16_000 * 2),
                 )
-                await _send_stream(websocket, b"".join(chunks), device_id=device_id)
+                await _send_stream(
+                    websocket,
+                    b"".join(chunks),
+                    device_id=device_id,
+                    thread_id=thread_id,
+                )
                 if websocket.client_state == WebSocketState.CONNECTED:
                     await websocket.close(code=1000)
                 return

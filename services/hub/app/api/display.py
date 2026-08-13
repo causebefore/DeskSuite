@@ -10,7 +10,7 @@ from app.schemas.display import (
     DisplayRenderRequest,
     DisplayScheduledManifest,
 )
-from app.services.display_refresh_service import schedule_display_manifest
+from app.workflows.display.workflow import schedule_display_manifest
 
 
 router = APIRouter()
