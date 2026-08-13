@@ -66,15 +66,25 @@ uv run pytest -q
 & .\ds.ps1 ota deskmate
 ```
 
-`ota` 会先生成该 `firmware_target` 独立的单调版本头，再构建并发布：
+`ota` 会先生成该 `firmware_target` 独立的单调版本头，再构建并发布。省略
+`-ServiceRoot` 时，默认按 [`products.toml`](products.toml) 的 `[ota_publish]` 配置，通过
+SSH 与 Docker 发布到 Ubuntu 生产 Hub；只有显式指定 `-ServiceRoot` 时才改为本地 Hub
+目录发布。Hub 运行时使用以下目录结构：
 
 ```text
-services/hub/firmwares/
+firmwares/
 ├─ manifests/
 │  ├─ photopainter_esp32s3_v1.json
 │  └─ deskmate_esp32s3_v1.json
 └─ artifacts/
    └─ <artifact_id>.bin
+```
+
+需要在本地 Hub 目录验证发布时，显式执行：
+
+```powershell
+& .\ds.ps1 ota photopainter -ServiceRoot .\services\hub
+& .\ds.ps1 ota deskmate -ServiceRoot .\services\hub
 ```
 
 清单按固件兼容目标隔离，二进制在全局制品库中按哈希去重。设备统一请求

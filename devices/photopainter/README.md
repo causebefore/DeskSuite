@@ -71,14 +71,21 @@ Application 协调，共享 `firmware_ota` 的独立 Task 只拥有固件目标
 & .\ds.ps1 build photopainter
 ```
 
-首次仍需通过串口烧录。此后执行以下命令，会先编译，再把固件和目标清单原子发布到统一后端
-`services/hub/firmwares/`：
+首次仍需通过串口烧录。此后执行以下命令，会先编译，再按 DeskSuite 根目录
+`products.toml` 的 `[ota_publish]` 配置，通过 SSH 与 Docker 将固件和目标清单原子
+发布到 Ubuntu 生产 Hub：
 
 ```powershell
 & .\ds.ps1 ota photopainter
 ```
 
-服务端不在 DeskSuite 默认目录时使用 `-ServiceRoot` 指定。发布将
+只有需要发布到本地 Hub 目录时才显式指定 `-ServiceRoot`：
+
+```powershell
+& .\ds.ps1 ota photopainter -ServiceRoot .\services\hub
+```
+
+发布将
 `photopainter_esp32s3_v1` 清单与其他目标隔离，固件进入全局哈希制品库。设备请求统一
 `/api/v1/ota/check`，同时上报 `product_id=1` 和 `firmware_target`。发布以 ESP 镜像
 Validation SHA-256 作为 `artifact_id`，以完整文件 SHA-256 校验下载内容。设备切换启动分区
@@ -94,7 +101,7 @@ ESP-IDF A/B 回滚。
 | Service | [`components/services/`](components/services/) | 可选的持续执行、自动恢复、完整事务与资源协调 |
 | Shared Communication | [`../../shared/components/communication/`](../../shared/components/communication/) | 两套固件共用的链路、网络诊断、传输、身份、后端上下文、SNTP、日志和 OTA 实现 |
 | Product Protocols | [`components/product_protocols/`](components/product_protocols/) | PhotoPainter 显示帧、集合和设备状态契约 |
-| Storage | [`components/storage/`](components/storage/) | NVS、文件、分区等通用持久化机制，不定义业务数据结构 |
+| Storage（目标层） | 尚未独立；当前兼容实现位于 [`components/sys/`](components/sys/) | 目标为 NVS、文件、分区等通用持久化机制；现有 `system_storage` 仍属待迁移实现 |
 | System | [`components/sys/`](components/sys/) | 可信时间、复位和看门狗等系统级能力 |
 | Device | [`components/device/`](components/device/) | 外设能力和设备级资源所有权 |
 | Drivers / BSP / Boards | [`components/drivers/`](components/drivers/)、[`components/bsp/`](components/bsp/)、[`components/boards/`](components/boards/) | 芯片驱动、板级资源和板型配置 |
