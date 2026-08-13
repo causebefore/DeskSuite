@@ -410,10 +410,12 @@ Assert-MatchCount $provider '\.effect\s*=\s*WEB_CONSOLE_FIELD_EFFECT_NONE' 7 `
     '七项系统状态未全部声明无副作用'
 Assert-MatchCount $provider 'system_info_get_snapshot_copy\s*\(' 1 `
     'System Status 回调每次应只读取一份系统快照'
-Assert-Contains $provider '\.id\s*=\s*"firmware_version"[\s\S]{0,260}\.summary\s*=\s*"固件"' `
-    '固件版本未以“固件”进入设置首页摘要'
-Assert-Contains $provider '\.id\s*=\s*"uptime_sec"[\s\S]{0,300}\.label\s*=\s*"运行时长"[\s\S]{0,180}\.summary\s*=\s*"已运行"[\s\S]{0,180}\.format\s*=\s*"duration_seconds"' `
-    '运行时长未使用客户标签、首页摘要和 duration_seconds 格式'
+Assert-Contains $provider '\.id\s*=\s*"firmware_version"[\s\S]{0,260}\.label\s*=\s*"固件版本"' `
+    '固件版本未使用客户标签'
+Assert-Contains $provider '\.id\s*=\s*"uptime_sec"[\s\S]{0,300}\.label\s*=\s*"运行时长"[\s\S]{0,180}\.format\s*=\s*"duration_seconds"' `
+    '运行时长未使用客户标签和 duration_seconds 格式'
+Assert-NotContains $provider '\.summary\s*=' `
+    '产品 Provider 不应再声明设置首页动态摘要字段'
 Assert-Contains $provider '\.id\s*=\s*"sram_free_kb"[\s\S]{0,300}\.label\s*=\s*"可用 SRAM"[\s\S]{0,180}\.unit\s*=\s*"KiB"' `
     'SRAM 状态未把 KiB 作为结构化单位'
 Assert-Contains $provider '\.id\s*=\s*"psram_free_kb"[\s\S]{0,300}\.label\s*=\s*"可用 PSRAM"[\s\S]{0,180}\.unit\s*=\s*"KiB"' `

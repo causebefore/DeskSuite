@@ -34,7 +34,7 @@
 .settings-section-link:hover:not(:disabled) { background: #f3f5f6; }
 .settings-section-link > span:first-child { min-width: 0; display: grid; gap: 5px; }
 .settings-section-link strong { font-size: 1rem; }
-.settings-section-summary {
+.settings-section-description {
   overflow: hidden;
   color: var(--muted-ink);
   font-size: .88rem;
@@ -42,6 +42,7 @@
   white-space: nowrap;
 }
 .settings-section-arrow { color: var(--device-blue); font-size: 1.55rem; line-height: 1; }
+.settings-retry { margin-top: 10px; }
 .settings-detail-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

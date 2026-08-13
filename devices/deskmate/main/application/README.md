@@ -195,6 +195,7 @@ Task 锁内设置 pending 并发送 Task notification，不访问磁盘、Presen
   → 浏览器用 6 位访问码换取 Bearer token
   → Files handler 串行浏览、下载、事务上传或执行单项目录/文件变更
   → 浏览器顶层显示“文件管理 / 设置 / 退出登录”，并在“设置”首页呈现 Hub、番茄钟、设备与系统三个客户分组
+  → 首页只显示分组说明；进入二级详情后才读取对应 Settings 或 Status 快照
   → Hub Settings/Actions 经 app_web_console_provider 共享同一个 hub section
   → 番茄钟 Settings 经 app_web_console_provider 提交版本化更新并查询结果
   → 设备与系统 Status 经 app_web_console_provider 读取单份系统快照

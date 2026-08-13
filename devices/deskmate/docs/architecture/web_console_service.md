@@ -93,8 +93,13 @@ Settings/Status/Actions 模块只负责认证后的 HTTP 映射、字段元数�
 
 认证后的顶层只显示“文件管理”“设置”和“退出登录”；退出登录是会话动作，不是领域模块。
 浏览器按相同 `section_id` 合并 Settings、Status 与 Actions 能力，在“设置”首页显示客户分组，
-再进入一层详情。不同 Provider 类型允许复用同一 section ID，同一类型内部仍要求唯一。关闭
-任一模块时，其 endpoint、文案、HTML/CSS/JS 标记和 Provider 存储均不得进入构建产物。
+再进入一层详情。首页只使用 section 的 `label` 与可选 `description`，不得为列表说明调用
+Settings/Status/Actions endpoint 或 Provider；进入详情后才读取该分区的权威数据。不同
+Provider 类型允许复用同一 section ID，同一类型内部仍要求唯一。关闭任一模块时，其 endpoint、
+文案、HTML/CSS/JS 标记和 Provider 存储均不得进入构建产物。
+
+详情页的 Settings/Status 首次快照读取以 8 秒为上限；离开详情会取消未完成请求，失败时保留
+当前分组并提供“重新读取”，不得恢复首页并再次触发所有分组读取。
 
 DeskMate 完整装配只形成三个客户分组：`hub`（Hub Settings + Hub Actions）、`pomodoro`
 （番茄钟 Settings）和 `system`（“设备与系统” Status）。调试型 Network Manager Status
@@ -108,7 +113,7 @@ Provider 集合只通过 `web_console_service_init_borrow()` 的初始化配置�
 Settings Provider 必须能够表达：
 
 - 稳定 section/field ID、类型、长度、范围和枚举约束。
-- section/field 的 UTF-8 标签与可选 `description`、`unit`、`summary`，以及 ASCII `format`。
+- section/field 的 UTF-8 标签与可选 `description`、`unit`，以及 ASCII `format`。
 - STRING 值统一使用有效 UTF-8，单值同时受字段上限与全局 127 bytes 上限约束，并拒绝
   embedded NUL；显示元数据按各自上限使用有效 UTF-8。
 - 普通可读写字符串可选声明文件扩展名；该元数据只在 Files 同时启用时合法，浏览器通过

@@ -78,14 +78,45 @@
       showLogin("登录已失效，请重新输入访问码。");
       throw new Error("登录已失效");
     }
-    const headers = new Headers(options.headers || {});
-    headers.set("Authorization", `Bearer ${sessionToken}`);
-    const response = await fetch(url, { ...options, headers });
-    if (response.status === 401) {
-      showLogin("登录已失效，请重新输入访问码。");
-      throw new Error("登录已失效");
+    const { timeoutMs = 0, signal: callerSignal, ...requestOptions } = options;
+    const hasTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
+    const controller = hasTimeout ? new AbortController() : null;
+    let timeoutId = null;
+    let timedOut = false;
+    let forwardAbort = null;
+    if (controller) {
+      forwardAbort = () => controller.abort();
+      if (callerSignal) {
+        if (callerSignal.aborted) controller.abort();
+        else callerSignal.addEventListener("abort", forwardAbort, { once: true });
+      }
+      timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
     }
-    return response;
+    const headers = new Headers(requestOptions.headers || {});
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+    try {
+      const response = await fetch(url, {
+        ...requestOptions,
+        headers,
+        signal: controller ? controller.signal : callerSignal,
+      });
+      if (response.status === 401) {
+        showLogin("登录已失效，请重新输入访问码。");
+        throw new Error("登录已失效");
+      }
+      return response;
+    } catch (error) {
+      if (timedOut) throw new Error("读取设备数据超时，请重试。");
+      throw error;
+    } finally {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (callerSignal && forwardAbort) {
+        callerSignal.removeEventListener("abort", forwardAbort);
+      }
+    }
   }
 
   function validateCapabilities(payload) {

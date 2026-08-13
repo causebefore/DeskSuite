@@ -3,6 +3,7 @@
 
   const SETTINGS_ENDPOINT = "/api/settings";
   const RESULT_ENDPOINT = "/api/settings/result";
+  const SNAPSHOT_TIMEOUT_MS = 8000;
   const UINT64_PATTERN = /^(0|[1-9]\d{0,19})$/;
   const POLL_DEADLINE_MS = 30000;
   const PENDING_STORAGE_KEY = "webConsolePendingOperation";
@@ -69,9 +70,10 @@
 
   const adapter = Object.freeze({
     messages,
-    async getSnapshot(sectionId) {
+    async getSnapshot(sectionId, signal) {
       const response = await consoleApi.apiFetch(
         `${SETTINGS_ENDPOINT}?section=${encodeURIComponent(sectionId)}`,
+        { signal, timeoutMs: SNAPSHOT_TIMEOUT_MS },
       );
       if (!response.ok) throw new Error(await consoleApi.readApiError(response, "无法读取设置"));
       return validateSnapshot(await response.json(), sectionId);
@@ -213,7 +215,7 @@
     byId("settingsControls").classList.remove("hidden");
     let payload;
     try {
-      payload = await adapter.getSnapshot(activeSectionId);
+      payload = await adapter.getSnapshot(activeSectionId, context.signal);
     } catch (error) {
       byId("settingsFields").replaceChildren();
       settingsRenderer = null;
@@ -425,7 +427,6 @@
   }
 
   const controller = Object.freeze({
-    getSummary: (part) => adapter.getSnapshot(part.id),
     loadDetail: loadSettings,
     updateControls,
     confirmLeave,

@@ -15,6 +15,7 @@
   let activeSection = null;
   let pageState = "synced";
   let generation = 0;
+  let detailAbortController = null;
   let pendingCheckHandler = null;
   let fieldSequence = 0;
   let descriptionSequence = 0;
@@ -411,44 +412,12 @@
     pageState = nextState;
     byId("settingsDetail").dataset.state = nextState;
     consoleApi.setNotice(byId("settingsLiveMessage"), message, noticeState);
+    byId("settingsRetry").classList.toggle("hidden", nextState !== "network_unknown");
     for (const record of providers.values()) {
       if (record.controller && typeof record.controller.updateControls === "function") {
         record.controller.updateControls(nextState);
       }
     }
-  }
-
-  function summaryFields(sectionPart, payload) {
-    const entries = valueEntries(payload.values);
-    return sectionPart.fields
-      .filter((field) => typeof field.summary === "string" && field.summary)
-      .map((field) => {
-        const value = formatDisplayValue(field, entries.get(field.id));
-        return field.summary === field.label ? value : `${field.summary} ${value}`;
-      });
-  }
-
-  async function renderSectionSummary(section, target) {
-    const requests = [];
-    for (const kind of ["settings", "status", "actions"]) {
-      const part = section[kind];
-      if (!part || typeof part.controller.getSummary !== "function") continue;
-      requests.push(part.controller.getSummary(part).then(
-        (payload) => summaryFields(part, payload),
-      ));
-    }
-    if (requests.length === 0) {
-      target.textContent = section.description || "查看详情";
-      return;
-    }
-    const results = await Promise.allSettled(requests);
-    const values = results
-      .filter((result) => result.status === "fulfilled")
-      .flatMap((result) => result.value);
-    if (values.length > 0) target.textContent = values.join(" · ");
-    else if (results.every((result) => result.status === "rejected")) {
-      target.textContent = "暂时无法读取";
-    } else target.textContent = section.description || "查看详情";
   }
 
   function renderHome() {
@@ -462,25 +431,28 @@
       const copy = document.createElement("span");
       const title = document.createElement("strong");
       title.textContent = section.label;
-      const summary = document.createElement("span");
-      summary.className = "settings-section-summary";
-      summary.textContent = "正在读取…";
+      const description = document.createElement("span");
+      description.className = "settings-section-description";
+      description.textContent = section.description || "查看详情";
       const arrow = document.createElement("span");
       arrow.className = "settings-section-arrow";
       arrow.textContent = "›";
       arrow.setAttribute("aria-hidden", "true");
-      copy.append(title, summary);
+      copy.append(title, description);
       button.append(copy, arrow);
       button.addEventListener("click", () => openSection(section, true));
       list.append(button);
-      renderSectionSummary(section, summary).catch(() => {
-        summary.textContent = "暂时无法读取";
-      });
     }
+  }
+
+  function cancelDetailLoad() {
+    if (detailAbortController) detailAbortController.abort();
+    detailAbortController = null;
   }
 
   function resetDetail(preserve) {
     generation += 1;
+    cancelDetailLoad();
     setPendingCheck(null);
     for (const record of providers.values()) {
       const controller = record.controller;
@@ -503,7 +475,10 @@
   }
 
   async function loadDetail(section, options = {}) {
+    cancelDetailLoad();
     const currentGeneration = ++generation;
+    const requestController = new AbortController();
+    detailAbortController = requestController;
     activeSection = section;
     setPendingCheck(null);
     byId("settingsHome").classList.add("hidden");
@@ -523,16 +498,25 @@
     for (const kind of ["settings", "status", "actions"]) {
       const part = section[kind];
       if (part && typeof part.controller.loadDetail === "function") {
-        tasks.push(part.controller.loadDetail(part, { section, options, view }));
+        tasks.push(part.controller.loadDetail(part, {
+          section,
+          options,
+          signal: requestController.signal,
+          view,
+        }));
       }
     }
     const results = await Promise.allSettled(tasks);
+    if (detailAbortController === requestController) detailAbortController = null;
     if (!view.isCurrent()) return;
     const presentations = results
       .filter((result) => result.status === "fulfilled" && result.value)
       .map((result) => result.value);
     if (results.some((result) => result.status === "rejected") && presentations.length === 0) {
-      setPageState("network_unknown", "部分数据暂时无法读取，请稍后刷新。");
+      const failed = results.find((result) => result.status === "rejected");
+      const message = failed && failed.reason && typeof failed.reason.message === "string"
+        ? failed.reason.message : "设备数据暂时无法读取，请重试。";
+      setPageState("network_unknown", message);
     } else if (presentations.length > 0) {
       const selected = presentations[presentations.length - 1];
       setPageState(
@@ -604,6 +588,7 @@
   }
 
   byId("settingsBack").addEventListener("click", requestReturnHome);
+  byId("settingsRetry").addEventListener("click", reloadActive);
   byId("pendingResultCheck").addEventListener("click", () => {
     if (pendingCheckHandler) pendingCheckHandler();
   });

@@ -372,8 +372,14 @@ class BuildHtmlTests(unittest.TestCase):
             INDEX_TEMPLATE,
             ("settings", "status", "actions"),
         )
+        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
         self.assertIn("mergeSectionCapabilities", html)
-        self.assertIn("field.summary", html)
+        self.assertIn(
+            'description.textContent = section.description || "查看详情";',
+            fields_source,
+        )
+        self.assertNotIn("field.summary", fields_source)
+        self.assertNotIn("renderSectionSummary", fields_source)
         self.assertIn("field.unit", html)
         self.assertNotRegex(
             html,
@@ -472,7 +478,7 @@ class Element {{
 }}
 const ids = ["settingsCenter", "settingsHome", "settingsDetail", "settingsDetailTitle",
   "settingsDetailDescription", "settingsSectionList", "settingsHomeEmpty", "settingsLiveMessage",
-  "pendingResultCheck", "settingsBack", "settingsModuleHost", "statusModuleHost",
+  "settingsRetry", "pendingResultCheck", "settingsBack", "settingsModuleHost", "statusModuleHost",
   "actionsModuleHost", "settingsModule", "oldDetail"];
 const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
 elements.settingsCenter.classList.add("hidden"); elements.settingsDetail.classList.add("hidden");
@@ -875,49 +881,100 @@ async function runScenario(nextMode) {
         ):
             self.assertIn(marker, html)
 
-    def test_effect_tokens_and_system_summary_are_customer_facing(self):
+    def test_effect_tokens_and_duration_are_customer_facing(self):
         fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
         self.assertIn('field.effect !== "none"', fields_source)
         effect_start = fields_source.index("  function effectLabel(")
         effect_end = fields_source.index("\n  function ", effect_start + 3)
         format_start = fields_source.index("  function formatDisplayValue(")
         format_end = fields_source.index("\n  function ", format_start + 3)
-        summary_start = fields_source.index("  function summaryFields(")
-        summary_end = fields_source.index("\n  async function ", summary_start + 3)
         output = self.run_node(f'''\
 const hasOwn = (object, key) => object !== null && object !== undefined &&
   Object.prototype.hasOwnProperty.call(object, key);
 function optionParts(option) {{ return {{ value: String(option.value), label: String(option.label) }}; }}
-function valueEntries(values) {{
-  return new Map(values.map((entry) => [entry.id, entry]));
-}}
 {fields_source[effect_start:effect_end]}
 {fields_source[format_start:format_end]}
-{fields_source[summary_start:summary_end]}
 const effects = ["immediate", "next_transaction", "reconnect", "restart", "idle_only"]
   .map(effectLabel);
-const summaries = summaryFields({{ fields: [
-  {{ id: "firmware_version", label: "固件版本", type: "string", summary: "固件" }},
-  {{ id: "uptime_sec", label: "运行时长", type: "uint32", summary: "已运行",
-     format: "duration_seconds" }},
-] }}, {{ values: [
-  {{ id: "firmware_version", value: "1.2.3" }},
+const duration = formatDisplayValue(
+  {{ id: "uptime_sec", label: "运行时长", type: "uint32", format: "duration_seconds" }},
   {{ id: "uptime_sec", value: 3660 }},
-] }});
-console.log(JSON.stringify({{ effects, summaries }}));
+);
+console.log(JSON.stringify({{ effects, duration }}));
 ''')
         self.assertEqual(
             output,
             '{"effects":["立即生效","下一次使用时生效","重新连接后生效",'
-            '"设备重启后生效","仅空闲时可修改"],'
-            '"summaries":["固件 1.2.3","已运行 1 小时 1 分"]}',
+            '"设备重启后生效","仅空闲时可修改"],"duration":"1 小时 1 分"}',
         )
 
-    def test_each_summary_failure_is_isolated_to_its_section(self):
+    def test_settings_home_is_static_and_detail_reads_are_bounded(self):
         html = build_html.assemble_html(INDEX_TEMPLATE, ("settings", "status"))
-        self.assertIn("Promise.allSettled", html)
-        self.assertIn("暂时无法读取", html)
-        self.assertIn("renderSectionSummary", html)
+        fields_source = (WEB_ROOT / "modules" / "fields.js").read_text(encoding="utf-8")
+        settings_source = (WEB_ROOT / "modules" / "settings.js").read_text(encoding="utf-8")
+        status_source = (WEB_ROOT / "modules" / "status.js").read_text(encoding="utf-8")
+        self.assertNotIn("renderSectionSummary", fields_source)
+        self.assertNotIn("getSummary", settings_source)
+        self.assertNotIn("getSummary", status_source)
+        self.assertNotIn('summary.textContent = "正在读取…"', fields_source)
+        self.assertIn("new AbortController()", fields_source)
+        self.assertIn("signal: requestController.signal", fields_source)
+        self.assertIn("const SNAPSHOT_TIMEOUT_MS = 8000", settings_source)
+        self.assertIn("const SNAPSHOT_TIMEOUT_MS = 8000", status_source)
+        self.assertIn("timeoutMs: SNAPSHOT_TIMEOUT_MS", settings_source)
+        self.assertIn("timeoutMs: SNAPSHOT_TIMEOUT_MS", status_source)
+        self.assertIn('id="settingsRetry"', html)
+        self.assertIn("读取设备数据超时，请重试。", html)
+
+    def test_api_fetch_distinguishes_timeout_from_caller_cancel(self):
+        common_source = (WEB_ROOT / "common.js").read_text(encoding="utf-8")
+        start = common_source.index("  async function apiFetch(")
+        end = common_source.index("\n  function validateCapabilities", start)
+        api_fetch_source = common_source[start:end]
+        output = self.run_node(f'''\
+function token() {{ return "session-token"; }}
+function showLogin() {{}}
+const window = globalThis;
+const requestSignals = [];
+globalThis.fetch = (_url, options) => new Promise((_resolve, reject) => {{
+  requestSignals.push(options.signal);
+  const abort = () => {{
+    const error = new Error("aborted");
+    error.name = "AbortError";
+    reject(error);
+  }};
+  if (options.signal.aborted) abort();
+  else options.signal.addEventListener("abort", abort, {{ once: true }});
+}});
+{api_fetch_source}
+(async () => {{
+  let timeoutMessage = "";
+  try {{
+    await apiFetch("/api/settings", {{ timeoutMs: 5 }});
+  }} catch (error) {{
+    timeoutMessage = error.message;
+  }}
+  const caller = new AbortController();
+  window.setTimeout(() => caller.abort(), 5);
+  let callerError = "";
+  try {{
+    await apiFetch("/api/status", {{ timeoutMs: 1000, signal: caller.signal }});
+  }} catch (error) {{
+    callerError = error.name;
+  }}
+  console.log(JSON.stringify({{
+    timeoutMessage,
+    callerError,
+    timeoutAborted: requestSignals[0].aborted,
+    callerAborted: requestSignals[1].aborted,
+  }}));
+}})();
+''')
+        self.assertEqual(
+            output,
+            '{"timeoutMessage":"读取设备数据超时，请重试。",'
+            '"callerError":"AbortError","timeoutAborted":true,"callerAborted":true}',
+        )
 
     def test_unknown_result_can_query_original_request_without_resubmitting(self):
         html = build_html.assemble_html(

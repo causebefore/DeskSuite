@@ -29,8 +29,8 @@
   版本化设置和非破坏性操作的异步协议，以及 Provider 输出契约校验；领域所有者继续负责语义
   校验、排队、持久化、生效和最终结果。
 - 认证后的顶层只显示“文件管理”“设置”和“退出登录”。浏览器在“设置”首页按相同 section ID
-  合并实际存在的 Settings、Status 与 Actions 能力，再进入一层详情；三类能力仍按各自构建
-  开关裁剪，并分别调用自己的 HTTP/Provider 契约。
+  合并实际存在的 Settings、Status 与 Actions 能力，只显示分组标签与说明；进入一层详情后才
+  读取该分区的权威数据。三类能力仍按各自构建开关裁剪，并分别调用自己的 HTTP/Provider 契约。
 - 普通可读写字符串可声明一个文件后缀；Files 同时启用时，浏览器使用现有认证目录接口提供
   只读路径选择器和文件存在状态，不允许自由输入路径，也不把目录 I/O 放进 Provider 回调。
 
@@ -60,6 +60,7 @@ Core 与可选模块通过组件私有的领域路由描述协作。模块不注
   → web_console_service 恢复可选 Files 事务并启动 HTTPD
   → 浏览器用 6 位访问码换取 Bearer token
   → 浏览器读取 capabilities，只呈现实际装配模块
+  → 设置首页直接呈现 section 标签与说明，不调用领域 endpoint
   → handler 读取状态、提交版本化设置更新、提交非破坏性操作，或执行可选文件操作
   → 设备返回时 Service 安全停止后释放网络租约
 ```
@@ -157,8 +158,8 @@ Provider 回调运行在 HTTPD 普通 Task、Core 锁外，只能做有界内存
 STRING 字段值、Settings 快照/更新、Status 输出和 Actions 字符串输入统一使用有效 UTF-8，
 单值同时受字段 `max_length_bytes` 与全局 127 bytes 上限约束；不得包含 embedded NUL，Provider
 写入短字符串时须保持终止 NUL 后的值缓冲区为零。原始 JSON 中会解码为 NUL 的 `\u0000` 被
-拒绝，表示字面反斜杠-u 的 `\\u0000` 不会被误判。section/field/action 标签、说明、单位、
-摘要和枚举标签同样使用有界 UTF-8；只有稳定 ID、`format` 与 `file_suffix` 使用有界 ASCII。
+拒绝，表示字面反斜杠-u 的 `\\u0000` 不会被误判。section/field/action 标签、说明、单位和
+枚举标签同样使用有界 UTF-8；只有稳定 ID、`format` 与 `file_suffix` 使用有界 ASCII。
 
 Hub URL 的限制属于 DeskMate 产品校验，不是通用 STRING 契约：
 `app_network_hub_url_parse_copy()` 只接受安全的 ASCII `http://` authority，并由产品 Provider
@@ -172,8 +173,9 @@ Hub URL 的限制属于 DeskMate 产品校验，不是通用 STRING 契约：
 
 公共页面为 Settings、Status 与 Actions 创建同一个“设置”导航项；只启用其中之一时仍使用
 同一入口。不同类型可复用 section ID 形成一个客户分组，同一类型内部仍拒绝重复。这个聚合
-只属于浏览器导航，不改变 Capabilities 中的模块 ID、路由数量、只读/可写属性或 Provider
-所有权。
+只属于浏览器导航：首页不会为了分组说明读取 Settings/Status/Actions 数据，进入详情后才按需
+读取；Settings/Status 快照读取最多等待 8 秒，离开详情会取消请求，失败后由用户显式重试。它
+不改变 Capabilities 中的模块 ID、路由数量、只读/可写属性或 Provider 所有权。
 
 Settings 与 Actions 共用同一组稳定 reason。查询结果必须满足：`pending/succeeded` 使用
 `NONE`（Settings 同时要求 `ESP_OK`），`failed` 使用非 `NONE`（Settings 同时要求非
@@ -322,7 +324,7 @@ ESP-IDF Component Manager 在 Kconfig 求值前解析组件清单，因此可移
 `web_console_service_status_t.access_code` 是为上层本地呈现而提供的秘密副本，仅在运行态非空；调用方
 不得记录或远程转发它。配置中的字符串及回调函数指针在初始化期间复制；Provider `context`
 由调用方持有并必须保持有效，直到 `web_console_service_deinit()` 成功。
-字段描述符中的说明、单位、摘要、格式、`file_suffix`，以及 Actions 的操作/输入元数据也由
+字段描述符中的说明、单位、格式、`file_suffix`，以及 Actions 的操作/输入元数据也由
 Service 深复制；关闭 Files 的构建不得装配 `file_suffix` 元数据。仅各 Provider 的 `context`
 长期借用到 `deinit()` 成功。
 

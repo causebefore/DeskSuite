@@ -45,9 +45,6 @@ extern "C"
 /** 可选说明文字最大 UTF-8 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH 255U
 
-/** 可选摘要文字最大 UTF-8 字节数，不含结尾 NUL。 */
-#define WEB_CONSOLE_PROVIDER_SUMMARY_MAX_LENGTH 127U
-
 /** 可选单位文字最大 UTF-8 字节数，不含结尾 NUL。 */
 #define WEB_CONSOLE_PROVIDER_UNIT_MAX_LENGTH 31U
 
@@ -130,7 +127,6 @@ extern "C"
         size_t                         enum_value_count; /**< 枚举值数量 */
         const char                    *description;      /**< 可选详细说明；追加字段，初始化期间复制 */
         const char                    *unit;             /**< 可选显示单位；追加字段，初始化期间复制 */
-        const char                    *summary;          /**< 可选设置首页摘要标签；追加字段，初始化期间复制 */
         const char                    *format;           /**< 可选字符串格式稳定 ID；追加字段，初始化期间复制 */
     } web_console_field_info_t;
 

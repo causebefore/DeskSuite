@@ -2,13 +2,15 @@
   "use strict";
 
   const STATUS_ENDPOINT = "/api/status";
+  const SNAPSHOT_TIMEOUT_MS = 8000;
   const consoleApi = window.webConsole;
   let activeContext = null;
 
   const adapter = Object.freeze({
-    async getSnapshot(sectionId) {
+    async getSnapshot(sectionId, signal) {
       const response = await consoleApi.apiFetch(
         `${STATUS_ENDPOINT}?section=${encodeURIComponent(sectionId)}`,
+        { signal, timeoutMs: SNAPSHOT_TIMEOUT_MS },
       );
       if (!response.ok) throw new Error(await consoleApi.readApiError(response, "无法读取状态"));
       const payload = await response.json();
@@ -23,7 +25,7 @@
   async function loadStatus(part, context) {
     activeContext = context;
     byId("statusFieldsRegion").classList.remove("hidden");
-    const payload = await adapter.getSnapshot(context.section.id);
+    const payload = await adapter.getSnapshot(context.section.id, context.signal);
     if (context.view.isCurrent()) {
       context.view.renderFields(byId("statusFields"), part.fields, payload.values);
     }
@@ -32,7 +34,6 @@
 
   const byId = (id) => document.getElementById(id);
   const controller = Object.freeze({
-    getSummary: (part) => adapter.getSnapshot(part.id),
     loadDetail: loadStatus,
     resetDetail() {
       activeContext = null;

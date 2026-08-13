@@ -170,8 +170,6 @@ static bool web_console_field_info_is_valid(const web_console_field_info_t *fiel
     if (!web_console_optional_utf8_is_valid(
             field->description, WEB_CONSOLE_PROVIDER_DESCRIPTION_MAX_LENGTH)
         || !web_console_optional_utf8_is_valid(field->unit, WEB_CONSOLE_PROVIDER_UNIT_MAX_LENGTH)
-        || !web_console_optional_utf8_is_valid(
-            field->summary, WEB_CONSOLE_PROVIDER_SUMMARY_MAX_LENGTH)
         || (field->format != NULL
             && !web_console_id_is_valid(
                 field->format, WEB_CONSOLE_PROVIDER_FORMAT_MAX_LENGTH)))
@@ -331,7 +329,6 @@ static void web_console_free_field(web_console_field_info_t *field)
     free(const_cast<char *>(field->label));
     free(const_cast<char *>(field->description));
     free(const_cast<char *>(field->unit));
-    free(const_cast<char *>(field->summary));
     free(const_cast<char *>(field->format));
     free(const_cast<char *>(field->file_suffix));
     memset(field, 0, sizeof(*field));
@@ -360,7 +357,6 @@ static esp_err_t web_console_copy_field(web_console_field_info_t *destination,
     destination->label       = NULL;
     destination->description = NULL;
     destination->unit        = NULL;
-    destination->summary     = NULL;
     destination->format      = NULL;
     destination->file_suffix = NULL;
     destination->enum_values = NULL;
@@ -377,13 +373,11 @@ static esp_err_t web_console_copy_field(web_console_field_info_t *destination,
     const char *optional_sources[] = {
         source->description,
         source->unit,
-        source->summary,
         source->format,
     };
     const char **optional_destinations[] = {
         &destination->description,
         &destination->unit,
-        &destination->summary,
         &destination->format,
     };
     for (size_t index = 0U;

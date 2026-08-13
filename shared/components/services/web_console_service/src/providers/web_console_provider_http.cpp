@@ -341,11 +341,10 @@ static cJSON *web_console_provider_create_field_info_json(const web_console_fiel
         cJSON_Delete(object);
         return NULL;
     }
-    const char *optional_names[] = { "description", "unit", "summary", "format" };
+    const char *optional_names[] = { "description", "unit", "format" };
     const char *optional_values[] = {
         field->description,
         field->unit,
-        field->summary,
         field->format,
     };
     for (size_t index = 0U; index < sizeof(optional_names) / sizeof(optional_names[0]); ++index)
