@@ -12,11 +12,11 @@
 /* ── 按键引脚定义 ─────────────────────────────────────────────────────── */
 
 /** @brief 左按键 GPIO 引脚号 */
-#define BOARD_BTN_LEFT_GPIO          (GPIO_NUM_5)
-/** @brief 右按键 GPIO 引脚号，使用原中按键硬件 */
-#define BOARD_BTN_RIGHT_GPIO         (GPIO_NUM_4)
-/** @brief 确认按键 GPIO 引脚号，使用原右按键硬件 */
-#define BOARD_BTN_CONFIRM_GPIO       (GPIO_NUM_3)
+#define BOARD_BUTTON_LEFT_GPIO          (GPIO_NUM_5)
+/** @brief 右按键 GPIO 引脚号 */
+#define BOARD_BUTTON_RIGHT_GPIO         (GPIO_NUM_4)
+/** @brief 确认按键 GPIO 引脚号 */
+#define BOARD_BUTTON_CONFIRM_GPIO       (GPIO_NUM_3)
 
 /**
  * @brief 各按键电气极性
@@ -24,14 +24,14 @@
  * true  = 低电平有效（按下接地，需内部上拉）
  * false = 高电平有效（按下接 VCC）
  */
-#define BOARD_BTN_LEFT_ACTIVE_LOW    true
-#define BOARD_BTN_RIGHT_ACTIVE_LOW   true
-#define BOARD_BTN_CONFIRM_ACTIVE_LOW true
+#define BOARD_BUTTON_LEFT_ACTIVE_LOW    true
+#define BOARD_BUTTON_RIGHT_ACTIVE_LOW   true
+#define BOARD_BUTTON_CONFIRM_ACTIVE_LOW true
 
 /** @brief 三个按键的 GPIO 位掩码，供输入配置与睡眠唤醒源复用 */
 #define BOARD_BUTTON_GPIO_MASK                                         \
-    ((1ULL << BOARD_BTN_LEFT_GPIO) | (1ULL << BOARD_BTN_RIGHT_GPIO)    \
-     | (1ULL << BOARD_BTN_CONFIRM_GPIO))
+    ((1ULL << BOARD_BUTTON_LEFT_GPIO) | (1ULL << BOARD_BUTTON_RIGHT_GPIO)    \
+     | (1ULL << BOARD_BUTTON_CONFIRM_GPIO))
 
 /**
  * @brief 用于 EXT1 睡眠唤醒的三个按键 GPIO 掩码

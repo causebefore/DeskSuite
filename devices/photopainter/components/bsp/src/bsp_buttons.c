@@ -30,18 +30,18 @@ typedef struct
 static bsp_button_slot_t s_buttons[BSP_BUTTON_COUNT] = {
     [BSP_BUTTON_LEFT] = {
         .id         = BSP_BUTTON_LEFT,
-        .gpio       = BOARD_BTN_LEFT_GPIO,
-        .active_low = BOARD_BTN_LEFT_ACTIVE_LOW,
+        .gpio       = BOARD_BUTTON_LEFT_GPIO,
+        .active_low = BOARD_BUTTON_LEFT_ACTIVE_LOW,
     },
     [BSP_BUTTON_RIGHT] = {
         .id         = BSP_BUTTON_RIGHT,
-        .gpio       = BOARD_BTN_RIGHT_GPIO,
-        .active_low = BOARD_BTN_RIGHT_ACTIVE_LOW,
+        .gpio       = BOARD_BUTTON_RIGHT_GPIO,
+        .active_low = BOARD_BUTTON_RIGHT_ACTIVE_LOW,
     },
     [BSP_BUTTON_CONFIRM] = {
         .id         = BSP_BUTTON_CONFIRM,
-        .gpio       = BOARD_BTN_CONFIRM_GPIO,
-        .active_low = BOARD_BTN_CONFIRM_ACTIVE_LOW,
+        .gpio       = BOARD_BUTTON_CONFIRM_GPIO,
+        .active_low = BOARD_BUTTON_CONFIRM_ACTIVE_LOW,
     },
 };
 

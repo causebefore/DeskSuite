@@ -23,13 +23,13 @@ static uint64_t s_timer_wakeup_us;
 
 /** @brief 当前板型允许从深睡唤醒设备的按键 GPIO */
 static const gpio_num_t s_button_wakeup_gpios[] = {
-    BOARD_BTN_LEFT_GPIO,
-    BOARD_BTN_RIGHT_GPIO,
-    BOARD_BTN_CONFIRM_GPIO,
+    BOARD_BUTTON_LEFT_GPIO,
+    BOARD_BUTTON_RIGHT_GPIO,
+    BOARD_BUTTON_CONFIRM_GPIO,
 };
 
-_Static_assert(BOARD_BTN_LEFT_ACTIVE_LOW && BOARD_BTN_RIGHT_ACTIVE_LOW
-                   && BOARD_BTN_CONFIRM_ACTIVE_LOW,
+_Static_assert(BOARD_BUTTON_LEFT_ACTIVE_LOW && BOARD_BUTTON_RIGHT_ACTIVE_LOW
+                   && BOARD_BUTTON_CONFIRM_ACTIVE_LOW,
                "深睡按键唤醒要求三个按键均为低电平有效");
 
 /**
@@ -150,18 +150,18 @@ void bsp_power_start_deep_sleep(void)
     {
         ESP_LOGI(TAG,
                  "进入深睡，左/右/确认按键 GPIO%d/%d/%d 或内部定时器 %llu 秒可唤醒",
-                 (int) BOARD_BTN_LEFT_GPIO,
-                 (int) BOARD_BTN_RIGHT_GPIO,
-                 (int) BOARD_BTN_CONFIRM_GPIO,
+                 (int) BOARD_BUTTON_LEFT_GPIO,
+                 (int) BOARD_BUTTON_RIGHT_GPIO,
+                 (int) BOARD_BUTTON_CONFIRM_GPIO,
                  (unsigned long long) (s_timer_wakeup_us / 1000000ULL));
     }
     else
     {
         ESP_LOGI(TAG,
                  "进入深睡，仅左/右/确认按键 GPIO%d/%d/%d 可唤醒",
-                 (int) BOARD_BTN_LEFT_GPIO,
-                 (int) BOARD_BTN_RIGHT_GPIO,
-                 (int) BOARD_BTN_CONFIRM_GPIO);
+                 (int) BOARD_BUTTON_LEFT_GPIO,
+                 (int) BOARD_BUTTON_RIGHT_GPIO,
+                 (int) BOARD_BUTTON_CONFIRM_GPIO);
     }
     esp_deep_sleep_start();
 }
