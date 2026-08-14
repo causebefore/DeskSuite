@@ -1,12 +1,21 @@
 """和风天气 API 字段映射和天气显示上下文测试。"""
 
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+
+import pytest
 
 from app.workflows.display.context import DisplayContextService
 from app.services.weather_service import WeatherService
 from app.schemas.moon import MoonPayload, MoonPhasePoint
-from app.schemas.weather import WeatherLocation
+from app.schemas.weather import (
+    DailyForecast,
+    DailyForecastItem,
+    MinutelyRain,
+    WeatherLocation,
+    WeatherNow,
+)
 
 
 def _service_settings() -> SimpleNamespace:
@@ -17,16 +26,39 @@ def _service_settings() -> SimpleNamespace:
         qweather_alert_path="/weatheralert/v1/current/{latitude}/{longitude}",
         qweather_air_path="/airquality/v1/current/{latitude}/{longitude}",
         qweather_moon_path="/v7/astronomy/moon",
+        qweather_host="test.qweather.example",
+        qweather_api_key="test-key",
+        qweather_timeout_seconds=6,
         weather_location_cache_seconds=604800,
+        weather_now_cache_seconds=900,
+        weather_daily_cache_seconds=10800,
+        weather_minutely_cache_seconds=900,
+        weather_alert_cache_seconds=900,
+        weather_air_cache_seconds=900,
     )
+
+
+class _JsonResponse:
+    def __init__(self, payload: dict) -> None:
+        self._body = json.dumps(payload).encode("utf-8")
+        self.headers: dict[str, str] = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._body
 
 
 def test_daily_forecast_maps_seven_days_from_qweather():
     service = WeatherService(_service_settings())
     observed: dict = {}
 
-    def get_json(path, params, optional=False):
-        observed.update(path=path, params=params, optional=optional)
+    def get_json(path, params):
+        observed.update(path=path, params=params)
         return {
             "daily": [
                 {
@@ -55,7 +87,6 @@ def test_daily_forecast_maps_seven_days_from_qweather():
     assert observed == {
         "path": "/v7/weather/7d",
         "params": {"location": "101190401", "lang": "zh", "unit": "m"},
-        "optional": True,
     }
     assert forecast.days == "7d"
     assert len(forecast.items) == 7
@@ -74,7 +105,7 @@ def test_optional_qweather_modules_map_minutely_alert_and_air():
         longitude=120.58,
     )
 
-    def get_json(path, params, optional=False):
+    def get_json(path, params):
         if path == "/v7/minutely/5m":
             return {
                 "summary": "40分钟后有小雨",
@@ -133,8 +164,8 @@ def test_moon_phase_maps_qweather_hourly_data():
     )
     observed: dict = {}
 
-    def get_json(path, params, optional=False):
-        observed.update(path=path, params=params, optional=optional)
+    def get_json(path, params):
+        observed.update(path=path, params=params)
         return {
             "updateTime": "2026-07-20T05:00+08:00",
             "moonrise": "2026-07-20T19:12+08:00",
@@ -157,7 +188,6 @@ def test_moon_phase_maps_qweather_hourly_data():
     assert observed == {
         "path": "/v7/astronomy/moon",
         "params": {"location": "101190401", "date": "20260720", "lang": "zh"},
-        "optional": False,
     }
     assert payload.fx_date == "2026-07-20"
     assert payload.moonrise == "2026-07-20T19:12+08:00"
@@ -202,6 +232,158 @@ def test_moon_phase_uses_stale_cache_when_refresh_fails():
     assert payload.source == "qweather"
     assert payload.phases[0].name == "亏凸月"
     assert "使用旧缓存" in payload.error
+
+
+def test_expired_weather_cache_is_kept_when_refresh_fails():
+    service = WeatherService(_service_settings())
+    cached = DailyForecast(
+        days="7d",
+        items=[
+            DailyForecastItem(
+                fx_date="2026-08-14",
+                text_day="晴",
+                temp_min_c=24,
+                temp_max_c=33,
+            )
+        ],
+    )
+    service._daily_cache["101190401:7d"] = (
+        datetime.now(UTC) - timedelta(hours=4),
+        cached,
+    )
+
+    result = service._get_cached(
+        service._daily_cache,
+        "101190401:7d",
+        10800,
+        lambda: (_ for _ in ()).throw(TimeoutError("timeout")),
+        use_stale_on_error=True,
+        fallback_on_error=lambda: DailyForecast(days="7d"),
+        source_name="天气预报",
+    )
+
+    assert result is cached
+    assert result.items[0].text_day == "晴"
+
+
+def test_weather_aggregation_uses_stale_daily_and_does_not_cache_failure_fallback():
+    service = WeatherService(_service_settings())
+    location = WeatherLocation(
+        city="苏州",
+        location_id="101190401",
+        latitude=31.30,
+        longitude=120.58,
+    )
+    cached_daily = DailyForecast(
+        days="7d",
+        items=[DailyForecastItem(fx_date="2026-08-14", text_day="晴")],
+    )
+    fresh_at = datetime.now(UTC)
+    location_key = location.location_id
+    daily_key = f"{location_key}:7d"
+    service._location_cache["苏州"] = (fresh_at, location)
+    service._now_cache[location_key] = (fresh_at, WeatherNow(text="晴"))
+    service._daily_cache[daily_key] = (
+        fresh_at - timedelta(hours=4),
+        cached_daily,
+    )
+    service._minutely_cache[location_key] = (fresh_at, MinutelyRain())
+    service._alert_cache[location_key] = (fresh_at, [])
+    service._air_cache[location_key] = (fresh_at, None)
+    service._fetch_daily = (  # type: ignore[method-assign]
+        lambda location_id: (_ for _ in ()).throw(TimeoutError("timeout"))
+    )
+
+    stale_payload = service._fetch_qweather("苏州")
+
+    assert stale_payload.daily is cached_daily
+
+    service._daily_cache.clear()
+    fallback_payload = service._fetch_qweather("苏州")
+
+    assert fallback_payload.daily.items == []
+    assert daily_key not in service._daily_cache
+
+
+def test_failure_fallback_is_not_cached_but_successful_empty_result_is_cached():
+    service = WeatherService(_service_settings())
+    cache: dict[str, tuple[datetime, DailyForecast]] = {}
+
+    fallback = service._get_cached(
+        cache,
+        "101190401:7d",
+        10800,
+        lambda: (_ for _ in ()).throw(TimeoutError("timeout")),
+        fallback_on_error=lambda: DailyForecast(days="7d"),
+        source_name="天气预报",
+    )
+
+    assert fallback.items == []
+    assert cache == {}
+
+    legitimate_empty = service._get_cached(
+        cache,
+        "101190401:7d",
+        10800,
+        lambda: DailyForecast(days="7d"),
+        fallback_on_error=lambda: DailyForecast(days="7d"),
+        source_name="天气预报",
+    )
+
+    assert legitimate_empty.items == []
+    assert cache["101190401:7d"][1] is legitimate_empty
+
+
+def test_qweather_request_retries_once_within_original_timeout_budget(monkeypatch):
+    service = WeatherService(_service_settings())
+    timeouts: list[float] = []
+
+    def flaky_urlopen(request, timeout):
+        timeouts.append(timeout)
+        if len(timeouts) == 1:
+            raise TimeoutError("first timeout")
+        return _JsonResponse({"code": "200", "now": {"text": "晴"}})
+
+    monkeypatch.setattr("app.services.weather_service.urlopen", flaky_urlopen)
+
+    data = service._get_json("/v7/weather/now", {"location": "101190401"})
+
+    assert data["now"]["text"] == "晴"
+    assert timeouts == [3.0, 3.0]
+
+
+def test_qweather_request_raises_after_exactly_two_failed_attempts(monkeypatch):
+    service = WeatherService(_service_settings())
+    attempts = 0
+
+    def failing_urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        raise TimeoutError("timeout")
+
+    monkeypatch.setattr("app.services.weather_service.urlopen", failing_urlopen)
+
+    with pytest.raises(TimeoutError, match="timeout"):
+        service._get_json("/v7/weather/now", {"location": "101190401"})
+
+    assert attempts == 2
+
+
+def test_qweather_204_is_a_legitimate_empty_response_without_retry(monkeypatch):
+    service = WeatherService(_service_settings())
+    attempts = 0
+
+    def empty_urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        return _JsonResponse({"code": "204"})
+
+    monkeypatch.setattr("app.services.weather_service.urlopen", empty_urlopen)
+
+    assert service._get_json("/v7/weather/7d", {"location": "101190401"}) == {
+        "code": "204"
+    }
+    assert attempts == 1
 
 
 def test_weather_context_exposes_seven_day_chart_and_detail_data():

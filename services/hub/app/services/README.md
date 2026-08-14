@@ -4,7 +4,7 @@
 
 ## 外部数据服务
 
-- `weather_service.py`：和风天气实况、7 日预报、分钟降水、预警、空气质量和月相查询，以及分层缓存、旧月相缓存与 mock 降级。
+- `weather_service.py`：和风天气实况、7 日预报、分钟降水、预警、空气质量和月相查询；和风请求在原超时预算内最多尝试两次，天气分项与月相回源失败时优先保留旧数据。无旧天气数据时使用不入缓存的临时空分项，API 明确返回的合法空结果仍正常缓存。
 - `calendar_service.py`：iCloud CalDAV 近期/自然月日程查询、缓存和降级。
 - `mail_service.py`：QQ 邮箱 IMAP 只读摘要、缓存和降级。
 - `rss_service.py`：使用 `feedparser` 聚合可配置 RSS/Atom 订阅源，并处理超时、缓存和旧数据降级。

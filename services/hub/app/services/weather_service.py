@@ -10,9 +10,9 @@
   - 分钟降水：15 分钟
   - 天气预警：15 分钟
   - 月相：6 小时；回源失败时优先保留上一份真实数据
-- 容错降级：API 调用失败 → 返回 mock 数据，不影响设备 UI 展示
+- 容错降级：天气分项回源失败时优先返回旧缓存；无旧缓存时返回未缓存的空分项
 - 自动切换：根据 weather_provider 配置自动切换真实 API / mock 模式
-- 可选 API：分钟降水、预警 API 请求失败时静默降级（optional=True）
+- 有界重试：和风请求失败时在同一超时预算内重试一次
 
 API 调用流程：
 1. get_current_weather(city)
@@ -51,6 +51,8 @@ from app.schemas.weather import (
 
 # 泛型变量：用于 _get_cached 的类型标注
 T = TypeVar("T")
+
+_QWEATHER_REQUEST_ATTEMPTS = 2
 
 
 class WeatherService:
@@ -196,19 +198,27 @@ class WeatherService:
         key: str,
         ttl_seconds: int,
         fetcher: Callable[[], T],
+        *,
+        use_stale_on_error: bool = False,
+        fallback_on_error: Callable[[], T] | None = None,
+        source_name: str = "",
     ) -> T:
         """
         通用缓存查询 / 填充方法。
 
         逻辑：
         1. 查缓存 → 命中且未过期 → 直接返回
-        2. 未命中或已过期 → 调用 fetcher() → 存入缓存 → 返回
+        2. 未命中或已过期 → 调用 fetcher() → 成功后存入缓存并返回
+        3. 回源失败 → 可选返回旧缓存或临时降级值，失败值不写入缓存
 
         Args:
             cache: 缓存 dict
             key: 缓存键
             ttl_seconds: 缓存有效期（秒）
             fetcher: 未命中时的数据获取函数
+            use_stale_on_error: 回源失败时是否允许使用过期缓存
+            fallback_on_error: 无可用旧缓存时生成临时降级值的函数
+            source_name: 用于日志标识的数据源名称
 
         Returns:
             缓存或新获取的数据
@@ -221,8 +231,28 @@ class WeatherService:
 
         # 未命中或过期 → 调用 fetcher 获取新数据并缓存
         logger.debug("缓存未命中，回源拉取 key={}", key)
-        value = fetcher()
-        cache[key] = (now, value)
+        try:
+            value = fetcher()
+        except Exception as exc:
+            if use_stale_on_error and cached is not None:
+                logger.warning(
+                    "{}回源失败，使用旧缓存：key={} exc={}",
+                    source_name or "数据",
+                    key,
+                    exc,
+                )
+                return cached[1]
+            if fallback_on_error is not None:
+                logger.warning(
+                    "{}回源失败，返回临时降级值且不写缓存：key={} exc={}",
+                    source_name or "数据",
+                    key,
+                    exc,
+                )
+                return fallback_on_error()
+            raise
+
+        cache[key] = (datetime.now(UTC), value)
         return value
 
     # ── 和风天气聚合流程 ──────────────────────────────
@@ -252,6 +282,8 @@ class WeatherService:
             city_key,
             self._settings.weather_location_cache_seconds,
             lambda: self._lookup_city(city),
+            use_stale_on_error=True,
+            source_name="天气城市",
         )
 
         # 构建缓存键
@@ -264,30 +296,46 @@ class WeatherService:
             location_key,
             self._settings.weather_now_cache_seconds,
             lambda: self._fetch_now(location.location_id),
+            use_stale_on_error=True,
+            source_name="实时天气",
         )
         daily = self._get_cached(
             self._daily_cache,
             daily_key,
             self._settings.weather_daily_cache_seconds,
             lambda: self._fetch_daily(location.location_id),
+            use_stale_on_error=True,
+            fallback_on_error=lambda: DailyForecast(
+                days=self._settings.qweather_daily_days
+            ),
+            source_name="天气预报",
         )
         minutely = self._get_cached(
             self._minutely_cache,
             location_key,
             self._settings.weather_minutely_cache_seconds,
             lambda: self._fetch_minutely(location),
+            use_stale_on_error=True,
+            fallback_on_error=lambda: MinutelyRain(summary="分钟降水暂不可用"),
+            source_name="分钟降水",
         )
         alerts = self._get_cached(
             self._alert_cache,
             location_key,
             self._settings.weather_alert_cache_seconds,
             lambda: self._fetch_alerts(location),
+            use_stale_on_error=True,
+            fallback_on_error=list,
+            source_name="天气预警",
         )
         air = self._get_cached(
             self._air_cache,
             location_key,
             self._settings.weather_air_cache_seconds,
             lambda: self._fetch_air(location),
+            use_stale_on_error=True,
+            fallback_on_error=lambda: None,
+            source_name="空气质量",
         )
 
         return WeatherPayload(
@@ -428,10 +476,7 @@ class WeatherService:
         data = self._get_json(
             path,
             {"location": location_id, "lang": "zh", "unit": "m"},
-            optional=True,
         )
-        if not data:
-            return DailyForecast(days=days)
 
         items = []
         # 固定最多 7 天，保证 800×480 趋势图的横轴密度稳定。
@@ -480,10 +525,7 @@ class WeatherService:
         data = self._get_json(
             self._settings.qweather_minutely_path,
             {"location": loc, "lang": "zh"},
-            optional=True,
         )
-        if not data:
-            return MinutelyRain(summary="分钟降水暂不可用")
 
         items = []
         # 仅取前 24 条（2 小时 × 每 5 分钟一条）
@@ -520,9 +562,7 @@ class WeatherService:
             latitude=f"{location.latitude:.2f}",
             longitude=f"{location.longitude:.2f}",
         )
-        data = self._get_json(path, {"lang": "zh", "localTime": "true"}, optional=True)
-        if not data:
-            return []
+        data = self._get_json(path, {"lang": "zh", "localTime": "true"})
 
         # 兼容不同返回字段名：warning（旧版）/ alerts（新版）
         raw_alerts = data.get("warning") or data.get("alerts") or []
@@ -554,14 +594,14 @@ class WeatherService:
         响应的 indexes 数组含多套 AQI 标准，优先取中国国标 cn-mep
         （category 为中文"优/良/轻度污染"…），其次和风通用 qaqi，否则第一个。
 
-        设为可选接口：无经纬度、订阅无权限或请求失败，返回 None（静默降级），
-        设备端回退显示 '--'，不影响其他天气数据。
+        无经纬度或 API 合法返回空数据时返回 None。订阅无权限或请求失败会抛出异常，
+        由聚合层优先使用旧缓存；没有旧缓存时临时返回 None，设备端回退显示 '--'。
 
         Args:
             location: 城市位置信息（需含经纬度）
 
         Returns:
-            WeatherAir | None: 空气质量数据；不可用时为 None
+            WeatherAir | None: 空气质量数据；无经纬度或合法空响应时为 None
         """
         if location.latitude is None or location.longitude is None:
             return None
@@ -570,9 +610,7 @@ class WeatherService:
             latitude=f"{location.latitude:.2f}",
             longitude=f"{location.longitude:.2f}",
         )
-        data = self._get_json(path, {"lang": "zh"}, optional=True)
-        if not data:
-            return None
+        data = self._get_json(path, {"lang": "zh"})
 
         indexes = data.get("indexes") or []
         chosen = next((i for i in indexes if i.get("code") == "cn-mep"), None)
@@ -592,30 +630,27 @@ class WeatherService:
 
     # ── 底层 HTTP 请求 ─────────────────────────────────
 
-    def _get_json(
-        self, path: str, params: dict[str, Any], optional: bool = False
-    ) -> dict[str, Any]:
+    def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         """
         发送和风天气 API 请求并返回 JSON 数据。
 
         使用标准库 urllib（无第三方依赖），支持 gzip 压缩。
         请求自动附上 API Key 和 Accept 头。
 
-        错误处理策略：
-        - optional=True: API 返回非 200 或网络异常 → 返回空 dict（静默降级）
-        - optional=False: API 返回非 200 或网络异常 → 抛出异常（向上传播）
+        网络或响应解析失败时，在配置的总超时预算内重试一次。API 明确返回
+        code=204 视为合法空结果；网络失败、解析失败和其他错误码均抛出异常，
+        由上层缓存逻辑决定使用旧值或临时降级值。
 
         Args:
             path: API 路径（如 "/v7/weather/now"）
             params: 查询参数 dict（不含 key，自动追加）
-            optional: 是否为可选接口（失败时是否静默降级）
 
         Returns:
             API 响应的 JSON dict
 
         Raises:
-            ValueError: API 返回非 200 状态码（optional=False 时）
-            URLError / socket.timeout: 网络错误（optional=False 时）
+            ValueError: API 返回非 200/204 状态码
+            URLError / socket.timeout: 两次尝试均发生网络错误
         """
         query = dict(params)
         # 自动追加 API Key
@@ -633,30 +668,43 @@ class WeatherService:
             },
         )
 
-        try:
-            with urlopen(request, timeout=self._settings.qweather_timeout_seconds) as response:
-                body = response.read()
-                # 自动解压 gzip 响应
-                if (
-                    response.headers.get("Content-Encoding") == "gzip"
-                    or body.startswith(b"\x1f\x8b")  # gzip 魔数
-                ):
-                    body = gzip.decompress(body)
-                data = json.loads(body.decode("utf-8"))
-        except Exception as exc:
-            if optional:
-                logger.warning("和风天气网络异常（可选接口静默降级）path={}：{}", path, exc)
-                return {}  # 可选接口失败 → 静默降级
-            logger.warning("和风天气网络异常 path={}：{}", path, exc)
-            raise  # 必要接口失败 → 向上传播
+        total_timeout = max(float(self._settings.qweather_timeout_seconds), 0.2)
+        attempt_timeout = total_timeout / _QWEATHER_REQUEST_ATTEMPTS
+        data: dict[str, Any] | None = None
+        for attempt in range(1, _QWEATHER_REQUEST_ATTEMPTS + 1):
+            try:
+                with urlopen(request, timeout=attempt_timeout) as response:
+                    body = response.read()
+                    # 自动解压 gzip 响应
+                    if (
+                        response.headers.get("Content-Encoding") == "gzip"
+                        or body.startswith(b"\x1f\x8b")  # gzip 魔数
+                    ):
+                        body = gzip.decompress(body)
+                    data = json.loads(body.decode("utf-8"))
+                break
+            except Exception as exc:
+                if attempt < _QWEATHER_REQUEST_ATTEMPTS:
+                    logger.warning(
+                        "和风天气请求异常，将在剩余超时预算内重试一次 path={}：{}",
+                        path,
+                        exc,
+                    )
+                    continue
+                logger.warning(
+                    "和风天气请求重试仍失败 path={}：{}",
+                    path,
+                    exc,
+                )
+                raise
+
+        if data is None:
+            raise RuntimeError("和风天气请求未产生响应")
 
         # 检查 API 返回状态码
         code = str(data.get("code", "200"))
         if code not in {"200", "204"}:
-            if optional:
-                logger.warning("和风天气返回非200（可选接口静默降级）code={} path={}", code, path)
-                return {}  # 可选接口状态码异常 → 静默降级
-            logger.warning("和风天气返回非200 code={} path={}", code, path)
+            logger.warning("和风天气返回非200/204 code={} path={}", code, path)
             raise ValueError(f"和风天气返回 code={code}")
         return data
 
