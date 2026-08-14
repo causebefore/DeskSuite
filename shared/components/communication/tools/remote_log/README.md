@@ -112,11 +112,13 @@ init → configure_copy → start → stop → deinit
   才发送空字符串。
 - `ESP_EARLY_LOGx`、`ESP_DRAM_LOGx`、ROM 与 panic 的直接输出不经过普通 `esp_log()`，不在本
   Tool 的捕获范围内。
-- 单条日志受 `log_upload_line_t` 固定字段容量限制；过长内容会被截断。
+- 单条日志受 `log_upload_line_t` 固定字段容量限制；过长内容会在最后一个完整 UTF-8 字符边界截断，
+  避免中文日志被切成无法解析的 JSON 请求。
 
 ## 9. 验证
 
 - 静态检查：公共 C ABI、中文 Doxygen、Task 文件命名、Log V2 链接包装、队列满策略、上传
-  失败退避和单向组件依赖。退避契约执行 `tests/check_remote_log_backoff.ps1`。
+  失败退避、UTF-8 安全截断和单向组件依赖。退避契约执行
+  `tests/check_remote_log_backoff.ps1`，截断契约执行 `tests/check_remote_log_utf8.ps1`。
 - 实机接入后：验证一条 `ESP_LOGx` 只生成一条远端记录、原串口输出不变、早期日志缓存、离线
   重试、session 创建、批次顺序、停止超时和丢弃统计。

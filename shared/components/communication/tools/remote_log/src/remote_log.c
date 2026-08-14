@@ -50,6 +50,65 @@ static bool remote_log_level_enabled(esp_log_config_t config, const char *tag)
     return esp_log_level_get(tag) >= level;
 }
 
+/** @brief 返回 UTF-8 首字节声明的字符长度；非法首字节返回 0 */
+static size_t remote_log_utf8_sequence_length(unsigned char lead)
+{
+    if ((lead & 0x80U) == 0U)
+    {
+        return 1U;
+    }
+    if (lead >= 0xC2U && lead <= 0xDFU)
+    {
+        return 2U;
+    }
+    if (lead >= 0xE0U && lead <= 0xEFU)
+    {
+        return 3U;
+    }
+    if (lead >= 0xF0U && lead <= 0xF4U)
+    {
+        return 4U;
+    }
+    return 0U;
+}
+
+/** @brief 移除固定缓冲区截断产生的不完整 UTF-8 尾部 */
+static void remote_log_trim_incomplete_utf8(char *text)
+{
+    const size_t length       = strlen(text);
+    size_t       valid_length = 0U;
+
+    while (valid_length < length)
+    {
+        const size_t sequence_length = remote_log_utf8_sequence_length((unsigned char) text[valid_length]);
+        if (sequence_length == 0U || valid_length + sequence_length > length)
+        {
+            break;
+        }
+
+        bool sequence_complete = true;
+        for (size_t index = 1U; index < sequence_length; ++index)
+        {
+            const unsigned char byte = (unsigned char) text[valid_length + index];
+            if ((byte & 0xC0U) != 0x80U)
+            {
+                sequence_complete = false;
+                break;
+            }
+        }
+        if (!sequence_complete)
+        {
+            break;
+        }
+        valid_length += sequence_length;
+    }
+
+    if (valid_length < length)
+    {
+        text[valid_length] = '\0';
+    }
+}
+
 static void remote_log_copy_text(char *destination, size_t capacity, const char *source)
 {
     if (capacity == 0U)
@@ -64,6 +123,7 @@ static void remote_log_copy_text(char *destination, size_t capacity, const char 
     }
     memcpy(destination, source, copy_length);
     destination[copy_length] = '\0';
+    remote_log_trim_incomplete_utf8(destination);
 }
 
 static void remote_log_record_drop(void)
@@ -123,6 +183,7 @@ static void remote_log_capture(esp_log_config_t config, const char *tag, const c
     remote_log_copy_text(event.line.tag, sizeof(event.line.tag), tag != NULL ? tag : "esp32");
     vsnprintf(event.line.raw, sizeof(event.line.raw), format != NULL ? format : "", args);
     event.line.raw[strcspn(event.line.raw, "\r\n")] = '\0';
+    remote_log_trim_incomplete_utf8(event.line.raw);
     remote_log_copy_text(event.line.message, sizeof(event.line.message), event.line.raw);
 
     taskENTER_CRITICAL(&g_remote_log_lock);
