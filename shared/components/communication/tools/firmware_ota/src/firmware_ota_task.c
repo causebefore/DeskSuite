@@ -37,6 +37,7 @@
  * ota_version 上限 */
 #define FIRMWARE_OTA_JSON_INTEGER_MAX      9007199254740991.0
 #define FIRMWARE_OTA_CHECK_PATH            "/api/v1/ota/check"
+#define FIRMWARE_OTA_HTTPS_PREFIX           "https://"
 
 static const char *TAG = "firmware_ota";
 
@@ -61,7 +62,7 @@ typedef struct
                                                       SHA-256（十六进制） */
     char     file_sha256[FIRMWARE_OTA_ARTIFACT_ID_SIZE]; /**< 目标固件文件
                                                       SHA-256（十六进制） */
-    char     url[FIRMWARE_OTA_URL_MAX];                  /**< 相对服务端根的下载路径，以 '/' 开头 */
+    char     url[FIRMWARE_OTA_URL_MAX];                  /**< Hub 相对路径或 HTTPS 绝对下载地址 */
     size_t   size;                                       /**< 目标固件字节数 */
 } firmware_ota_target_t;
 
@@ -147,6 +148,59 @@ static bool firmware_ota_is_sha256(const char *value)
         }
     }
     return true;
+}
+
+/** @brief 校验固件下载地址是否为安全的 Hub 相对路径或 HTTPS 绝对地址 */
+static bool firmware_ota_download_url_is_valid(const char *url)
+{
+    if (url == NULL || url[0] == '\0' || strchr(url, '#') != NULL || strchr(url, '\\') != NULL)
+    {
+        return false;
+    }
+    for (const char *cursor = url; *cursor != '\0'; ++cursor)
+    {
+        const unsigned char character = (unsigned char) *cursor;
+        if (character <= 0x20U || character >= 0x7fU)
+        {
+            return false;
+        }
+    }
+    if (url[0] == '/')
+    {
+        return url[1] != '/';
+    }
+    if (strncmp(url, FIRMWARE_OTA_HTTPS_PREFIX, strlen(FIRMWARE_OTA_HTTPS_PREFIX)) != 0)
+    {
+        return false;
+    }
+    const char *authority = url + strlen(FIRMWARE_OTA_HTTPS_PREFIX);
+    if (*authority == '\0' || *authority == '/' || *authority == '?' || strchr(authority, '@') != NULL)
+    {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief 把检查响应中的下载地址解析为传输层可直接使用的绝对 URL
+ *
+ * Hub 相对路径继续与当前后端根地址拼接；HTTPS 绝对地址原样复制，供公开固件仓库下载。
+ *
+ * @param[in] target 已通过响应校验的目标固件
+ * @param[out] out_url 绝对下载 URL
+ * @param[in] capacity 输出缓冲区容量
+ * @return ESP_OK 地址已解析；其他值表示 Hub 地址拼接失败
+ */
+static esp_err_t firmware_ota_resolve_download_url(const firmware_ota_target_t *target,
+                                                   char                        *out_url,
+                                                   size_t                       capacity)
+{
+    if (target->url[0] == '/')
+    {
+        return protocol_url_build(out_url, capacity, s_runtime.backend.base_url, target->url);
+    }
+    utils_copy_string(out_url, capacity, target->url);
+    return ESP_OK;
 }
 
 /**
@@ -274,7 +328,8 @@ static esp_err_t firmware_ota_copy_json_string(const cJSON *object, const char *
  * 精度安全范围内， 即不超过 FIRMWARE_OTA_JSON_INTEGER_MAX 且可无损转回
  * uint64_t）， version/artifact_id/file_sha256/url
  * 必须为非空字符串且不溢出缓冲区， artifact_id 与 file_sha256 必须是合法
- * SHA-256，url 必须以 '/' 开头。 任何一项不满足都按非法响应处理。
+ * SHA-256；url 必须是以单个 '/' 开头的 Hub 相对路径，或不含凭据和片段的 HTTPS
+ * 绝对地址。任何一项不满足都按非法响应处理。
  *
  * @param[in] body 响应体字符串
  * @param[out] out_target 解析成功时输出目标描述
@@ -325,7 +380,7 @@ static esp_err_t firmware_ota_parse_target(const char *body, firmware_ota_target
                    != ESP_OK
             || firmware_ota_copy_json_string(app, "url", out_target->url, sizeof(out_target->url)) != ESP_OK
             || !firmware_ota_is_sha256(out_target->artifact_id) || !firmware_ota_is_sha256(out_target->file_sha256)
-            || out_target->url[0] != '/')
+            || !firmware_ota_download_url_is_valid(out_target->url))
         {
             error = ESP_ERR_INVALID_RESPONSE;
         }
@@ -343,17 +398,19 @@ static esp_err_t firmware_ota_parse_target(const char *body, firmware_ota_target
 /**
  * @brief 填充 HTTP 请求头数组
  *
- * 依序写入可选 Content-Type，以及统一后端上下文中的 Bearer Token 和稳定设备 ID。
+ * 依序写入可选 Content-Type，以及可选的统一后端 Bearer Token 和稳定设备 ID。
  * bearer 缓冲区用于承载拼接后的 Authorization 值，其生命周期需覆盖后续 HTTP 请求。
  *
  * @param[out] headers 头数组输出
  * @param[out] bearer 承载 "Bearer <token>" 的临时缓冲区
  * @param[in] include_content_type 是否写入 Content-Type 头
+ * @param[in] include_backend_identity 是否写入后端认证与设备身份头
  * @return 实际写入的头数量
  */
 static size_t firmware_ota_make_headers(transport_http_header_t headers[3],
-                                        char                    bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")],
-                                        bool                    include_content_type)
+                                         char                    bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")],
+                                         bool                    include_content_type,
+                                         bool                    include_backend_identity)
 {
     size_t count = 0U;
     if (include_content_type)
@@ -363,12 +420,15 @@ static size_t firmware_ota_make_headers(transport_http_header_t headers[3],
             .value = "application/json",
         };
     }
-    protocol_identity_add_headers(headers,
-                                  &count,
-                                  s_runtime.backend.token,
-                                  s_runtime.backend.device_id,
-                                  bearer,
-                                  PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer "));
+    if (include_backend_identity)
+    {
+        protocol_identity_add_headers(headers,
+                                      &count,
+                                      s_runtime.backend.token,
+                                      s_runtime.backend.device_id,
+                                      bearer,
+                                      PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer "));
+    }
     return count;
 }
 
@@ -391,7 +451,7 @@ static esp_err_t firmware_ota_check_target(const firmware_ota_identity_t *identi
     ESP_RETURN_ON_ERROR(firmware_ota_make_request_body(identity, &body), TAG, "创建 OTA 检查请求失败");
     transport_http_header_t        headers[3];
     char                           bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")] = { 0 };
-    const size_t                   header_count = firmware_ota_make_headers(headers, bearer, true);
+    const size_t                   header_count = firmware_ota_make_headers(headers, bearer, true, true);
     const transport_http_request_t request      = {
         .url                  = url,
         .method               = TRANSPORT_HTTP_POST,
@@ -459,7 +519,7 @@ static esp_err_t firmware_ota_on_download_data(const uint8_t *data, size_t lengt
 static esp_err_t firmware_ota_download_and_activate(const firmware_ota_target_t *target)
 {
     char url[FIRMWARE_OTA_URL_MAX];
-    ESP_RETURN_ON_ERROR(protocol_url_build(url, sizeof(url), s_runtime.backend.base_url, target->url),
+    ESP_RETURN_ON_ERROR(firmware_ota_resolve_download_url(target, url, sizeof(url)),
                         TAG,
                         "构造 OTA 下载地址失败");
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
@@ -486,16 +546,19 @@ static esp_err_t firmware_ota_download_and_activate(const firmware_ota_target_t 
     {
         transport_http_header_t                 headers[3];
         char                                    bearer[PROTOCOL_BACKEND_TOKEN_MAX + sizeof("Bearer ")] = { 0 };
-        const size_t                            header_count = firmware_ota_make_headers(headers, bearer, false);
+        const bool                              uses_backend = target->url[0] == '/';
+        const size_t                            header_count =
+            firmware_ota_make_headers(headers, bearer, false, uses_backend);
         const transport_http_download_request_t request      = {
-            .url               = url,
-            .headers           = headers,
-            .header_count      = header_count,
-            .read_buffer_bytes = FIRMWARE_OTA_DOWNLOAD_BUFFER_BYTES,
-            .timeout_ms        = s_runtime.download_timeout_ms,
-            .on_response_data  = firmware_ota_on_download_data,
-            .should_continue   = NULL,
-            .ctx               = &download,
+            .url                   = url,
+            .headers               = headers,
+            .header_count          = header_count,
+            .read_buffer_bytes     = FIRMWARE_OTA_DOWNLOAD_BUFFER_BYTES,
+            .timeout_ms            = s_runtime.download_timeout_ms,
+            .automatic_redirects   = !uses_backend,
+            .on_response_data      = firmware_ota_on_download_data,
+            .should_continue       = NULL,
+            .ctx                   = &download,
         };
         error = transport_http_download_borrow(&request, &result);
     }

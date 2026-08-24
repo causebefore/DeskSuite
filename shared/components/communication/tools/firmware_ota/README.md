@@ -13,8 +13,9 @@
 
 `firmware_ota_configure_copy()` 复制共享 `protocol_backend_context_t`，从同一值对象取得
 `base_url`、可选设备 Token、`product_id`、`firmware_target` 与稳定 `device_id`。
-检查和制品下载请求都携带相同的可选 Bearer Token 与 `X-Device-Id`；检查 JSON 中的
-`device_id` 也来自该上下文。
+检查请求与 Hub 相对路径制品下载携带相同的可选 Bearer Token 与 `X-Device-Id`；检查 JSON
+中的 `device_id` 也来自该上下文。Hub 返回 HTTPS 绝对下载地址时，固件直接访问公开制品仓库，
+不会向外部域名发送 Hub Token 或设备身份。
 
 `product_id` 与 `firmware_target` 对 DeskSuite 设备的唯一配置源是仓库根 `products.toml`；
 统一构建工具把它们写入 `build/generated/firmware_ota_build_project.h` 覆盖头，
@@ -24,6 +25,10 @@
 检查固定使用 `POST /api/v1/ota/check`，请求 `protocol_version=2`。Hub 根据
 `firmware_target` 选择清单，并再次校验清单内的产品和目标身份。产品隔离不再通过不同 URL
 或设备侧路径配置实现。
+
+响应中的制品 URL 可以是以单个 `/` 开头的 Hub 相对路径，也可以是不含凭据与片段的 HTTPS
+绝对地址。外部下载使用 ESP-IDF 系统证书包校验服务端，并最多跟随五次 HTTP 重定向；最终
+下载字节仍必须同时通过文件 SHA-256 和 ESP 镜像 Validation SHA-256 校验。
 
 ## 事务约束
 
@@ -59,3 +64,6 @@ API。组件同一时刻只接受一个事务。
 构建工具按 `firmware_target` 生成版本头和运行时清单，制品统一写入
 `services/hub/firmwares/artifacts/<artifact_id>.bin`。目标清单写入
 `services/hub/firmwares/manifests/<firmware_target>.json`，并通过临时文件加原子替换发布。
+这是本地/SSH 发布的兼容路径。清单的 `artifacts.app.download_url` 存在时，Hub 不要求本地
+保存对应二进制，而是把该 HTTPS 地址返回给设备；DeskSuite 的公开 Release 制品仓库为
+<https://github.com/causebefore/desksuite-firmware>。

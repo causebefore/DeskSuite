@@ -155,6 +155,7 @@ extern "C"
         size_t                         header_count;      /**< 请求头数量 */
         size_t                         read_buffer_bytes; /**< 接收缓冲区大小 */
         int                            timeout_ms;        /**< 请求超时 */
+        bool                           automatic_redirects; /**< 是否自动跟随 HTTP 重定向 */
         transport_http_data_cb_t       on_response_data;  /**< 响应数据回调 */
         transport_http_continue_cb_t   should_continue;   /**< 可选取消回调 */
         void                          *ctx;               /**< 用户上下文 */
@@ -164,8 +165,10 @@ extern "C"
  * @brief 使用 GET 流式下载响应体
  *
  * 响应数据直接交给回调，不在传输层缓存完整文件。request 内的 URL、请求头、回调和
- * 上下文只在调用期间借用，函数返回后不再持有。参数校验通过后 result 会先初始化；
- * 错误返回时仍可读取状态码、Content-Length 和已接收字节数。
+ * 上下文只在调用期间借用，函数返回后不再持有。automatic_redirects 开启时最多跟随五次
+ * HTTP 重定向，且请求头会沿用到重定向目标；调用方必须确保其中不含跨域敏感凭据。
+ * 参数校验通过后 result 会先初始化；错误返回时仍可读取状态码、Content-Length 和已接收
+ * 字节数。
  *
  * @param[in] request 调用期间借用的下载请求
  * @param[out] result 下载结果

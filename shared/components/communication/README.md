@@ -74,7 +74,7 @@ OTA、远端日志、共享语音以及两端产品协议都从该上下文读�
 
 ```text
 POST /api/v1/ota/check
-GET  /api/v1/ota/artifacts/<artifact_id>
+GET  <检查响应中的 url>
 ```
 
 检查请求包含 `protocol_version=2`、`product_id`、`firmware_target`、`device_id` 和当前制品
@@ -83,6 +83,8 @@ GET  /api/v1/ota/artifacts/<artifact_id>
 
 `firmware_ota` 只在调用方已经建立的在线会话中工作；它不启动或等待 Wi-Fi。检查成功后缓存
 不可变目标，安装开始后不可取消，完整文件摘要和 ESP 镜像均校验通过后才切换启动分区。
+响应 `url` 可以是 Hub 相对路径，也可以是公开固件仓库的 HTTPS 绝对地址。相对路径下载继续
+携带 Hub Token 与设备身份；外部 HTTPS 下载不携带这些凭据，并允许有限次 HTTP 重定向。
 
 ## 7. 产品构建差异
 

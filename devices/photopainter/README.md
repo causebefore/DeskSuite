@@ -92,6 +92,10 @@ Validation SHA-256 作为 `artifact_id`，以完整文件 SHA-256 校验下载�
 后必须立即重启；新镜像在本地关键通信能力与 OTA Task 启动成功后确认有效，失败则由
 ESP-IDF A/B 回滚。
 
+清单也可以提供公开 GitHub Release 的 HTTPS 绝对地址。此时 Hub 仍判断是否需要更新，但设备
+直接从 [DeskSuite 固件 Release 仓库](https://github.com/causebefore/desksuite-firmware) 下载，
+不会把 Hub Token 或设备身份发送到 GitHub；未提供外部地址的旧清单继续使用 Hub 下载接口。
+
 ## 代码分区
 
 | 分区 | 当前路径 | 核心职责 |

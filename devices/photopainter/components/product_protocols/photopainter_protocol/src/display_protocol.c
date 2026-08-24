@@ -390,13 +390,14 @@ esp_err_t display_protocol_download_frame_borrow(const protocol_backend_context_
         .value = "application/octet-stream",
     };
     const transport_http_download_request_t request = {
-        .url               = url,
-        .headers           = headers,
-        .header_count      = header_count,
-        .read_buffer_bytes = 4096U,
-        .timeout_ms        = timeout_ms,
-        .on_response_data  = in_callback,
-        .ctx               = in_context,
+        .url                   = url,
+        .headers               = headers,
+        .header_count          = header_count,
+        .read_buffer_bytes     = 4096U,
+        .timeout_ms            = timeout_ms,
+        .automatic_redirects   = false,
+        .on_response_data      = in_callback,
+        .ctx                   = in_context,
     };
     return transport_http_download_borrow(&request, out_result);
 }
