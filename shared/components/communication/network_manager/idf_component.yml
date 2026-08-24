@@ -1,0 +1,9 @@
+version: "0.1.0"
+description: Wi-Fi/Portal 技术状态机、候选配置验证与单轮技术重试
+dependencies:
+  desksuite/connect:
+    version: "^0.1"
+    override_path: ../connect
+  desksuite/utils:
+    version: "^0.1"
+    override_path: ../../utils

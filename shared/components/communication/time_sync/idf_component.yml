@@ -1,0 +1,2 @@
+version: "0.1.0"
+description: 串行拥有 ESP-NETIF SNTP 客户端，提供单次 UTC 网络时间样本

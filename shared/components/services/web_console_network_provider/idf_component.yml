@@ -1,0 +1,9 @@
+version: "0.1.0"
+description: 管理控制台的网络状态 Provider
+dependencies:
+  desksuite/web_console_service:
+    version: "^0.1"
+    override_path: ../web_console_service
+  desksuite/network_manager:
+    version: "^0.1"
+    override_path: ../../communication/network_manager

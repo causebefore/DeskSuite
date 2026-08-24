@@ -1,0 +1,13 @@
+version: "0.1.0"
+description: 固件检查、目标缓存、下载校验与 OTA 分区事务
+dependencies:
+  espressif/cjson: "^1.7.19"
+  desksuite/protocols:
+    version: "^0.1"
+    override_path: ../../protocols
+  desksuite/transport:
+    version: "^0.1"
+    override_path: ../../transport
+  desksuite/utils:
+    version: "^0.1"
+    override_path: ../../../utils

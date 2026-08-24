@@ -1,0 +1,12 @@
+version: "0.1.0"
+description: Log V2 批次采集、会话管理与远端上传
+dependencies:
+  desksuite/protocols:
+    version: "^0.1"
+    override_path: ../../protocols
+  desksuite/network_manager:
+    version: "^0.1"
+    override_path: ../../network_manager
+  desksuite/utils:
+    version: "^0.1"
+    override_path: ../../../utils

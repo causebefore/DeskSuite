@@ -1,2 +1,4 @@
+version: "0.1.0"
+description: 同步 HTTP、流式下载/上传与 WebSocket 传输
 dependencies:
   espressif/esp_websocket_client: "^1.2.3"

@@ -1,0 +1,152 @@
+dependencies:
+  desksuite/connect:
+    dependencies:
+    - name: espressif/qrcode
+      version: ^0.2.0
+    - name: desksuite/utils
+      override_path: ../../utils
+      version: ^0.1
+    source:
+      path: ../../components/communication/connect
+      type: local
+    version: 0.1.0
+  desksuite/firmware_ota:
+    dependencies:
+    - name: espressif/cjson
+      version: ^1.7.19
+    - name: desksuite/protocols
+      override_path: ../../protocols
+      version: ^0.1
+    - name: desksuite/transport
+      override_path: ../../transport
+      version: ^0.1
+    - name: desksuite/utils
+      override_path: ../../../utils
+      version: ^0.1
+    source:
+      path: ../../components/communication/tools/firmware_ota
+      type: local
+    version: 0.1.0
+  desksuite/network_manager:
+    dependencies:
+    - name: desksuite/connect
+      override_path: ../connect
+      version: ^0.1
+    - name: desksuite/utils
+      override_path: ../../utils
+      version: ^0.1
+    source:
+      path: ../../components/communication/network_manager
+      type: local
+    version: 0.1.0
+  desksuite/protocols:
+    dependencies:
+    - name: espressif/cjson
+      version: ^1.7.19
+    - name: desksuite/transport
+      override_path: ../transport
+      version: ^0.1
+    source:
+      path: ../../components/communication/protocols
+      type: local
+    version: 0.1.0
+  desksuite/remote_log:
+    dependencies:
+    - name: desksuite/protocols
+      override_path: ../../protocols
+      version: ^0.1
+    - name: desksuite/network_manager
+      override_path: ../../network_manager
+      version: ^0.1
+    - name: desksuite/utils
+      override_path: ../../../utils
+      version: ^0.1
+    source:
+      path: ../../components/communication/tools/remote_log
+      type: local
+    version: 0.1.0
+  desksuite/time_sync:
+    dependencies: []
+    source:
+      path: ../../components/communication/time_sync
+      type: local
+    version: 0.1.0
+  desksuite/transport:
+    dependencies:
+    - name: espressif/esp_websocket_client
+      version: ^1.2.3
+    source:
+      path: ../../components/communication/transport
+      type: local
+    version: 0.1.0
+  desksuite/utils:
+    dependencies: []
+    source:
+      path: ../../components/utils
+      type: local
+    version: 0.1.0
+  desksuite/web_console_network_provider:
+    dependencies:
+    - name: desksuite/web_console_service
+      override_path: ../web_console_service
+      version: ^0.1
+    - name: desksuite/network_manager
+      override_path: ../../communication/network_manager
+      version: ^0.1
+    source:
+      path: ../../components/services/web_console_network_provider
+      type: local
+    version: 0.1.0
+  desksuite/web_console_service:
+    dependencies:
+    - name: espressif/cjson
+      version: ^1.7.19
+    source:
+      path: ../../components/services/web_console_service
+      type: local
+    version: 0.1.0
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.19~2
+  espressif/esp_websocket_client:
+    component_hash: dc00233af846f3a744ada283a300e0d586040aadc3ee67361645ecdce4523672
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.8.0
+  espressif/qrcode:
+    component_hash: 31e70991ce22f28d73a4386417fc9c0993f61e1aab1832474fd9e3db8da9dcbd
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.2.0
+  idf:
+    source:
+      type: idf
+    version: 6.0.1
+direct_dependencies:
+- desksuite/connect
+- desksuite/firmware_ota
+- desksuite/network_manager
+- desksuite/protocols
+- desksuite/remote_log
+- desksuite/time_sync
+- desksuite/transport
+- desksuite/utils
+- desksuite/web_console_network_provider
+- desksuite/web_console_service
+manifest_hash: e7884665b772e07d7603c3e33569b48c2c15c8d5a309779b41d01a07b8daf634
+target: esp32s3
+version: 3.0.0

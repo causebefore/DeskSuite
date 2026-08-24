@@ -1,0 +1,33 @@
+# 通过 override_path 以本地路径解析全部共享组件，等价于外部工程
+# 通过 git 依赖 + 组件清单 override_path 的递归解析结果。
+dependencies:
+  desksuite/utils:
+    version: "^0.1"
+    override_path: ../../../components/utils
+  desksuite/connect:
+    version: "^0.1"
+    override_path: ../../../components/communication/connect
+  desksuite/network_manager:
+    version: "^0.1"
+    override_path: ../../../components/communication/network_manager
+  desksuite/transport:
+    version: "^0.1"
+    override_path: ../../../components/communication/transport
+  desksuite/protocols:
+    version: "^0.1"
+    override_path: ../../../components/communication/protocols
+  desksuite/time_sync:
+    version: "^0.1"
+    override_path: ../../../components/communication/time_sync
+  desksuite/firmware_ota:
+    version: "^0.1"
+    override_path: ../../../components/communication/tools/firmware_ota
+  desksuite/remote_log:
+    version: "^0.1"
+    override_path: ../../../components/communication/tools/remote_log
+  desksuite/web_console_service:
+    version: "^0.1"
+    override_path: ../../../components/services/web_console_service
+  desksuite/web_console_network_provider:
+    version: "^0.1"
+    override_path: ../../../components/services/web_console_network_provider

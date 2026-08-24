@@ -1,2 +1,4 @@
+version: "0.1.0"
+description: 本地 Web 管理控制台，文件/设置/状态/操作模块可按 Kconfig 裁剪
 dependencies:
   espressif/cjson: "^1.7.19"

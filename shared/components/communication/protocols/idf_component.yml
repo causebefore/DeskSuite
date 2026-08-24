@@ -1,2 +1,7 @@
+version: "0.1.0"
+description: 稳定硬件设备 ID、统一后端上下文、URL、语音与日志上传协议
 dependencies:
   espressif/cjson: "^1.7.19"
+  desksuite/transport:
+    version: "^0.1"
+    override_path: ../transport

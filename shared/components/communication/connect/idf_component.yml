@@ -1,2 +1,7 @@
+version: "0.1.0"
+description: Wi-Fi STA/SoftAP/配网 Portal/DNS/扫描与完整链路快照
 dependencies:
   espressif/qrcode: "^0.2.0"
+  desksuite/utils:
+    version: "^0.1"
+    override_path: ../../utils
