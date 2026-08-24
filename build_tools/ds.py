@@ -22,13 +22,24 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-# ── 固定编译环境（DeskSuite 仓库硬约束）──────────────────────────────────
-EXPECTED_IDF_PATH = Path(r"C:\esp\v6.0.1\esp-idf")
-EXPECTED_PYTHON_PATH = Path(
-    r"C:\Users\lbq08\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe"
+# ── 固定编译环境（本机默认值；CI 可显式注入同版本工具路径）──────────────
+def _configured_tool_path(variable: str, default: str) -> Path:
+    """读取单次构建固定工具路径；空值继续使用仓库约定的本机默认值。"""
+    configured = os.environ.get(variable, "").strip()
+    return Path(configured) if configured else Path(default)
+
+
+EXPECTED_IDF_PATH = _configured_tool_path(
+    "DESKSUITE_IDF_PATH",
+    r"C:\esp\v6.0.1\esp-idf",
 )
-EXPECTED_NINJA_PATH = Path(
-    r"C:\Users\lbq08\.espressif\tools\ninja\1.12.1\ninja.exe"
+EXPECTED_PYTHON_PATH = _configured_tool_path(
+    "DESKSUITE_PYTHON_PATH",
+    r"C:\Users\lbq08\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe",
+)
+EXPECTED_NINJA_PATH = _configured_tool_path(
+    "DESKSUITE_NINJA_PATH",
+    r"C:\Users\lbq08\.espressif\tools\ninja\1.12.1\ninja.exe",
 )
 EXPECTED_NINJA_VERSION = "1.12.1"
 

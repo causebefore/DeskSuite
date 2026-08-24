@@ -1,0 +1,90 @@
+name: 发布设备固件
+run-name: 发布 ${{ inputs.product }} 固件
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: 要构建并发布的设备产品
+        required: true
+        type: choice
+        options:
+          - photopainter
+          - deskmate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-release-${{ inputs.product }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DESKSUITE_IDF_PATH: C:\esp\v6.0.1\esp-idf
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: 安装 ESP-IDF v6.0.1
+        uses: espressif/install-esp-idf-action@8fc05d1470d5591417e7a3707a1f2bec178db4ae # v1
+        with:
+          version: v6.0.1
+          path: C:\esp\v6.0.1\esp-idf
+          tools-path: C:\esp\tools
+
+      - name: 固定本次构建工具路径
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pythonPath = if ($env:IDF_PYTHON_ENV_PATH) {
+            Join-Path $env:IDF_PYTHON_ENV_PATH "Scripts\python.exe"
+          } else {
+            (Get-Command python.exe -CommandType Application -ErrorAction Stop).Source
+          }
+          $ninjaPath = (Get-Command ninja.exe -CommandType Application -ErrorAction Stop).Source
+          foreach ($path in @($env:DESKSUITE_IDF_PATH, $pythonPath, $ninjaPath)) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "ESP-IDF 构建工具不存在：$path"
+            }
+          }
+          if ((& $ninjaPath --version).Trim() -ne "1.12.1") {
+            throw "DeskSuite 固件必须使用 Ninja 1.12.1"
+          }
+          "DESKSUITE_PYTHON_PATH=$pythonPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DESKSUITE_NINJA_PATH=$ninjaPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 构建 OTA 固件与清单
+        shell: pwsh
+        run: '& .\ds.ps1 ota ${{ inputs.product }} -ServiceRoot .\services\hub'
+
+      - name: 定位发布资产
+        id: assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $firmwareTarget = switch ("${{ inputs.product }}") {
+            "photopainter" { "photopainter_esp32s3_v1" }
+            "deskmate" { "deskmate_esp32s3_v1" }
+            default { throw "未知设备产品" }
+          }
+          $manifestPath = Join-Path $PWD "services\hub\firmwares\manifests\$firmwareTarget.json"
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $firmwarePath = Join-Path $PWD "services\hub\firmwares\artifacts\$($manifest.artifacts.app.artifact_id).bin"
+          if (-not (Test-Path -LiteralPath $firmwarePath -PathType Leaf)) {
+            throw "未找到待发布固件：$firmwarePath"
+          }
+          "manifest=$manifestPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "firmware=$firmwarePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: 发布到公开固件仓库
+        uses: causebefore/esp-idf-firmware-action@796fc964cf8d3be37a50f62e72e819e99dd9fe22
+        with:
+          token: ${{ secrets.FIRMWARE_RELEASE_TOKEN }}
+          repository: causebefore/desksuite-firmware
+          firmware: ${{ steps.assets.outputs.firmware }}
+          manifest: ${{ steps.assets.outputs.manifest }}
+          target: main

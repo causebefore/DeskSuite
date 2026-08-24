@@ -96,6 +96,25 @@ Hub 清单也支持可选的 `artifacts.app.download_url`。字段存在时，Hu
 下载 `.bin`；字段缺失时继续使用上述 Hub 本地制品路径。两种方式都由设备校验文件 SHA-256
 与 ESP 镜像 Validation SHA-256。
 
+### GitHub Actions 固件发布
+
+源码仓库的“发布设备固件”工作流可以手动选择 `photopainter` 或 `deskmate`。工作流在
+GitHub 托管的 Windows Runner 上安装 ESP-IDF v6.0.1，仍通过 `ds.ps1` 生成固件与 OTA
+清单，然后调用独立的
+[ESP-IDF Firmware Release Action](https://github.com/causebefore/esp-idf-firmware-action)
+校验并发布到公开固件仓库。发布 tag 为
+`<firmware_target>-v<ota_version>`，固件资产名为 `<artifact_id>.bin`；不需要额外的
+`release` 分支。
+
+首次使用前，需要在私有源码仓库的 Actions secrets 中添加
+`FIRMWARE_RELEASE_TOKEN`。该细粒度令牌只需选择 `desksuite-firmware` 仓库并授予
+`Contents: Read and write`，无需给源码仓库或账号下其他仓库写权限。工作流生成的 Release
+清单已经带 `download_url`；生产 Hub 的清单部署仍按现有发布通道独立进行。
+
+本机构建继续使用仓库约定的默认路径。CI 或其他隔离环境可以显式设置
+`DESKSUITE_IDF_PATH`、`DESKSUITE_PYTHON_PATH` 和 `DESKSUITE_NINJA_PATH`；每次构建仍会
+校验 CMake 缓存实际绑定的 ESP-IDF、ESP32-S3 目标与 Ninja 1.12.1，不能借此跳过版本约束。
+
 ## 开发规范
 
 - [嵌入式 C/C++ 术语与命名规范](docs/standards/c_cpp_naming_conventions.md)

@@ -24,7 +24,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $env:PYTHONIOENCODING = "utf-8"
-$pythonExe = "C:\Users\lbq08\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe"
+$defaultPythonExe = "C:\Users\lbq08\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe"
+$pythonExe = if ([string]::IsNullOrWhiteSpace($env:DESKSUITE_PYTHON_PATH)) {
+    $defaultPythonExe
+} else {
+    $env:DESKSUITE_PYTHON_PATH
+}
 $toolPath = Join-Path $PSScriptRoot "build_tools\ds.py"
 
 if (-not (Test-Path -LiteralPath $pythonExe)) {
