@@ -22,7 +22,7 @@
 - 不初始化或释放 `device_rtc`，也不访问 BSP、Board、GPIO 或芯片 Driver。
 - 不决定告警何时设置、触发后切换哪个页面、重试还是降级。
 - 不参与 RTC、系统时钟和 SNTP 之间的可信时间校准。
-- 不消费 PCF85063 Timer 的 TF；Light-sleep 测试事务由 BSP 在返回前停止 Timer 并清除 TF。
+- 不消费 PCF85063 Timer 的 TF；启动遗留来源由 Driver 清理，异常电平诊断由 BSP 负责。
 
 Device 初始化时底层 Driver 会清理启动前遗留的分钟、半分钟和计时器中断源；因此 Service
 只消费日历告警 AF，不猜测其他芯片中断来源。
@@ -45,7 +45,6 @@ GPIO15 下降沿
 | 方向 | 组件 | 用途 |
 | --- | --- | --- |
 | 调用 | `device_rtc` | 注册快速 ISR 通知、读取和清除告警标志 |
-| 调用 | `utils` | 低频输出 RTC Task 的历史最小剩余栈 |
 | 被调用 | `main/app_main.c` | 装配生命周期并消费告警事件 |
 
 公开头文件不泄漏 FreeRTOS 类型；Task、通知和停止信号量都是私有实现资源。
@@ -71,7 +70,6 @@ GPIO15 下降沿
 - 生命周期：`UNINITIALIZED → INITIALIZED → STARTING → RUNNING → STOPPING → INITIALIZED`。
 - 状态所有者：Service 内部临界区保护生命周期、Task 句柄、回调和快照字段。
 - Task：运行期创建一个阻塞等待 Task；无中断时不轮询。
-- 栈统计：Task 首次运行和后续被唤醒时按 60 秒周期节流输出，并在退出前输出最终值。
 - ISR：只复制 Task 句柄并使用 Task Notification 投递位，不做 I2C、日志或产品逻辑。
 - 停止超时后保留 `STOPPING`，重复 `stop()` 会等待同一 Task；Task 实际退出后自行收敛为
   `INITIALIZED`，此后再次停止幂等返回成功。
@@ -81,7 +79,7 @@ GPIO15 下降沿
 - AF 读取或清除失败会保留错误、记录中文日志并发布 `PROCESSING_FAILED`，随后以 1、2、4 秒
   进行最多三次技术性重试；重试耗尽后保留错误，等待下一次中断或显式检查。
 - GPIO15 为低但 AF 未置位时，Service 不猜测芯片私有中断来源；启动遗留来源清理由 Driver
-  完成，Light-sleep Timer 闭环与显式电平诊断由 BSP 拥有。
+  完成，显式电平诊断由 BSP 拥有。
 - 启动或停止失败由 Composition Root/Application 决定是否降级；Service 不重启设备。
 
 ## 8. 配置与文件

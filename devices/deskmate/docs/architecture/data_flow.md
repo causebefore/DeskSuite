@@ -181,7 +181,6 @@ ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保�
              → UI Runtime Task 有界停止
              → app_network 有界停网
              → Device / BSP 使用双按键 + 内部 Timer 进入 Light-sleep
-               （显式测试配置可改用双按键 + PCF85063 Timer 的 RTC INT）
     → 维护源唤醒后恢复 UI、同步刷新屏幕，再次停止 UI 并继续睡眠
     → 按键唤醒后按网络 → 语音 → UI 恢复，提交按键事实并重新开始活动窗口
 ```
@@ -189,9 +188,8 @@ ID 由共享 `protocol_identity` 生成，产品协议和通用 Tool 不得保�
 无活动截止时间、准备顺序、重试和失败阻断由 `app_power` 的唯一 Application Task 拥有。
 `app_voice_reconcile_network_lease()` 只在语音会话已经空闲时释放本地仍记录的实时语音租约；
 释放失败保留代次并作为普通阻止条件等待下一次有界重试，不直接把电源流程推进到 `BLOCKED`。
-Device/BSP 只提供一次同步轻睡眠事务，并按编译配置锁存 Timer 或 RTC INT 维护唤醒事实，
-不拥有周期刷新策略；RTC INT 测试模式使用调用方传入的间隔装载外部 RTC Timer，并在睡眠
-返回前停止 Timer、清除 TF，但不启用 ESP32 内部 Timer。该测试配置默认关闭。
+Device/BSP 只提供一次同步轻睡眠事务，并锁存按键或 Timer 维护唤醒事实，
+不拥有周期刷新策略。
 `app_network` 提供不依赖 UI 或 Light-sleep 的低功耗停网/恢复握手。番茄钟前台离线显示期间
 Dashboard 截止到达时临时恢复网络完成维护，再次停网；用户活动或离开运行中的番茄钟页时恢复
 正常网络策略。

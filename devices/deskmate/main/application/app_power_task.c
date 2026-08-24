@@ -506,7 +506,6 @@ static uint32_t next_power_save_interval_ms(app_power_timer_reason_t *out_reason
     return interval_ms == 0U ? 1U : interval_ms;
 }
 
-#ifndef CONFIG_DESKMATE_RTC_INT_WAKE_TEST_ENABLED
 /**
  * @brief 在进入 Light-sleep 前输出内部 Timer 的计划唤醒时间
  *
@@ -549,7 +548,6 @@ static void log_next_wakeup(uint32_t interval_ms, app_power_timer_reason_t reaso
              (unsigned long) interval_ms,
              reason_text);
 }
-#endif
 
 /**
  * @brief 在 Timer 唤醒维护窗口恢复网络、同步 Dashboard 并再次可逆停网

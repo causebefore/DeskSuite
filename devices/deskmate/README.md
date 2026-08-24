@@ -78,14 +78,10 @@ Task 是执行机制，不是架构层。产品调度 Task 位于 `main/applicat
   预计结束时间。
 - 低功耗：`app_power` 在 30 秒无按键活动且产品事务空闲时先选择模式。运行中的番茄钟页进入
   `OFFLINE_DISPLAY`，只停止 Network Manager 和 Wi-Fi Driver，保留 UI 与一秒刷新；其他场景
-  可逆停止 UI Runtime，再通过 `device_power`/BSP 进入 Light-sleep。普通模式使用左右键 EXT1
-  与 ESP32 内部 Timer；默认关闭的 `DESKMATE_RTC_INT_WAKE_TEST_ENABLED` 测试模式改用左右键
-  与 GPIO15 RTC INT EXT1，并完全禁用内部 Timer。BSP 在每次睡眠事务开始时关闭全部 RTC INT 输出源、
-  清除 AF/TF，保持 GPIO15 内部上拉并等待 10 ms 后读取释放基线；基线为低时不启动 Timer
-  或 Light-sleep，基线为高才以 1 Hz 时钟装载 PCF85063 Timer。任一来源唤醒或睡眠入口失败后
-  都会停止 Timer 并清除 TF。测试模式在 Light-sleep 期间保持 `RTC_PERIPH` 供电；若 IDF 仍
-  因唤醒源预先有效而拒绝睡眠，BSP 会在返回路径再次采样 GPIO15 与 RTC 中断寄存器。左右键唤醒恢复正常交互；
-  RTC Timer 唤醒后先同步补算番茄钟，再恢复 UI，阶段完成会重新开启正常清醒窗口。
+  可逆停止 UI Runtime，再通过 `device_power`/BSP 进入 Light-sleep。睡眠使用左右键 EXT1
+  与 ESP32 内部 Timer 作为唤醒源，内部 Timer 默认每 60 秒维护唤醒一次，服务端或番茄钟
+  截止更近时缩短本轮间隔。左右键唤醒恢复正常交互；Timer 维护唤醒保持停网，先同步补算
+  番茄钟并刷新屏幕，阶段完成会重新开启正常清醒窗口，否则继续 Light-sleep。
 
 ## 规范文档
 
