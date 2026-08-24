@@ -297,7 +297,9 @@ Task 入口、句柄、队列和主循环都留在对应 `_task.c` 内，公共 
 任意按键、阶段完成或离开运行中的番茄钟页都会释放 PM 锁并恢复正常网络策略。
 
 配网 Portal 首次进入 `PROVISIONING/VALIDATING`，或其显式用户活动序号前进时，`app_network`
-以 `CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC` 建立单调停网保护截止。在截止前到达的低功耗
+以独立的 5 分钟窗口（`APP_NETWORK_PORTAL_ACTIVITY_WINDOW_SEC`）建立单调停网保护截止。该窗口
+不与整机按键空闲窗口共用配置：手机扫码、连热点和等待 Captive 弹窗期间不会刷新设备本地活动
+时钟，保护时长必须覆盖这段无本地活动的人机交互。在截止前到达的低功耗
 停网命令返回 `ESP_ERR_INVALID_STATE`，由 `app_power` 沿既有退避重新尝试；停网前若读到尚未由
 Application Task 收敛的新活动序号，也先拒绝本轮命令，避免通知与停网交错时关闭热点。自动状态
 查询不推进活动序号，因此连续无用户活动后仍会正常停网，不会让 Portal 永久保持。

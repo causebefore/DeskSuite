@@ -47,6 +47,13 @@
 #define APP_NETWORK_HUB_HEALTH_TIMEOUT_MS  3000
 #define APP_NETWORK_HUB_HEALTH_MAX_BYTES   256U
 
+/*
+ * 配网 Portal 的无活动停网保护窗口。手机扫码、连热点和等待 Captive 弹窗期间不会产生任何
+ * 设备本地活动，该窗口必须远长于整机按键空闲窗口，否则热点会在用户完成输入前被低功耗
+ * 停网关闭；窗口过长则无人值守的 Portal 会延迟整机能耗策略，取 5 分钟折中。
+ */
+#define APP_NETWORK_PORTAL_ACTIVITY_WINDOW_SEC 300U
+
 #ifndef CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC
     #define CONFIG_DESKMATE_DASHBOARD_FAILURE_RETRY_SEC 60
 #endif
@@ -1496,7 +1503,7 @@ static void reconcile_portal_activity_deadline(const network_manager_status_t *s
     if (entered_portal || activity_changed)
     {
         s_portal_activity_deadline_us =
-            esp_timer_get_time() + (int64_t) CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC * 1000000LL;
+            esp_timer_get_time() + (int64_t) APP_NETWORK_PORTAL_ACTIVITY_WINDOW_SEC * 1000000LL;
     }
 }
 
