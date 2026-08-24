@@ -105,7 +105,7 @@ ESP-IDF A/B 回滚。
 | System | [`components/sys/`](components/sys/) | 可信时间、复位和看门狗等系统级能力 |
 | Device | [`components/device/`](components/device/) | 外设能力和设备级资源所有权 |
 | Drivers / BSP / Boards | [`components/drivers/`](components/drivers/)、[`components/bsp/`](components/bsp/)、[`components/boards/`](components/boards/) | 芯片驱动、板级资源和板型配置 |
-| Utils | [`components/utils/`](components/utils/) | 无状态、无产品策略的通用算法；不是架构层 |
+| Shared Utils | [`../../shared/components/utils/`](../../shared/components/utils/) | 两套设备共用的无状态、无产品策略通用算法；不是架构层 |
 
 ## 规范文档
 

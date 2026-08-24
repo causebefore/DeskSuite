@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $deviceRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $testBinary = Join-Path $env:TEMP 'photopainter_duration_policy_test.exe'
-$includeDir = Join-Path $deviceRoot 'components\utils\include'
+$includeDir = Join-Path $deviceRoot '..\..\shared\components\utils\include'
 $stubDir = Join-Path $PSScriptRoot 'stubs'
 $source = Join-Path $PSScriptRoot 'test_duration_policy.c'
 

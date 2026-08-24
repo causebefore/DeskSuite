@@ -16,7 +16,6 @@ set(EXTRA_COMPONENT_DIRS
     components/device/device_power
     components/device/device_rtc
     components/device/device_storage
-    components/utils
     components/sys
     components/product_protocols/deskmate_protocol
     ../../shared/components/communication/connect
@@ -26,6 +25,7 @@ set(EXTRA_COMPONENT_DIRS
     ../../shared/components/communication/network_manager
     ../../shared/components/communication/tools/firmware_ota
     ../../shared/components/communication/tools/remote_log
+    ../../shared/components/utils
     components/services/audio_service
     components/services/audio_processor_service
     components/services/button_service

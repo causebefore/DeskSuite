@@ -169,19 +169,7 @@ extern "C"
     void utils_write_be64(uint8_t *data, uint64_t value);
 
     /**
- * @brief 把连续八个 2 bpp 灰度像素按中间阈值编码为一个 1 bpp 黑白字节
- *
- * 两个输入字节均从高位到低位保存四个灰度像素，0、1 映射为黑色位 1，
- * 2、3 映射为白色位 0；返回值 bit7 到 bit0 对应原始八个像素。
- *
- * @param[in] first_gray2_byte 前四个 2 bpp 像素
- * @param[in] second_gray2_byte 后四个 2 bpp 像素
- * @return 编码后的 1 bpp 黑白字节
- */
-    uint8_t utils_gray2_pair_to_mono_byte(uint8_t first_gray2_byte, uint8_t second_gray2_byte);
-
-    /**
- * @brief 将十六进制字符转换为数值
+     * @brief 将十六进制字符转换为数值
  *
  * @param[in] character 十六进制字符
  * @return 0 到 15 表示成功，-1 表示字符无效

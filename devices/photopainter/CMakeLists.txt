@@ -21,6 +21,7 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/transport"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/tools/firmware_ota"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/communication/tools/remote_log"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/components/utils"
     "${CMAKE_CURRENT_LIST_DIR}/components/device/device_battery"
     "${CMAKE_CURRENT_LIST_DIR}/components/device/device_button"
     "${CMAKE_CURRENT_LIST_DIR}/components/device/device_buzzer"
@@ -40,7 +41,6 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/services/environment_service"
     "${CMAKE_CURRENT_LIST_DIR}/components/services/sd_card_service"
     "${CMAKE_CURRENT_LIST_DIR}/components/sys"
-    "${CMAKE_CURRENT_LIST_DIR}/components/utils"
 )
 
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.

@@ -6,8 +6,6 @@
 
 #include <string.h>
 
-#include "utils.h"
-
 #define UC8179_CMD_PANEL_SETTING          0x00U
 #define UC8179_CMD_POWER_SETTING          0x01U
 #define UC8179_CMD_POWER_OFF              0x02U
@@ -174,12 +172,33 @@ static esp_err_t uc8179_write_grayscale_plane(uc8179_t *controller, const uint8_
     return ESP_OK;
 }
 
+/**
+ * @brief 把连续八个 2 bpp 灰度像素按中间阈值编码为一个 1 bpp 黑白字节
+ *
+ * 两个输入字节均从高位到低位保存四个灰度像素，0、1 映射为黑色位 1，
+ * 2、3 映射为白色位 0；返回值 bit7 到 bit0 对应原始八个像素。
+ */
+static uint8_t uc8179_gray2_pair_to_mono_byte(uint8_t first_gray2_byte, uint8_t second_gray2_byte)
+{
+    const uint8_t packed[2] = { first_gray2_byte, second_gray2_byte };
+    uint8_t       output    = 0U;
+    for (size_t source_index = 0U; source_index < 2U; ++source_index)
+    {
+        for (uint8_t pixel_index = 0U; pixel_index < 4U; ++pixel_index)
+        {
+            const uint8_t gray = (packed[source_index] >> (6U - (pixel_index * 2U))) & 0x03U;
+            output             = (uint8_t) ((output << 1U) | (gray < 2U ? 1U : 0U));
+        }
+    }
+    return output;
+}
+
 /** @brief 把两个 2 bpp 输入字节按中间阈值编码为一个 1 bpp 黑白字节 */
 static uint8_t uc8179_encode_monochrome_byte_from_grayscale(const uint8_t *pixels_2bpp,
                                                             size_t         output_index)
 {
     const size_t input_index = output_index * 2U;
-    return utils_gray2_pair_to_mono_byte(pixels_2bpp[input_index], pixels_2bpp[input_index + 1U]);
+    return uc8179_gray2_pair_to_mono_byte(pixels_2bpp[input_index], pixels_2bpp[input_index + 1U]);
 }
 
 /** @brief 在线把 2 bpp 输入阈值化并写入 1 bpp 黑白帧，不分配完整中间缓冲区 */
@@ -249,8 +268,8 @@ static esp_err_t uc8179_write_monochrome_rect_from_grayscale(uc8179_t           
         for (size_t x_byte = 0U; x_byte < output_width_bytes; ++x_byte)
         {
             const size_t source_index = source_start + (x_byte * 2U);
-            row[x_byte] = utils_gray2_pair_to_mono_byte(pixels_2bpp[source_index],
-                                                        pixels_2bpp[source_index + 1U]);
+            row[x_byte] = uc8179_gray2_pair_to_mono_byte(pixels_2bpp[source_index],
+                                                         pixels_2bpp[source_index + 1U]);
         }
         esp_err_t error =
             controller->config.write(true, row, output_width_bytes, controller->config.io_context);

@@ -4,21 +4,6 @@
  */
 #include "utils.h"
 
-uint8_t utils_gray2_pair_to_mono_byte(uint8_t first_gray2_byte, uint8_t second_gray2_byte)
-{
-    const uint8_t packed[2] = { first_gray2_byte, second_gray2_byte };
-    uint8_t       output    = 0U;
-    for (size_t source_index = 0U; source_index < 2U; ++source_index)
-    {
-        for (uint8_t pixel_index = 0U; pixel_index < 4U; ++pixel_index)
-        {
-            const uint8_t gray = (packed[source_index] >> (6U - (pixel_index * 2U))) & 0x03U;
-            output             = (uint8_t) ((output << 1U) | (gray < 2U ? 1U : 0U));
-        }
-    }
-    return output;
-}
-
 /**
  * @brief 安全复制以空字符结尾的字符串
  *
