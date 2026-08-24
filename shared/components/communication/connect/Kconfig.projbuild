@@ -1,13 +1,6 @@
 # 菜单标题保持 ASCII，兼容 esp-sr 在 Windows 上按系统代码页读取 sdkconfig。
 menu "Communication - Connect"
 
-    config COMMUNICATION_TASK_STACK_STATS
-        bool "输出 Communication 后台任务栈统计"
-        default n
-        help
-            定期输出共享 Communication 组件内部 Task 的栈余量。
-            仅建议在提供 task_stack_stats 的产品诊断构建中启用。
-
     config CONNECT_PORTAL_SSID
         string "Portal 热点名称"
         default "Device-Setup"

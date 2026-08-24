@@ -22,10 +22,6 @@
 #include "mbedtls/md.h"
 #include "protocol_identity.h"
 #include "protocol_url.h"
-#include "sdkconfig.h"
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-#include "task_stack_stats.h"
-#endif
 #include "transport_http.h"
 #include "utils.h"
 
@@ -631,24 +627,15 @@ static esp_err_t firmware_ota_run_install(const firmware_ota_target_t *target)
 static void firmware_ota_task(void *context)
 {
     (void) context;
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
-#endif
     firmware_ota_command_t command;
     for (;;)
     {
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-        task_stack_stats_log_if_due(&stack_stats, "firmware_ota_task");
-#endif
         if (xQueueReceive(s_runtime.commands, &command, portMAX_DELAY) != pdTRUE)
         {
             continue;
         }
         if (command == FIRMWARE_OTA_COMMAND_STOP)
         {
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-            task_stack_stats_log_now("firmware_ota_task");
-#endif
             firmware_ota_lock();
             s_runtime.started        = false;
             s_runtime.stopping       = false;
@@ -694,9 +681,6 @@ static void firmware_ota_task(void *context)
                 s_runtime.event_callback_running = false;
                 firmware_ota_unlock();
             }
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-            task_stack_stats_log_now("firmware_ota_task");
-#endif
             continue;
         }
 
@@ -730,9 +714,6 @@ static void firmware_ota_task(void *context)
             s_runtime.event_callback_running = false;
             firmware_ota_unlock();
         }
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-        task_stack_stats_log_now("firmware_ota_task");
-#endif
         if (error == ESP_OK)
         {
             ESP_LOGI(TAG, "启动分区已切换，立即强制重启");

@@ -14,9 +14,6 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-#include "task_stack_stats.h"
-#endif
 #include "utils.h"
 
 #define NETWORK_MANAGER_QUEUE_LENGTH    8U
@@ -749,14 +746,8 @@ static void network_manager_finish_session(void)
 static void network_manager_task(void *arg)
 {
     const uint32_t task_session_id = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
-#endif
     while (true)
     {
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-        task_stack_stats_log_if_due(&stack_stats, "network_manager");
-#endif
         connect_link_event_t pending_event = {};
         if (network_manager_session_is_running(task_session_id)
             && network_manager_take_pending_link_event(task_session_id, &pending_event))
@@ -807,9 +798,6 @@ static void network_manager_task(void *arg)
         }
         if (command.type == NETWORK_COMMAND_STOP)
         {
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-            task_stack_stats_log_now("network_manager");
-#endif
             network_manager_finish_session();
             return;
         }

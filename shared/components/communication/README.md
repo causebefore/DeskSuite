@@ -90,7 +90,6 @@ GET  /api/v1/ota/artifacts/<artifact_id>
 
 | 配置 | 默认 | 当前产品选择 |
 | --- | --- | --- |
-| `CONFIG_COMMUNICATION_TASK_STACK_STATS` | 关闭 | DeskMate、PhotoPainter 均关闭；仅在临时诊断构建中显式启用 |
 | `CONFIG_COMMUNICATION_HTTP_TIMING_LOGS` | 关闭 | PhotoPainter 开启，DeskMate 关闭 |
 | `CONFIG_CONNECT_PORTAL_*` | 通用值 | 两个产品分别覆盖 SSID、密码和默认服务地址 |
 

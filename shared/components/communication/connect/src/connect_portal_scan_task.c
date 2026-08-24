@@ -13,10 +13,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "sdkconfig.h"
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-#include "task_stack_stats.h"
-#endif
 #include "utils.h"
 
 #define CONNECT_PORTAL_SCAN_MAX_APS         12U
@@ -166,9 +162,6 @@ static void connect_portal_scan_task(void *arg)
     utils_copy_string(s_scan_cache, sizeof(s_scan_cache), result);
     s_scan_in_progress = false;
     taskEXIT_CRITICAL(&s_scan_lock);
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-    task_stack_stats_log_now("portal_scan");
-#endif
     (void) xSemaphoreGive(s_scan_stopped);
     vTaskSuspend(NULL);
 }

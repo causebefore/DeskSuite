@@ -6,10 +6,6 @@
 #include "esp_app_desc.h"
 #include "esp_system.h"
 #include "network_manager.h"
-#include "sdkconfig.h"
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-#include "task_stack_stats.h"
-#endif
 
 #define REMOTE_LOG_QUEUE_CAPACITY_DEFAULT    64U
 #define REMOTE_LOG_BATCH_CAPACITY_DEFAULT    8U
@@ -358,9 +354,6 @@ static bool remote_log_upload_batch(size_t count)
 static void remote_log_task(void *context)
 {
     (void) context;
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
-#endif
     taskENTER_CRITICAL(&g_remote_log_lock);
     g_remote_log_runtime.task = xTaskGetCurrentTaskHandle();
     taskEXIT_CRITICAL(&g_remote_log_lock);
@@ -369,9 +362,6 @@ static void remote_log_task(void *context)
     {
         while (!remote_log_stop_requested())
         {
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-            task_stack_stats_log_if_due(&stack_stats, "remote_log_task");
-#endif
             remote_log_set_state(REMOTE_LOG_STATE_IDLE, ESP_OK);
             size_t batch_count = 0U;
             if (!remote_log_collect_batch(&batch_count))
@@ -387,9 +377,6 @@ static void remote_log_task(void *context)
         }
     }
 
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-    task_stack_stats_log_now("remote_log_task");
-#endif
     remote_log_discard_pending_stop();
     (void) xSemaphoreGive(g_remote_log_runtime.task_stopped);
     vTaskSuspend(NULL);

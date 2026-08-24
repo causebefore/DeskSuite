@@ -8,10 +8,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "sdkconfig.h"
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-#include "task_stack_stats.h"
-#endif
 
 #define CONNECT_PORTAL_DNS_TASK_STACK_SIZE 3072U
 #define CONNECT_PORTAL_DNS_TASK_PRIORITY   3U
@@ -36,15 +32,9 @@ static TaskHandle_t s_dns_task;
 static void connect_portal_dns_task(void *arg)
 {
     (void) arg;
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-    task_stack_stats_t stack_stats = TASK_STACK_STATS_INITIALIZER;
-#endif
 
     while (ulTaskNotifyTake(pdTRUE, 0) == 0U)
     {
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-        task_stack_stats_log_if_due(&stack_stats, "connect_dns");
-#endif
         const esp_err_t err = connect_internal_portal_dns_process_once();
         if (err == ESP_ERR_INVALID_STATE)
         {
@@ -60,9 +50,6 @@ static void connect_portal_dns_task(void *arg)
         }
     }
 
-#if CONFIG_COMMUNICATION_TASK_STACK_STATS
-    task_stack_stats_log_now("connect_dns");
-#endif
     (void) xSemaphoreGive(s_dns_stopped);
     vTaskSuspend(NULL);
 }
