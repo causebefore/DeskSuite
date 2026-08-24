@@ -195,7 +195,7 @@ def select_product(product: ProductConfig) -> None:
     BUILD_PATH = PROJECT_ROOT / "build"
     BUILD_LOG_PATH = BUILD_PATH / "logs"
     OTA_VERSION_STATE_PATH = OTA_STATE_ROOT / f"{product.firmware_target}.version"
-    OTA_VERSION_HEADER_PATH = BUILD_PATH / "generated" / "firmware_ota_build.h"
+    OTA_VERSION_HEADER_PATH = BUILD_PATH / "generated" / "firmware_ota_build_project.h"
 
 MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991
 
@@ -280,7 +280,7 @@ def new_build_ota_version(
             fail("OTA 版本超过 JSON 安全整数上限")
 
         header = (
-            "/** @file firmware_ota_build.h @brief 由 DeskSuite 构建工具生成的产品与 OTA 身份。 */\n"
+            "/** @file firmware_ota_build_project.h @brief 由 DeskSuite 构建工具注入的产品与 OTA 身份覆盖。 */\n"
             "#pragma once\n\n"
             "#include <stdint.h>\n\n"
             f"#define DESKSUITE_PRODUCT_ID UINT32_C({product.product_id})\n"

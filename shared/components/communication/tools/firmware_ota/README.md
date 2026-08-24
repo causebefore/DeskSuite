@@ -16,8 +16,10 @@
 检查和制品下载请求都携带相同的可选 Bearer Token 与 `X-Device-Id`；检查 JSON 中的
 `device_id` 也来自该上下文。
 
-`product_id` 与 `firmware_target` 的唯一配置源是 DeskSuite 根 `products.toml`；统一构建工具
-把它们写入生成头，设备装配代码不再重复硬编码。
+`product_id` 与 `firmware_target` 对 DeskSuite 设备的唯一配置源是仓库根 `products.toml`；
+统一构建工具把它们写入 `build/generated/firmware_ota_build_project.h` 覆盖头，
+`include/firmware_ota_build.h` 会在检测到该覆盖头时采用注入值，否则回落到默认值。
+其他工程可自行在 include 路径提供同名覆盖头，注入真实产品身份。
 
 检查固定使用 `POST /api/v1/ota/check`，请求 `protocol_version=2`。Hub 根据
 `firmware_target` 选择清单，并再次校验清单内的产品和目标身份。产品隔离不再通过不同 URL

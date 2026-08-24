@@ -106,7 +106,7 @@ def test_ota_version_invalid_state_rejected(tmp_path, monkeypatch):
 def test_init_build_cache_creates_generated_include_before_reconfigure(tmp_path, monkeypatch):
     """首次配置 CMake 前必须先创建 firmware_ota 注册的 generated include 目录。"""
     build = tmp_path / "build"
-    header = build / "generated" / "firmware_ota_build.h"
+    header = build / "generated" / "firmware_ota_build_project.h"
     reconfigure_called = False
 
     def fake_run_idf_command(args, **kwargs):
