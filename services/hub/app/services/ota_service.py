@@ -85,7 +85,8 @@ class OtaService:
         if target.ota_version <= current.ota_version:
             return OtaCheckResponse()
 
-        self._resolve_entry(target)
+        if target.download_url is None:
+            self._resolve_entry(target)
         logger.info(
             "OTA 返回应用固件 product_id={} firmware_target={} device_id={} "
             "version={} ota_version={} artifact_id={}",
@@ -104,7 +105,10 @@ class OtaService:
                     artifact_id=target.artifact_id,
                     file_sha256=target.file_sha256,
                     size=target.size,
-                    url=f"/api/v1/ota/artifacts/{target.artifact_id}",
+                    url=(
+                        target.download_url
+                        or f"/api/v1/ota/artifacts/{target.artifact_id}"
+                    ),
                 )
             }
         )
@@ -123,6 +127,10 @@ class OtaService:
             ):
                 continue
             target = manifest.artifacts.get("app")
-            if target is not None and target.artifact_id == artifact_id:
+            if (
+                target is not None
+                and target.download_url is None
+                and target.artifact_id == artifact_id
+            ):
                 return self._resolve_entry(target)
         raise FileNotFoundError(artifact_id)

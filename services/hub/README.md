@@ -149,7 +149,8 @@ SHA-256 和上次回滚镜像标识。Hub 按 `firmware_target` 读取目标清�
 目标身份；仅当清单 `ota_version` 严格更高、制品不同且未被设备判定失败时返回下载目标。
 版本字符串只用于诊断。
 
-运行时 OTA 文件由 DeskSuite 根目录的 `ds.ps1 ota <product>` 原子发布，不纳入 Git：
+运行时 OTA 清单由 DeskSuite 发布流程原子更新，不纳入 Git。未设置外部下载地址时，现有
+`ds.ps1 ota <product>` 仍把二进制发布到 Hub：
 
 ```text
 firmwares/
@@ -157,10 +158,14 @@ firmwares/
 └─ artifacts/<artifact_id>.bin
 ```
 
-清单按固件目标隔离，制品全局按哈希存放和去重。结构示例见
+清单按固件目标隔离，Hub 本地制品全局按哈希存放和去重。清单中的
+`artifacts.app.download_url` 可以指向公开 GitHub Release 的 HTTPS 资产；此时 Hub 只负责
+选择目标并返回地址，不要求本地保存或代理该二进制。结构示例见
 [`firmwares/manifests/photopainter_esp32s3_v1.example.json`](firmwares/manifests/photopainter_esp32s3_v1.example.json)。
-固件不通过静态目录公开；下载接口只允许访问至少被一个有效当前清单引用且摘要匹配的
-`artifact_id`。检查和下载共同复用 `DEVICE_API_TOKEN`。
+本地固件不通过静态目录公开；下载接口只允许访问至少被一个有效当前清单引用、未设置外部
+地址且摘要匹配的 `artifact_id`。OTA 检查与 Hub 本地下载复用 `DEVICE_API_TOKEN`；设备访问
+公开 Release 时不发送该 Token。当前公开制品仓库为
+<https://github.com/causebefore/desksuite-firmware>。
 
 ## 测试
 

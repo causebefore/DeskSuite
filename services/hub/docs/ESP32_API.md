@@ -188,7 +188,7 @@ Hub 先按 `firmware_target` 选择清单，再要求清单中的 `product_id` �
       "artifact_id": "<64 位小写 SHA-256>",
       "file_sha256": "<64 位小写 SHA-256>",
       "size": 1215568,
-      "url": "/api/v1/ota/artifacts/<artifact_id>"
+      "url": "https://github.com/causebefore/desksuite-firmware/releases/download/<tag>/<artifact_id>.bin"
     }
   }
 }
@@ -201,8 +201,10 @@ Hub 先按 `firmware_target` 选择清单，再要求清单中的 `product_id` �
 | `1` | PhotoPainter | `photopainter_esp32s3_v1` |
 | `2` | DeskMate | `deskmate_esp32s3_v1` |
 
-清单保存在 `firmwares/manifests/<firmware_target>.json`，所有目标共享
-`firmwares/artifacts/<artifact_id>.bin` 哈希制品库。下载接口只暴露有效当前清单引用的制品。
+清单保存在 `firmwares/manifests/<firmware_target>.json`。`artifacts.app.download_url` 存在时，
+Hub 将该 HTTPS 地址直接作为响应 `url`，设备不携带 Hub Token 访问公开 Release；字段缺失时
+继续返回 `/api/v1/ota/artifacts/<artifact_id>`，并从 Hub 的全局哈希制品库下载。Hub 下载接口
+只暴露有效当前清单引用且未配置外部地址的制品。
 
 ## 6. 日志
 

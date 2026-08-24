@@ -91,6 +91,11 @@ firmwares/
 `POST /api/v1/ota/check`，通过 `product_id` 与 `firmware_target` 选择并双重校验清单。
 各目标的本地单调版本状态保存在 `.build-state/ota/<firmware_target>.version`，不进入 Git。
 
+Hub 清单也支持可选的 `artifacts.app.download_url`。字段存在时，Hub 仍负责设备版本选择，
+但 ESP32 会直接从公开的 [DeskSuite 固件 Release 仓库](https://github.com/causebefore/desksuite-firmware)
+下载 `.bin`；字段缺失时继续使用上述 Hub 本地制品路径。两种方式都由设备校验文件 SHA-256
+与 ESP 镜像 Validation SHA-256。
+
 ## 开发规范
 
 - [嵌入式 C/C++ 术语与命名规范](docs/standards/c_cpp_naming_conventions.md)
