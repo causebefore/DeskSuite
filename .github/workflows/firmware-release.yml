@@ -1,3 +1,4 @@
+# 固件发布只允许人工选择产品后触发，普通 dev 推送不会生成生产 Release。
 name: 发布设备固件
 run-name: 发布 ${{ inputs.product }} 固件
 
