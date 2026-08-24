@@ -11,7 +11,7 @@ function Assert-SourceContains {
     }
 }
 
-Assert-SourceContains 'components\boards\reTerminal_E1001\board.h' 'BOARD_BTN_RIGHT_GPIO\s+\(GPIO_NUM_4\)'
+Assert-SourceContains 'components\boards\reTerminal_E1001\board.h' 'BOARD_BUTTON_RIGHT_GPIO\s+\(GPIO_NUM_4\)'
 Assert-SourceContains 'components\application\provisioning_app\src\provisioning_app.c' '"NO NETWORK"'
 Assert-SourceContains 'components\application\provisioning_app\src\provisioning_app.c' '"NO SERVER"'
 Assert-SourceContains 'components\application\provisioning_app\src\provisioning_app.c' 'HOLD MIDDLE 3S TO SETUP'

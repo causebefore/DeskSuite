@@ -144,7 +144,7 @@ Assert-Contains $networkTask 'app_network_get_next_dashboard_sync_interval_ms'
 Assert-NotContains $networkTask 'esp_timer_start_periodic\(s_dashboard_timer'
 Assert-Contains $networkTask 's_portal_activity_deadline_us'
 Assert-Contains $networkTask `
-    '(?s)reconcile_portal_activity_deadline\s*\(.*?portal_activity_sequence.*?CONFIG_DESKMATE_LIGHT_SLEEP_IDLE_TIMEOUT_SEC'
+    '(?s)reconcile_portal_activity_deadline\s*\(.*?portal_activity_sequence.*?APP_NETWORK_PORTAL_ACTIVITY_WINDOW_SEC'
 Assert-Contains $networkTask `
     '(?s)portal_activity_blocks_power_save\s*\(.*?s_portal_activity_deadline_us.*?handle_suspend_for_power_save_command.*?portal_activity_blocks_power_save'
 Assert-NotContains $networkTask '#include\s+"app_power\.h"|app_power_notify_activity'
