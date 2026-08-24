@@ -98,7 +98,8 @@ Hub 清单也支持可选的 `artifacts.app.download_url`。字段存在时，Hu
 
 ### GitHub Actions 固件发布
 
-源码仓库的“发布设备固件”工作流可以手动选择 `photopainter` 或 `deskmate`。工作流在
+源码仓库的[“发布设备固件”工作流](.github/workflows/firmware-release.yml)可以手动选择
+`photopainter` 或 `deskmate`。工作流在
 GitHub 托管的 Windows Runner 上安装 ESP-IDF v6.0.1，仍通过 `ds.ps1` 生成固件与 OTA
 清单，然后调用独立的
 [ESP-IDF Firmware Release Action](https://github.com/causebefore/esp-idf-firmware-action)
