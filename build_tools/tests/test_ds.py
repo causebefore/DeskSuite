@@ -14,23 +14,6 @@ import ds
 ARTIFACT_ID = "a" * 64
 
 
-def test_configured_tool_path_uses_default_when_environment_is_empty(
-    tmp_path, monkeypatch
-):
-    monkeypatch.delenv("DESKSUITE_TEST_TOOL_PATH", raising=False)
-    default = tmp_path / "default-tool.exe"
-
-    assert ds._configured_tool_path("DESKSUITE_TEST_TOOL_PATH", str(default)) == default
-
-
-def test_configured_tool_path_uses_ci_override(tmp_path, monkeypatch):
-    default = tmp_path / "default-tool.exe"
-    override = tmp_path / "ci-tool.exe"
-    monkeypatch.setenv("DESKSUITE_TEST_TOOL_PATH", str(override))
-
-    assert ds._configured_tool_path("DESKSUITE_TEST_TOOL_PATH", str(default)) == override
-
-
 def test_run_powershell_echo_utf8():
     """run_powershell 能跑通且 UTF-8 输出不被破坏。"""
     result = ds.run_powershell(

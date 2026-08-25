@@ -92,29 +92,25 @@ firmwares/
 各目标的本地单调版本状态保存在 `.build-state/ota/<firmware_target>.version`，不进入 Git。
 
 Hub 清单也支持可选的 `artifacts.app.download_url`。字段存在时，Hub 仍负责设备版本选择，
-但 ESP32 会直接从公开的 [DeskSuite 固件 Release 仓库](https://github.com/causebefore/desksuite-firmware)
+但 ESP32 会直接从公开的 [DeskSuite Releases](https://github.com/causebefore/DeskSuite/releases)
 下载 `.bin`；字段缺失时继续使用上述 Hub 本地制品路径。两种方式都由设备校验文件 SHA-256
 与 ESP 镜像 Validation SHA-256。
 
 ### GitHub Actions 固件发布
 
 源码仓库的[“发布设备固件”工作流](.github/workflows/firmware-release.yml)可以手动选择
-`photopainter` 或 `deskmate`。工作流在
-GitHub 托管的 Windows Runner 上安装 ESP-IDF v6.0.1，仍通过 `ds.ps1` 生成固件与 OTA
-清单，然后调用独立的
+`photopainter` 或 `deskmate`。工作流使用 Espressif 官方 `esp-idf-ci-action` 和
+`espressif/idf:v6.0.1` Docker 镜像构建固件；CI 构建不依赖本机的 `ds.ps1` 或固定工具路径。
+构建完成后调用独立的
 [ESP-IDF Firmware Release Action](https://github.com/causebefore/esp-idf-firmware-action)
-校验并发布到公开固件仓库。发布 tag 为
+校验并发布到当前 DeskSuite 仓库。发布 tag 为
 `<firmware_target>-v<ota_version>`，固件资产名为 `<artifact_id>.bin`；不需要额外的
 `release` 分支。
 
-首次使用前，需要在私有源码仓库的 Actions secrets 中添加
-`FIRMWARE_RELEASE_TOKEN`。该细粒度令牌只需选择 `desksuite-firmware` 仓库并授予
-`Contents: Read and write`，无需给源码仓库或账号下其他仓库写权限。工作流生成的 Release
-清单已经带 `download_url`；生产 Hub 的清单部署仍按现有发布通道独立进行。
-
-本机构建继续使用仓库约定的默认路径。CI 或其他隔离环境可以显式设置
-`DESKSUITE_IDF_PATH`、`DESKSUITE_PYTHON_PATH` 和 `DESKSUITE_NINJA_PATH`；每次构建仍会
-校验 CMake 缓存实际绑定的 ESP-IDF、ESP32-S3 目标与 Ninja 1.12.1，不能借此跳过版本约束。
+源码与 Release 位于同一公开仓库，工作流使用当前仓库自动生成的 `GITHUB_TOKEN`，无需
+额外创建跨仓库 PAT。工作流生成的 Release 清单已经带 `download_url`；生产 Hub 的清单
+部署仍按现有发布通道独立进行。本机构建继续使用仓库约定的 `ds.ps1` 与固定工具路径，
+不受 CI Docker 构建影响。
 
 ## 开发规范
 

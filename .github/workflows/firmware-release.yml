@@ -14,7 +14,7 @@ on:
           - deskmate
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: firmware-release-${{ inputs.product }}
@@ -22,70 +22,38 @@ concurrency:
 
 jobs:
   build-and-release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      DESKSUITE_IDF_PATH: C:\esp\v6.0.1\esp-idf
     steps:
       - name: 检出源码
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: 安装 ESP-IDF v6.0.1
-        uses: espressif/install-esp-idf-action@8fc05d1470d5591417e7a3707a1f2bec178db4ae # v1
+      - name: 准备 OTA 构建身份
+        id: ota
+        run: python build_tools/ci_ota.py prepare --product "${{ inputs.product }}"
+
+      - name: 使用官方 ESP-IDF Docker 构建
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          version: v6.0.1
-          path: C:\esp\v6.0.1\esp-idf
-          tools-path: C:\esp\tools
+          path: ${{ steps.ota.outputs.project_dir }}
+          esp_idf_version: v6.0.1
+          target: esp32s3
+          command: >-
+            idf.py -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.ci" -B build build &&
+            esptool.py image-info "build/${{ steps.ota.outputs.firmware_file }}" > build/image-info.txt
 
-      - name: 固定本次构建工具路径
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $pythonPath = if ($env:IDF_PYTHON_ENV_PATH) {
-            Join-Path $env:IDF_PYTHON_ENV_PATH "Scripts\python.exe"
-          } else {
-            (Get-Command python.exe -CommandType Application -ErrorAction Stop).Source
-          }
-          $ninjaPath = (Get-Command ninja.exe -CommandType Application -ErrorAction Stop).Source
-          foreach ($path in @($env:DESKSUITE_IDF_PATH, $pythonPath, $ninjaPath)) {
-            if (-not (Test-Path -LiteralPath $path)) {
-              throw "ESP-IDF 构建工具不存在：$path"
-            }
-          }
-          if ((& $ninjaPath --version).Trim() -ne "1.12.1") {
-            throw "DeskSuite 固件必须使用 Ninja 1.12.1"
-          }
-          "DESKSUITE_PYTHON_PATH=$pythonPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "DESKSUITE_NINJA_PATH=$ninjaPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: 构建 OTA 固件与清单
-        shell: pwsh
-        run: '& .\ds.ps1 ota ${{ inputs.product }} -ServiceRoot .\services\hub'
-
-      - name: 定位发布资产
+      - name: 生成并校验 OTA 清单
         id: assets
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $firmwareTarget = switch ("${{ inputs.product }}") {
-            "photopainter" { "photopainter_esp32s3_v1" }
-            "deskmate" { "deskmate_esp32s3_v1" }
-            default { throw "未知设备产品" }
-          }
-          $manifestPath = Join-Path $PWD "services\hub\firmwares\manifests\$firmwareTarget.json"
-          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-          $firmwarePath = Join-Path $PWD "services\hub\firmwares\artifacts\$($manifest.artifacts.app.artifact_id).bin"
-          if (-not (Test-Path -LiteralPath $firmwarePath -PathType Leaf)) {
-            throw "未找到待发布固件：$firmwarePath"
-          }
-          "manifest=$manifestPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "firmware=$firmwarePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        run: >-
+          python build_tools/ci_ota.py finalize
+          --product "${{ inputs.product }}"
+          --ota-version "${{ steps.ota.outputs.ota_version }}"
 
-      - name: 发布到公开固件仓库
+      - name: 发布到 DeskSuite Release
         uses: causebefore/esp-idf-firmware-action@796fc964cf8d3be37a50f62e72e819e99dd9fe22
         with:
-          token: ${{ secrets.FIRMWARE_RELEASE_TOKEN }}
-          repository: causebefore/desksuite-firmware
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
           firmware: ${{ steps.assets.outputs.firmware }}
           manifest: ${{ steps.assets.outputs.manifest }}
-          target: main
+          target: ${{ github.sha }}
